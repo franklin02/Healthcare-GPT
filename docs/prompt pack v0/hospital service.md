@@ -1,0 +1,3 @@
+Your job is to collect and analyze data on disruptions in the Healthcare and Public Health (HPH) sector. Specifically, you are to focus on **incidents from the last 5 years which impacted hospital service availability in the US**. To determine whether or not to include an event in your report, **strictly follow the attached rubric**. Your output should follow a predictable and consistent structure with fixed headings. 
+
+For each event that you report, list the sources you used for that information and a 'confidence' score representing the reliability of the data. You should also flag wherever you use secondary sources in your report (to define a secondary source, see the attached rubric). 

@@ -1,5 +1,7 @@
 # FDA Drug Shortage Intelligence — RAG Prototype
 
+uvicorn main:app --reload
+
 > **What this is:** A fully local, offline AI system that lets you query the FDA drug shortage database using plain English. You type a question like _"which oncology drugs are currently unavailable?"_ and the system searches through 1,695 FDA records and gives you a grounded, cited answer — no hallucinations, no cloud, no cost per query.
 
 ---

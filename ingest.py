@@ -14,7 +14,7 @@ import argparse
 import os
 from pathlib import Path
 
-from langchain.schema import Document
+from langchain_core.documents import Document
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
@@ -108,12 +108,20 @@ def build_documents(records: list[dict]) -> list[Document]:
             continue
 
         # Store key metadata so we can surface it in answers
+        # metadata = {
+        #     "record_index": i,
+        #     "generic_name":  str(record.get("generic_name", "")),
+        #     "brand_name":    str(record.get("brand_name", "")),
+        #     #"status":        str(record.get("status", "")),
+        #     "status":        str(record.get("availability", "")),
+        #     "updated":       str(record.get("update_date", "")),
+        # }
         metadata = {
             "record_index": i,
-            "generic_name":  str(record.get("generic_name", "")),
-            "brand_name":    str(record.get("brand_name", "")),
-            "status":        str(record.get("status", "")),
-            "updated":       str(record.get("update_date", "")),
+            "generic_name": str(record.get("generic_name", "")),
+            "brand_name":   str(record.get("openfda", {}).get("brand_name", [""])[0]),
+            "status":       str(record.get("availability", record.get("status", ""))),
+            "updated":      str(record.get("update_date", "")),
         }
         docs.append(Document(page_content=text, metadata=metadata))
 

@@ -298,6 +298,7 @@
     .badge.shortage  { background: var(--warn-dim); color: var(--warn); border: 1px solid var(--warn); }
     .badge.resolved  { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); }
     .badge.unknown   { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border-hi); }
+    .badge.limited  { background: #ff6b3522; color: #e9e32b; border: 1px solid #e9e32b; }
 
     /* ── Thinking indicator ──────────────────────────────────────────── */
     .thinking .msg-text {
@@ -518,12 +519,23 @@
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+  // function getStatusBadge(status) {
+  //   if (!status || status === '—') return `<span class="badge unknown">—</span>`;
+  //   const s = status.toLowerCase();
+  //   if (s.includes('current') || s.includes('active') || s.includes('shortage'))
+  //     return `<span class="badge shortage">${status}</span>`;
+  //   if (s.includes('resolved') || s.includes('discontinued') || s.includes('available'))
+  //     return `<span class="badge resolved">${status}</span>`;
+  //   return `<span class="badge unknown">${status}</span>`;
+  // }
   function getStatusBadge(status) {
     if (!status || status === '—') return `<span class="badge unknown">—</span>`;
     const s = status.toLowerCase();
-    if (s.includes('current') || s.includes('active') || s.includes('shortage'))
+    if (s.includes('unavailable') || s.includes('discontinued') || s.includes('shortage'))
       return `<span class="badge shortage">${status}</span>`;
-    if (s.includes('resolved') || s.includes('discontinued') || s.includes('available'))
+    if (s.includes('limited'))
+      return `<span class="badge limited">${status}</span>`;
+    if (s.includes('available') || s.includes('resolved'))
       return `<span class="badge resolved">${status}</span>`;
     return `<span class="badge unknown">${status}</span>`;
   }

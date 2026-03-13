@@ -63,7 +63,8 @@ def get_chain():
 
     prompt = PromptTemplate(
         input_variables=["context", "question"],
-        template="""You are a healthcare supply chain analyst specializing in FDA drug shortage intelligence.
+        template=
+        """You are a healthcare supply chain analyst specializing in FDA drug shortage intelligence.
 
 Use ONLY the drug shortage records provided below to answer the question.
 If the records don't contain enough information, say so clearly — do not invent data.

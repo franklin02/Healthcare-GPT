@@ -1,5 +1,5 @@
 # notes:
-prompts required:
+prompts required: 4
 - one initial prompt
 - one response to "ready": "now collect and analyze all the relevant data and produce the report"
 - froze once, prompted "continue"

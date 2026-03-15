@@ -21,26 +21,24 @@ from langchain_huggingface import HuggingFaceEmbeddings
 # ── Config ────────────────────────────────────────────────────────────────────
 CHROMA_DIR   = "./chroma_db"          # where the vector index is saved
 EMBED_MODEL  = "all-MiniLM-L6-v2"    # small, fast, free, runs on CPU
-COLLECTION   = "fda_shortages"
+#COLLECTION   = "fda_shortages"
+COLLECTION   = "agentic_data"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def load_fda_json(filepath: str) -> list[dict]:
-    """Load the FDA JSON file. Handles both a bare list and a wrapped object."""
+def load_document(filepath: str) -> list[dict]:
     with open(filepath, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
-    # The FDA API typically wraps records under a 'results' key
     if isinstance(raw, dict):
-        for key in ("results", "data", "records", "shortages"):
+        for key in ("sources", "results", "data", "records", "source"):
             if key in raw and isinstance(raw[key], list):
                 print(f"  Found records under key: '{key}'")
                 return raw[key]
-        # If no known wrapper, return all values that are lists
+
         for v in raw.values():
             if isinstance(v, list) and len(v) > 0:
                 return v
-        # Last resort: wrap single record in a list
         return [raw]
 
     if isinstance(raw, list):
@@ -62,18 +60,9 @@ def record_to_text(record: dict) -> str:
 
     # ── Priority fields (render first if they exist) ──────────────────────────
     priority_fields = [
-        ("generic_name",            "Drug (generic)"),
-        ("brand_name",              "Brand name"),
-        ("status",                  "Shortage status"),
-        ("shortage_reason",         "Reason for shortage"),
-        ("availability",            "Availability"),
-        ("update_date",                 "Last updated"),
-        ("revision_date",           "Revision date"),
-        ("therapeutic_category",    "Therapeutic category"),
-        ("presentation",            "Presentation / form"),
-        ("company_name",            "Manufacturer"),
-        ("contact",                 "Contact"),
-        ("description",             "Description"),
+        ("id", "ID"),
+        ("url", "Link"),
+        ("content", "Body of the article"),
     ]
 
     seen_keys = set()
@@ -107,35 +96,30 @@ def build_documents(records: list[dict]) -> list[Document]:
         if not text.strip():
             continue
 
-        # Store key metadata so we can surface it in answers
         # metadata = {
         #     "record_index": i,
-        #     "generic_name":  str(record.get("generic_name", "")),
-        #     "brand_name":    str(record.get("brand_name", "")),
-        #     #"status":        str(record.get("status", "")),
-        #     "status":        str(record.get("availability", "")),
-        #     "updated":       str(record.get("update_date", "")),
+        #     "generic_name": str(record.get("generic_name", "")),
+        #     "brand_name":   str(record.get("openfda", {}).get("brand_name", [""])[0]),
+        #     "status":       str(record.get("availability", record.get("status", ""))),
+        #     "updated":      str(record.get("update_date", "")),
         # }
         metadata = {
-            "record_index": i,
-            "generic_name": str(record.get("generic_name", "")),
-            "brand_name":   str(record.get("openfda", {}).get("brand_name", [""])[0]),
-            "status":       str(record.get("availability", record.get("status", ""))),
-            "updated":      str(record.get("update_date", "")),
-        }
+            "id": str(record.get("id", "")),
+            "url": str(record.get("url", "")),
+        }        
         docs.append(Document(page_content=text, metadata=metadata))
 
     return docs
 
 
 def ingest(filepath: str) -> None:
-    print(f"\n{'='*55}")
-    print("  FDA Drug Shortage RAG — Ingestion Pipeline")
+    print(f"\n{'='*55}") 
+    print("  Agentic File — Ingestion Pipeline")
     print(f"{'='*55}\n")
 
     # 1. Load
     print(f"[1/4] Loading JSON from: {filepath}")
-    records = load_fda_json(filepath)
+    records = load_document(filepath)
     print(f"      → {len(records):,} records loaded")
 
     # 2. Build documents
@@ -182,8 +166,8 @@ def ingest(filepath: str) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Ingest FDA JSON into ChromaDB")
-    parser.add_argument("--file", required=True, help="Path to the FDA JSON file")
+    parser = argparse.ArgumentParser(description="Ingest Agentic JSON file into ChromaDB")
+    parser.add_argument("--file", required=True, help="Path to the agentic JSON file")
     args = parser.parse_args()
 
     if not Path(args.file).exists():

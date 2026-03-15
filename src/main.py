@@ -22,7 +22,7 @@ from langchain_core.runnables import RunnablePassthrough
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CHROMA_DIR   = "./chroma_db"
-COLLECTION   = "fda_shortages"
+COLLECTION   = "agentic_data"
 EMBED_MODEL  = "all-MiniLM-L6-v2"
 OLLAMA_MODEL = "llama3.2"
 TOP_K        = 6
@@ -63,20 +63,15 @@ def get_chain():
 
     prompt = PromptTemplate(
         input_variables=["context", "question"],
-        template=
-        """You are a healthcare supply chain analyst specializing in FDA drug shortage intelligence.
-
-Use ONLY the drug shortage records provided below to answer the question.
-If the records don't contain enough information, say so clearly — do not invent data.
-When relevant, mention the drug name, shortage status, reason, and last update date.
-
---- SHORTAGE RECORDS ---
-{context}
---- END OF RECORDS ---
-
-Question: {question}
-
-Answer (be specific and cite drug names and statuses from the records above):"""
+        template = """You are a healthcare supply chain analyst specializing in FDA drug shortage intelligence.
+            Use ONLY the drug shortage records provided below to answer the question.
+            If the records don't contain enough information, say so clearly — do not invent data.
+            When relevant, mention the drug name, shortage status, reason, and last update date.
+            --- SHORTAGE RECORDS ---
+            {context}
+            --- END OF RECORDS ---
+            Question: {question}
+            Answer (be specific and cite drug names and statuses from the records above):"""
     )
 
     _retriever = db.as_retriever(search_kwargs={"k": TOP_K})

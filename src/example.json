@@ -1,0 +1,14 @@
+{
+    "sources": [
+        {
+            "id": 1,
+            "url": "example.com",
+            "content": "Placeholder content for the source."
+        },
+        {
+            "id": 2,
+            "url": "example.com",
+            "content": "Placeholder content for the source."
+        }
+    ]
+}

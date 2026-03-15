@@ -1,6 +1,6 @@
 """
-main.py — FDA Drug Shortage RAG — FastAPI Backend
----------------------------------------------------
+main.py — Healthcare Cybersecurity RAG — FastAPI Backend
+---------------------------------------------------------
 Uses only modern LangChain packages (no langchain_community):
   - langchain_huggingface  → embeddings
   - langchain_ollama       → local LLM
@@ -21,14 +21,14 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
 # ── Config ────────────────────────────────────────────────────────────────────
-CHROMA_DIR   = "./chroma_db"
+CHROMA_DIR   = str(Path(__file__).parent.parent / "chroma_db")
 COLLECTION   = "agentic_data"
 EMBED_MODEL  = "all-MiniLM-L6-v2"
 OLLAMA_MODEL = "llama3.2"
 TOP_K        = 6
 # ─────────────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="FDA Drug Shortage RAG")
+app = FastAPI(title="Healthcare Cybersecurity RAG")
 
 _chain     = None
 _retriever = None
@@ -41,7 +41,7 @@ def get_chain():
 
     if not Path(CHROMA_DIR).exists():
         raise RuntimeError(
-            "Vector store not found. Run: python ingest.py --file your_fda_file.json"
+            "Vector store not found. Run: python src/ingest.py --file src/mock.json"
         )
 
     print("Loading embedding model…")
@@ -63,15 +63,25 @@ def get_chain():
 
     prompt = PromptTemplate(
         input_variables=["context", "question"],
-        template = """You are a healthcare supply chain analyst specializing in FDA drug shortage intelligence.
-            Use ONLY the drug shortage records provided below to answer the question.
-            If the records don't contain enough information, say so clearly — do not invent data.
-            When relevant, mention the drug name, shortage status, reason, and last update date.
-            --- SHORTAGE RECORDS ---
-            {context}
-            --- END OF RECORDS ---
-            Question: {question}
-            Answer (be specific and cite drug names and statuses from the records above):"""
+        template=
+"""You are a healthcare cybersecurity analyst. Your job is to answer questions about \
+healthcare data breaches, ransomware attacks, and related incidents using ONLY the \
+incident reports provided below.
+
+Rules:
+- Cite the specific hospital or organization name in every answer.
+- Mention the threat actor (ransomware group) when it is known.
+- Include the approximate number of individuals affected if stated.
+- Note whether patient data (PHI/PII) was confirmed or suspected to be exfiltrated.
+- If the provided records do not contain enough information to answer, say so clearly — do NOT invent facts.
+
+--- INCIDENT REPORTS ---
+{context}
+--- END OF REPORTS ---
+
+Question: {question}
+
+Answer (be specific; cite organization names, threat actors, and data elements from the reports above):"""
     )
 
     _retriever = db.as_retriever(search_kwargs={"k": TOP_K})
@@ -96,10 +106,9 @@ class ChatRequest(BaseModel):
     question: str
 
 class SourceDoc(BaseModel):
-    generic_name: str
-    brand_name:   str
-    status:       str
-    updated:      str
+    record_id: str
+    url:       str
+    snippet:   str
 
 class ChatResponse(BaseModel):
     answer:           str
@@ -136,11 +145,11 @@ def chat(req: ChatRequest):
     sources = []
     for doc in source_docs:
         m = doc.metadata
+        raw_content = m.get("content", doc.page_content)
         sources.append(SourceDoc(
-            generic_name = m.get("generic_name", "—"),
-            brand_name   = m.get("brand_name", "—"),
-            status       = m.get("status", "—"),
-            updated      = m.get("updated", "—"),
+            record_id = m.get("id", "—"),
+            url       = m.get("url", "—"),
+            snippet   = raw_content[:300] + "…" if len(raw_content) > 300 else raw_content,
         ))
 
     return ChatResponse(

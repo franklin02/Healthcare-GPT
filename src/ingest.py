@@ -6,7 +6,7 @@ human-readable text chunk, embeds it with a local sentence-transformer,
 and stores everything in a local ChromaDB vector store.
 
 Run once (or whenever your data updates):
-    python ingest.py --file your_fda_file.json
+    python src/ingest.py --file src/mock.json
 """
 
 import json

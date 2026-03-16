@@ -1,0 +1,8 @@
+SETTINGS:
+
+Model: gpt-5.4 (Best)
+Reasoning Effort: Low
+Verbosity: Low
+Tools: Web Search
+Search Context Size: Medium
+Output: JSON (follow schema)

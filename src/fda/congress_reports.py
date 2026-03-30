@@ -13,7 +13,10 @@ import pdfplumber
 from pathlib import Path
 
 # ── Config ────────────────────────────────────────────────────────────────────
-OUTPUT_DIR = Path("fda_congress_reports")
+OUTPUT_DIR = Path(__file__).parent / "fda_congress_reports"
+
+OUTPUT_DIR.mkdir(exist_ok=True)
+
 PDF_DIR    = OUTPUT_DIR / "pdfs"
 TEXT_DIR   = OUTPUT_DIR / "texts"
 JSON_DIR   = OUTPUT_DIR / "json"

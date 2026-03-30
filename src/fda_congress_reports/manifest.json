@@ -1,0 +1,57 @@
+[
+  {
+    "year": 2024,
+    "title": "Twelfth Annual Report on Drug Shortages For Calendar Year 2024",
+    "url": "https://www.fda.gov/media/189325/download?attachment",
+    "pdf_file": "fda_congress_reports/pdfs/cy2024_drug_shortage_report.pdf",
+    "text_file": "fda_congress_reports/texts/cy2024_drug_shortage_report.txt",
+    "json_file": "fda_congress_reports/json/cy2024_drug_shortage_report.json",
+    "pages": 29,
+    "char_count": 49238,
+    "status": "success"
+  },
+  {
+    "year": 2023,
+    "title": "Eleventh Annual Report on Drug Shortages For Calendar Year 2023",
+    "url": "https://www.fda.gov/media/179156/download?attachment",
+    "pdf_file": "fda_congress_reports/pdfs/cy2023_drug_shortage_report.pdf",
+    "text_file": "fda_congress_reports/texts/cy2023_drug_shortage_report.txt",
+    "json_file": "fda_congress_reports/json/cy2023_drug_shortage_report.json",
+    "pages": 30,
+    "char_count": 50067,
+    "status": "success"
+  },
+  {
+    "year": 2022,
+    "title": "Tenth Annual Report on Drug Shortages for Calendar Year 2022",
+    "url": "https://www.fda.gov/media/169302/download?attachment",
+    "pdf_file": "fda_congress_reports/pdfs/cy2022_drug_shortage_report.pdf",
+    "text_file": "fda_congress_reports/texts/cy2022_drug_shortage_report.txt",
+    "json_file": "fda_congress_reports/json/cy2022_drug_shortage_report.json",
+    "pages": 31,
+    "char_count": 54454,
+    "status": "success"
+  },
+  {
+    "year": 2021,
+    "title": "Ninth Annual Report on Drug Shortages for Calendar Year 2021",
+    "url": "https://www.fda.gov/media/159302/download?attachment",
+    "pdf_file": "fda_congress_reports/pdfs/cy2021_drug_shortage_report.pdf",
+    "text_file": "fda_congress_reports/texts/cy2021_drug_shortage_report.txt",
+    "json_file": "fda_congress_reports/json/cy2021_drug_shortage_report.json",
+    "pages": 21,
+    "char_count": 46974,
+    "status": "success"
+  },
+  {
+    "year": 2020,
+    "title": "Eighth Annual Report on Drug Shortages for Calendar Year 2020",
+    "url": "https://www.fda.gov/media/150409/download?attachment",
+    "pdf_file": "fda_congress_reports/pdfs/cy2020_drug_shortage_report.pdf",
+    "text_file": "fda_congress_reports/texts/cy2020_drug_shortage_report.txt",
+    "json_file": "fda_congress_reports/json/cy2020_drug_shortage_report.json",
+    "pages": 21,
+    "char_count": 45537,
+    "status": "success"
+  }
+]

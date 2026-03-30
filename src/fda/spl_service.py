@@ -170,7 +170,7 @@ def printDrugSnapshot(snapshot: DrugSnapshot):
     print("\n")
 
 def main():
-    test_drug = "a0cbcdb5-f657-49f7-8f86-cc5959d69db0" # this doesnt work for some reason, but the current one does. why is that 
+    test_drug = "a0cbcdb5-f657-49f7-8f86-cc5959d69db0" 
     #test_drug = "012d46f1-d0a0-4676-a879-cd320297ab16" # Bicillin L-A, Injection, 600000 [iU]/1 mL (Penicillin G Benzathine Injection)
     #ftest_drug = "823b0010-2b57-4e76-b5ac-4a8c2963438f" # Depo-Medrol (Methylprednisolone Acetate Injection)
     #test_drug = "ec04ecbb-2896-3feb-85fd-a64aba93b289" # Kenalog-10 (triamcinolone acetonide injectable suspension, USP)

@@ -1,0 +1,36 @@
+SOURCE: AHA Cybersecurity News
+TITLE:  Medical technology company Stryker disrupted globally by cyberattack
+URL:    https://www.aha.org/news/headline/2026-03-12-medical-technology-company-stryker-disrupted-globally-cyberattack
+========================================================================
+
+Stryker, a medical technology company that provides services and products for hospitals, was disrupted globally by a cyberattack, the company announced March 11.
+
+------------------------------------------------------------------------
+
+SOURCE: AHA Cybersecurity News
+TITLE:  DOJ announces disruption of BlackSuit ransomware group
+URL:    https://www.aha.org/news/headline/2025-08-11-doj-announces-disruption-blacksuit-ransomware-group
+========================================================================
+
+The Department of Justice Aug. 11 announced a series of actions taken against the BlackSuit ransomware group, also known as “Royal,” including the disruption of four servers and nine domains July 24.
+
+------------------------------------------------------------------------
+
+SOURCE: AHA Cybersecurity News
+TITLE:  DOJ announces charges for affiliates of Phobos ransomware group
+URL:    https://www.aha.org/news/headline/2025-02-18-doj-announces-charges-affiliates-phobos-ransomware-group
+========================================================================
+
+The Department of Justice Feb.
+
+------------------------------------------------------------------------
+
+SOURCE: AHA Cybersecurity News
+TITLE:  Reports: Change Healthcare cyberattack exposed data of 190 million people
+URL:    https://www.aha.org/news/headline/2025-01-27-reports-change-healthcare-cyberattack-exposed-data-190-million-people
+========================================================================
+
+The ransomware attack last year against UnitedHealth Group subsidiary Change Healthcare exposed data of more than 190 million people — up from previous reports of 100 million — according to multiple outlets Jan. 24.
+
+------------------------------------------------------------------------
+

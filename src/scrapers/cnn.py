@@ -6,12 +6,12 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 PAGES = 25
-BASE_URL     = "https://www.aha.org/cybersecurity-news?page=%2C{page}"
+BASE_URL = "https://www.aha.org/cybersecurity-news?page=%2C{page}"
 ARTICLE_BASE = "https://www.aha.org"
-OLLAMA_URL   = "http://localhost:11434/api/generate"
+OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "llama3.2"
 
-OUTPUT_DIR = Path(__file__).parent / "aha_cybersecurity_news"
+OUTPUT_DIR = Path(__file__).parent / "cnn_news"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -223,7 +223,7 @@ def run():
                     "status": "skipped",
                 })
 
-        time.sleep(1)                       # one pause per page, not per article
+        time.sleep(1) # one pause per page
 
     # Write all consolidated output files at once
     flush_outputs(confirmed_articles, skipped_titles)

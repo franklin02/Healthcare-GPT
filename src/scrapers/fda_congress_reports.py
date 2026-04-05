@@ -181,7 +181,6 @@ def save_json(text: str, report: dict, pages: int, char_count: int) -> Path:
     print(f"  [JSON] Saved JSON → {json_path.name}")
     return json_path
 
-
 def run():
     manifest = []
     print(f"\n{'=' * 60}")

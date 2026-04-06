@@ -2,13 +2,110 @@
     "sources": [
         {
             "id": 1,
-            "url": "example.com",
-            "content": "Placeholder content for the source."
+            "title": "",
+            "source_name": "",
+            "direct_link": "",
+            "subsector": "drug_shortage",
+            "date_accessed": "",
+            "date_published": "",
+            "content": "",
+            "exec_summary": "",
+            "subsector_data": {
+                
+            }
         },
         {
             "id": 2,
-            "url": "example.com",
-            "content": "Placeholder content for the source."
+            "title": "",
+            "source_name": "",
+            "direct_link": "",
+            "subsector": "medical_device_shortage",
+            "date_accessed": "",
+            "date_published": "",
+            "content": "",
+            "exec_summary": "",
+            "subsector_data": {
+                "device_name": "Infusion Pump Model X",
+                "device_category": "Infusion Systems",
+                "manufacturer": "Baxter International",
+                "manufacturer_country": "US",
+                "shortage_reason": "Manufacturing disruption",
+                "fda_recall_number": "Z-1234-2026",
+                "recall_class": "Class II",
+                "affected_specialties": ["ICU", "Oncology"],
+                "alternatives_available": false,
+                "estimated_resolution_date": "2026-08-01"
+            }
+        },
+        {
+            "id": 3,
+            "title": "",
+            "source_name": "",
+            "direct_link": "",
+            "subsector": "cyber_attack",
+            "date_accessed": "",
+            "date_published": "",
+            "content": "",
+            "exec_summary": "",
+            "subsector_data": {
+                "attack_type": "ransomware",
+                "threat_actor": "BlackCat/ALPHV",
+                "individuals_affected": 450000,
+                "data_types_exposed": ["PHI", "SSN", "financial"],
+                "systems_affected": ["EHR", "billing"],
+                "ransom_demanded_usd": 5000000,
+                "ransom_paid": false,
+                "downtime_days": 14,
+                "services_disrupted": ["emergency", "radiology", "pharmacy"],
+                "law_enforcement_involved": true,
+                "hhs_breach_portal_listed": true
+            }
+        },
+        {
+            "id": 4,
+            "title": "",
+            "source_name": "",
+            "direct_link": "",
+            "subsector": "natural_disaster",
+            "date_accessed": "",
+            "date_published": "",
+            "content": "",
+            "exec_summary": "",
+            "subsector_data": {
+                "disaster_type": "hurricane",
+                "disaster_name": "Hurricane Milton",
+                "fema_declaration_id": "DR-4828",
+                "category_magnitude": "Category 4",
+                "affected_facilities_count": 12,
+                "evacuation_ordered": true,
+                "beds_offline": 340,
+                "facility_status": "diverting",
+                "estimated_damage_usd": 15000000,
+                "infrastructure_damage": ["power", "water"],
+                "services_disrupted": ["emergency", "surgery", "dialysis"]
+            }
+        },
+        {
+            "id": 5,
+            "title": "",
+            "source_name": "",
+            "direct_link": "",
+            "subsector": "other",
+            "date_accessed": "",
+            "date_published": "",
+            "content": "",
+            "exec_summary": "",
+            "subsector_data": {
+                "event_type": "mass_resignation",
+                "event_description": "All 15 ER physicians resigned simultaneously citing unsafe staffing",
+                "severity": "critical",
+                "departments_affected": ["Emergency", "Trauma"],
+                "staff_type_affected": "physicians",
+                "beds_offline": 45,
+                "services_disrupted": ["emergency", "trauma"],
+                "regulatory_response": "CMS survey triggered"
+            }
         }
+       
     ]
 }

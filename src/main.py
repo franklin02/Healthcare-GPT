@@ -12,7 +12,6 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
-
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import OllamaLLM
 from langchain_chroma import Chroma
@@ -28,7 +27,7 @@ OLLAMA_MODEL = "llama3.2"
 TOP_K        = 6
 # ─────────────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Healthcare Cybersecurity RAG")
+app = FastAPI(title="Healthcare GTP RAG")
 
 _chain     = None
 _retriever = None
@@ -135,8 +134,11 @@ def chat(req: ChatRequest):
 
     try:
         chain, retriever = get_chain()
+
         source_docs = retriever.invoke(question)
         answer      = chain.invoke(question)
+        
+
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -171,7 +173,7 @@ def status():
                 model_kwargs={"device": "cpu"},
                 encode_kwargs={"normalize_embeddings": True},
             )
-            db    = Chroma(persist_directory=CHROMA_DIR,
+            db = Chroma(persist_directory=CHROMA_DIR,
                            embedding_function=emb,
                            collection_name=COLLECTION)
             count = db._collection.count()

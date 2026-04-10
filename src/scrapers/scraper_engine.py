@@ -9,9 +9,6 @@ AI_MODEL = "llama3.2"
 VALID_DIR   = Path(__file__).parent.parent / "data" / "valid"
 INVALID_DIR = Path(__file__).parent.parent / "data" / "invalid"
 
-# VALID_DIR / f"{site_config['name'].lower()}.json"
-# INVALID_DIR / f"{site_config['name'].lower()}.txt"
-
 
 '''
 HOW TO USE:
@@ -40,30 +37,30 @@ SITES_TO_SCRAPE = [
             "cap": -1, 
         }
     },
-        {
-        "name": "StateScoop",
-        "url": "https://statescoop.com/tag/healthcare/feed/",
-        "map": {
-            "container": "item",
-            "title": "title",
-            "link": "link", 
-            "body": "encoded",
-            "starting_page": 1, 
-            "cap": -1, 
-        }
-    },
-    {
-        "name": "FedScoop",
-        "url": "https://fedscoop.com/tag/healthcare/feed/",
-        "map": {
-            "container": "item",
-            "title": "title",
-            "link": "link", 
-            "body": "encoded",
-            "starting_page": 1, 
-            "cap": -1, 
-        }
-    },
+    #     {
+    #     "name": "StateScoop",
+    #     "url": "https://statescoop.com/tag/healthcare/feed/",
+    #     "map": {
+    #         "container": "item",
+    #         "title": "title",
+    #         "link": "link", 
+    #         "body": "encoded",
+    #         "starting_page": 1, 
+    #         "cap": -1, 
+    #     }
+    # },
+    # {
+    #     "name": "FedScoop",
+    #     "url": "https://fedscoop.com/tag/healthcare/feed/",
+    #     "map": {
+    #         "container": "item",
+    #         "title": "title",
+    #         "link": "link", 
+    #         "body": "encoded",
+    #         "starting_page": 1, 
+    #         "cap": -1, 
+    #     }
+    # },
     # {
     #     "name": "HealthITSecurity",
     #     "url": "https://healthitsecurity.com/feed",
@@ -161,28 +158,34 @@ at this point should be already parsed and cleaned.
 '''
 def ai_check(title, body) -> bool:
     prompt = f"""\
-        You are a specialized Healthcare Security Analyst. 
-        Your task is to determine if the following article describes an active, 
-        imminent, or systemic THREAT to healthcare operations.
+    You are a Healthcare Disruption Classifier. Your ONLY job is to decide if this article \
+    describes something that disrupts or threatens the delivery of healthcare services.
 
-        CRITERIA FOR "YES":
-        - Cyber Attacks: Ransomware, data breaches, or outages affecting hospitals/clinics.
-        - Supply Chain: Shortages of critical drugs, blood, or medical devices.
-        - Physical/Natural: Floods, fires, or disasters physically damaging medical facilities.
-        - Regulatory/Political: Policy changes that directly cause immediate service shutdowns.
-        - Public Health: Large-scale outbreaks that threaten to overwhelm hospital capacity.
+    Read the title and excerpt, then respond in EXACTLY one of these formats:
 
-        CRITERIA FOR "NO":
-        - General medical research, "breakthroughs," or clinical trial results.
-        - Standard business news (mergers, hiring, quarterly earnings).
-        - General health tips (diet, exercise, wellness).
-        - Policy debates that have no immediate impact on operations.
-        TITLE: {title}
-        EXCERPT: {body}
+    YES, drug_shortage
+    YES, medical_device_shortage
+    YES, cyber_attack
+    YES, natural_disaster
+    YES, other
 
-        Does this article describe a specific THREAT that disrupts the delivery of healthcare?
-        Answer with exactly one word: YES or NO.
-    """
+    NO, <one sentence explanation>
+
+    SUBSECTOR DEFINITIONS:
+    - drug_shortage: A specific drug is unavailable, recalled, or in limited supply.
+    - medical_device_shortage: A medical device is unavailable, recalled, or in limited supply.
+    - cyber_attack: Ransomware, data breach, phishing, or hacking targeting a healthcare organization.
+    - natural_disaster: A flood, hurricane, earthquake, wildfire, or other natural event damaging a hospital or clinic.
+    - other: Any other event that directly disrupts healthcare delivery (mass staff resignation, infrastructure failure, labor strike, etc.).
+
+    IMPORTANT:
+    - If the article is about general research, business news, health tips, policy debate, or clinical trials, answer NO.
+    - If you are unsure but the article mentions a real disruption at a real facility, answer YES.
+
+    TITLE: {title}
+    EXCERPT: {body}
+
+    Answer:"""
 
     try:
         resp = requests.post(

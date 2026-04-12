@@ -1,17 +1,5 @@
-import json
-import requests, time
-from pathlib import Path
-from bs4 import BeautifulSoup
-
-# to be changed later on 
-AI_URL = "http://localhost:11434/api/generate"
-AI_MODEL = "llama3.2"
-VALID_DIR   = Path(__file__).parent.parent / "data" / "valid"
-INVALID_DIR = Path(__file__).parent.parent / "data" / "invalid"
-
-
 '''
-HOW TO USE:
+HOW TO USE: 
 
 Each website should be a structured dictionary with the following keys:
 - name: this will be used to name the folder where the output will be saved
@@ -24,6 +12,19 @@ Each website should be a structured dictionary with the following keys:
     - starting_page: this should be determined by how the website url is structured
     - cap: should be int, if no cap is desired set to -1
 '''
+import json, uuid, datetime, csv
+import requests, time
+from pathlib import Path
+from bs4 import BeautifulSoup
+
+# to be changed later on 
+AI_URL = "http://localhost:11434/api/generate"
+AI_MODEL = "llama3.2"
+VALID_DIR   = Path(__file__).parent.parent / "data" / "Ready_for_RAG"
+NOISE_DIR = Path(__file__).parent.parent / "data" / "Noise"
+VULNERABILITIES_DIR = Path(__file__).parent.parent / "data" / "Vulnerabilities"
+
+VALID_SUBSECTORS = {"drug_shortage", "medical_device_shortage", "cyber_attack", "natural_disaster", "other"}
 SITES_TO_SCRAPE = [
     {
         "name": "CyberScoop",
@@ -34,7 +35,7 @@ SITES_TO_SCRAPE = [
             "link": "link", 
             "body": "encoded",
             "starting_page": 1, 
-            "cap": -1, 
+            "cap": 21, 
         }
     },
     #     {
@@ -136,10 +137,11 @@ def run_scraper(site_config):
                 body = BeautifulSoup(full_body, "lxml").get_text(separator=" ",strip="True")
 
                 # NOTE: Eventually we will need to see if the article is something we have already seen
-                # check with AI and output accordingly
-                is_attack = False #ai_check(title, body)
-                if is_attack: json_output(site_config['name'], title, url, body)
-                else: invalid_article_output(site_config['name'], title, url, body)
+                is_threat, detail = ai_check(title, body)
+                if is_threat: 
+                    json_output(site_config['name'], title, url, body, detail)
+
+                else: invalid_article_output(site_config['name'], title, url, body, detail)
             
             current_page += 1
             time.sleep(1) # pause per page so we dont get banned by the server 
@@ -156,54 +158,68 @@ if the article we parsed presents a risk to the healthcare industry.
 It expects 2 arguments: the title and the body of the article which 
 at this point should be already parsed and cleaned.
 '''
-def ai_check(title, body) -> bool:
-    prompt = f"""\
-    You are a Healthcare Disruption Classifier. Your ONLY job is to decide if this article \
-    describes something that disrupts or threatens the delivery of healthcare services.
+def ai_check(title, body) -> tuple[bool, str]:
+    prompt = f"""
+    [INST] <<SYS>>
+    You are a Healthcare Crisis Auditor. Your task is to identify ACTIVE OPERATIONAL DISRUPTIONS in healthcare. 
+    An operational disruption is defined as an event where the actual delivery of care is currently degraded, stopped, or physically prevented.
 
-    Read the title and excerpt, then respond in EXACTLY one of these formats:
+    CRITICAL EXCLUSIONS (Mark as NO):
+    - "Potential" risks or "discovered vulnerabilities" that haven't been exploited yet.
+    - Policy debates, government legislation, or funding news.
+    - Corporate business news (mergers, stock prices, quarterly earnings).
+    - General research papers or clinical trial results without an active supply failure.
+    - Historical data or sentencing for crimes that happened years ago.
 
-    YES, drug_shortage
-    YES, medical_device_shortage
-    YES, cyber_attack
-    YES, natural_disaster
-    YES, other
+    VALID DISRUPTION EXAMPLES (Mark as YES):
+    - A specific hospital diverting ambulances or canceling surgeries.
+    - A ransomware attack currently locking a facility's EHR (Electronic Health Records).
+    - A drug being physically unavailable at pharmacies due to a factory shutdown.
+    - Physical damage to a clinic from weather or fire.
 
-    NO, <one sentence explanation>
-
-    SUBSECTOR DEFINITIONS:
-    - drug_shortage: A specific drug is unavailable, recalled, or in limited supply.
-    - medical_device_shortage: A medical device is unavailable, recalled, or in limited supply.
-    - cyber_attack: Ransomware, data breach, phishing, or hacking targeting a healthcare organization.
-    - natural_disaster: A flood, hurricane, earthquake, wildfire, or other natural event damaging a hospital or clinic.
-    - other: Any other event that directly disrupts healthcare delivery (mass staff resignation, infrastructure failure, labor strike, etc.).
-
-    IMPORTANT:
-    - If the article is about general research, business news, health tips, policy debate, or clinical trials, answer NO.
-    - If you are unsure but the article mentions a real disruption at a real facility, answer YES.
+    You MUST respond in this JSON format:
+    {{
+    "analysis": "A one-sentence explanation of the active impact found in the text.",
+    "is_operational_disruption": boolean,
+    "subsector": "drug_shortage" | "medical_device_shortage" | "cyber_attack" | "natural_disaster" | "other" | "none"
+    }}
+    <</SYS>>
 
     TITLE: {title}
     EXCERPT: {body}
 
-    Answer:"""
-
+    [/INST]
+    """
+    
     try:
         resp = requests.post(
             AI_URL,
-            json={"model": AI_MODEL, "prompt": prompt, "stream": False},
+            json={
+                "model": AI_MODEL, 
+                "prompt": prompt, 
+                "stream": False,
+                "format": "json",
+                "options": { "temperature": 0.1 }
+            },
             timeout=60,
         )
-    except requests.exceptions.ConnectionError:
-        raise ConnectionError(
-            "Could not reach Ollama. Make sure it is running: ollama serve"
-        )
+        
+        raw_response = resp.json().get("response", "{}")
+        data = json.loads(raw_response)
+        
+        is_threat = data.get("is_operational_disruption", False)
 
-    if resp.status_code != 200:
-        print(f"Error: {resp.status_code}")
-        return False
+        # Use subsector if it's a threat, otherwise use the analysis as the "reason"
+        detail = data.get("subsector", "none") if is_threat else data.get("analysis", "No impact detected")
+        
+        return is_threat, detail
 
-    answer = resp.json().get("response", "").strip().upper()
-    return answer.startswith("YES")
+    except Exception as e:
+        print(f"Error parsing AI response: {e}")
+        return False, "Parsing Error"
+
+
+
 
 '''
 This function checks to see that we have 2 valid files in the data directory.
@@ -212,43 +228,64 @@ This will automatically add the files if they are not found
 '''
 def check_valid_file(title):
     VALID_DIR.mkdir(parents=True, exist_ok=True)
-    INVALID_DIR.mkdir(parents=True, exist_ok=True)
+    NOISE_DIR.mkdir(parents=True, exist_ok=True)
+    VULNERABILITIES_DIR.mkdir(parents=True, exist_ok=True)
 
     json_path = VALID_DIR / f"{title.strip()}.json"
     if not json_path.exists():
         json_path.write_text(json.dumps({"sources": []}, indent=4), encoding="utf-8")
         print(f"Created {json_path}")
 
-    txt_path = INVALID_DIR / f"{title.strip()}.txt"
-    if not txt_path.exists():
-        txt_path.touch()
-        print(f"Created {txt_path}")
+    noise_path = NOISE_DIR / f"{title.strip()}.csv"
+    if not noise_path.exists():
+        noise_path.write_text(csv.writer(noise_path))
+        print(f"Created {noise_path}")
 
+    vulnerabilities_path = VULNERABILITIES_DIR / f"{title.strip()}.csv"
+    if not vulnerabilities_path.exists():
+        vulnerabilities_path.write_text(csv.writer(vulnerabilities_path))
+        print(f"Created {vulnerabilities_path}")
 '''
 
 '''
-def json_output(site_name, title, url, body):
+def json_output(site_name, title, url, body, subsector):
     print(f"[VALID] {title} | {url}") # makes easy to see, delete later
     json_path = VALID_DIR / f"{site_name.lower()}.json"
     data = json.loads(json_path.read_text(encoding="utf-8"))
-    next_id = len(data["sources"]) + 1
     data["sources"].append({
-        "id": next_id,
+        "id": str(uuid.uuid4()), 
         "title": title,
-        "url": url,
+        "souce_name": site_name,
+        "direct_link": url,
+        "subsector": subsector,
+        "date_accessed": datetime.now().isoformat(),
+        "date_published": datetime.now().isoformat(), # TODO: placeholder for now, fix later
         "content": body,
+        "exec_summary": "",
+        "subsector_data": {
+            "device_name": "Infusion Pump Model X",
+            "device_category": "Infusion Systems",
+            "manufacturer": "Baxter International",
+            "manufacturer_country": "US",
+            "shortage_reason": "Manufacturing disruption",
+            "fda_recall_number": "",
+            "recall_class": "",
+            "affected_specialties": "",
+            "alternatives_available": "",
+            "estimated_resolution_date": ""
+        }
     })
     json_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
-    print(f"[VALID] ({next_id}) {title}")
+    print(f"[VALID] ([{subsector}]: {title}")
 
 '''
 This function is called after the AI determines that an articles is not a threat to the healthcare industry.
 This will write to data/invalid/[site_name].txt and present the title with the URL. 
 '''
-def invalid_article_output(site_name, title, url, body):
+def invalid_article_output(site_name, title, url, body, reason):
     txt_path = INVALID_DIR / f"{site_name.lower()}.txt"
     with open(txt_path, "a", encoding="utf-8") as f:
-        f.write(f"* {title} | {url}\n\n")
+        f.write(f"* {title} | {url}\n  Reason: {reason}\n\n")
 
 # Run everything in one go
 for site in SITES_TO_SCRAPE:

@@ -163,9 +163,24 @@ def ingest(filepath: str, new_db: bool = False) -> None:
 
     elif os.path.exists(CHROMA_DIR):
         print("-----> Existing DB found — new records will be added)")
-        #
-        # TODO: find how to edit a chroma db 
-        #
+        db = Chroma(
+        persist_directory=CHROMA_DIR,
+        embedding_function=embeddings,
+        collection_name=COLLECTION,
+        )
+        existing = db.get(include=["metadatas"])
+        existing_ids = {m["id"] for m in existing["metadatas"] if m.get("id")}
+        before = len(docs)
+
+        # removes any objects that are already in the db to avoid duplicates
+        docs = [d for d in docs if d.metadata.get("id") not in existing_ids]
+        skipped = before - len(docs)
+        print(f"-----> {len(existing_ids)} records already in DB — {skipped} skipped, {len(docs)} new to add")
+        if not docs:
+            print("-----> Nothing new to ingest. Exiting.")
+            return
+
+
 
     # batched in 500 chunks to avoid memory spikes on large files
     # NOTE: This might need to be tweaked in the future, depending on future testing/ avg lenth of JSON objects

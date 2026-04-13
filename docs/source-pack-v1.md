@@ -20,6 +20,12 @@ Focus on:
 
 Do not prioritize minor local issues unless they clearly affect healthcare operations or patient care.
 
+## Source Inventory Reference
+
+Use `expanded-disruption-source-ecosystem.md` as the working source inventory for this task.
+
+This file contains the approved source classes and known source URLs for healthcare disruption collection. Prefer sources from that inventory when identifying, validating, and contextualizing events.
+
 ## Source Priorities
 
 Prioritize sources in this order:

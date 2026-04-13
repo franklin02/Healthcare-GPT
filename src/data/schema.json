@@ -78,6 +78,7 @@
                 "category_magnitude": "Category 4",
                 "affected_facilities_count": 12,
                 "evacuation_ordered": true,
+                "field_hospitals": true, 
                 "beds_offline": 340,
                 "facility_status": "diverting",
                 "estimated_damage_usd": 15000000,

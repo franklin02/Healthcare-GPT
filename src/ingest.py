@@ -6,6 +6,8 @@ from pathlib import Path
 from langchain_core.documents import Document
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 
 CHROMA_DIR   = "./chroma_db"
 EMBED_MODEL  = "all-MiniLM-L6-v2"
@@ -103,25 +105,53 @@ This functions creates a single document for each JSON object in the file. This 
 to create the text chunk and then adds the metadata to the document. If the record_to_text returns an 
 empty string, the document is skipped. 
 '''
+# def build_documents(records: list[dict]) -> list[Document]:
+#     docs = []
+#     for i, record in enumerate(records):
+#         text = record_to_text(record)
+#         if not text.strip():
+#             continue
+        
+#         metadata = {
+#             "id": str(record.get("id", "")),
+#             "title": str(record.get("title", "")),
+#             "source_name": str(record.get("source_name", "")),
+#             "direct_link": str(record.get("direct_link", "")),
+#             "subsector": str(record.get("subsector", "")),
+#             "date_published": str(record.get("date_published", "")),
+#         }        
+#         docs.append(Document(page_content=text, metadata=metadata))
+
+#     return docs
 def build_documents(records: list[dict]) -> list[Document]:
-    docs = []
-    for i, record in enumerate(records):
+    # Set up the splitter: 500 characters with some overlap so we don't cut off numbers
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=600, 
+        chunk_overlap=120,
+        separators=["\n\n", "\n", " ", ""]
+    )
+    
+    final_docs = []
+    for record in records:
         text = record_to_text(record)
         if not text.strip():
             continue
-        
+            
+        # Create a temporary document to split
         metadata = {
             "id": str(record.get("id", "")),
             "title": str(record.get("title", "")),
-            "source_name": str(record.get("source_name", "")),
-            "direct_link": str(record.get("direct_link", "")),
-            "subsector": str(record.get("subsector", "")),
-            "date_published": str(record.get("date_published", "")),
-        }        
-        docs.append(Document(page_content=text, metadata=metadata))
+            # ... keep other metadata ...
+        }
+        
+        # Split the text into smaller chunks
+        chunks = text_splitter.split_text(text)
+        
+        # Create a separate document for every chunk
+        for chunk in chunks:
+            final_docs.append(Document(page_content=chunk, metadata=metadata))
 
-    return docs
-
+    return final_docs
 
 
 def ingest(filepath: str, new_db: bool = False) -> None:

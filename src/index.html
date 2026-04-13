@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FDA Drug Shortage Intelligence</title>
+  <title>Healthcare Crisis Intelligence</title>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
   <style>
     /* ── Reset & Variables ─────────────────────────────────────────── */
@@ -76,13 +76,8 @@
       display: flex; align-items: center; justify-content: center;
       clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
       flex-shrink: 0;
-      animation: pulse-logo 3s ease-in-out infinite;
     }
     .logo-mark svg { width: 18px; height: 18px; }
-    @keyframes pulse-logo {
-      0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
-      50%       { box-shadow: 0 0 0 8px transparent; }
-    }
 
     .header-title {
       font-family: var(--mono);
@@ -244,62 +239,6 @@
     }
     .msg.ai .msg-text { border-left: 2px solid var(--accent); }
 
-    /* ── Sources panel ───────────────────────────────────────────────── */
-    .sources {
-      margin-top: 10px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-    }
-    .sources-header {
-      padding: 7px 12px;
-      background: var(--surface2);
-      border-bottom: 1px solid var(--border);
-      font-family: var(--mono);
-      font-size: 10px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .sources-header span { color: var(--accent); }
-
-    .source-row {
-      display: grid;
-      grid-template-columns: 2fr 1.5fr 1fr 1fr;
-      gap: 12px;
-      padding: 8px 12px;
-      border-bottom: 1px solid var(--border);
-      font-family: var(--mono);
-      font-size: 11px;
-      transition: background 0.15s;
-    }
-    .source-row:last-child { border-bottom: none; }
-    .source-row:hover { background: var(--surface2); }
-
-    .source-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .source-cell.name { color: var(--text); }
-    .source-cell.brand { color: var(--text-dim); }
-    .source-cell.status { }
-    .source-cell.date { color: var(--text-muted); }
-
-    .badge {
-      display: inline-block;
-      padding: 1px 6px;
-      border-radius: 2px;
-      font-size: 10px;
-      font-family: var(--mono);
-      font-weight: 500;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-    .badge.shortage  { background: var(--warn-dim); color: var(--warn); border: 1px solid var(--warn); }
-    .badge.resolved  { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); }
-    .badge.unknown   { background: var(--surface2); color: var(--text-muted); border: 1px solid var(--border-hi); }
-    .badge.limited  { background: #ff6b3522; color: #e9e32b; border: 1px solid #e9e32b; }
-
     /* ── Thinking indicator ──────────────────────────────────────────── */
     .thinking .msg-text {
       display: flex;
@@ -383,27 +322,6 @@
     .send-btn:disabled { background: var(--border-hi); cursor: not-allowed; }
     .send-btn svg { color: var(--bg); }
 
-    /* ── Footer meta ─────────────────────────────────────────────────── */
-    .input-meta {
-      padding: 6px 24px 10px;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      background: var(--surface);
-    }
-    .meta-tag {
-      font-family: var(--mono);
-      font-size: 10px;
-      color: var(--text-muted);
-      letter-spacing: 0.04em;
-      display: flex; align-items: center; gap: 5px;
-    }
-    .meta-tag .dot {
-      width: 4px; height: 4px;
-      border-radius: 50%;
-      background: var(--accent);
-    }
-
     @keyframes fade-in {
       from { opacity: 0; } to { opacity: 1; }
     }
@@ -423,7 +341,7 @@
         </svg>
       </div>
       <div>
-        <div class="header-title">FDA Drug Shortage Intelligence</div>
+        <div class="header-title">Healthcare Crisis Intelligence</div>
         <div class="header-sub">RAG · Local LLM · ChromaDB</div>
       </div>
     </div>
@@ -439,10 +357,10 @@
   <!-- ── Chat Area ──────────────────────────────────────────────────── -->
   <div class="chat-area" id="chatArea">
     <div class="empty-state" id="emptyState">
-      <div class="empty-title">Ask a question about FDA drug shortages</div>
+      <div class="empty-title">Ask about healthcare incidents</div>
       <div class="empty-grid">
-        <div class="empty-hint" onclick="fillQuestion(this)">Which drugs are currently in shortage?</div>
-        <div class="empty-hint" onclick="fillQuestion(this)">What are the most common shortage reasons?</div>
+        <div class="empty-hint" onclick="fillQuestion(this)">What hospitals were hit by ransomware recently?</div>
+        <div class="empty-hint" onclick="fillQuestion(this)">Which incidents caused the most patient disruption?</div>
         <div class="empty-hint" onclick="fillQuestion(this)">What is the most recent cyber attack on a hospital?</div>
         <div class="empty-hint" onclick="fillQuestion(this)">Are there any cyber attacks with casualties?</div>
       </div>
@@ -455,7 +373,7 @@
       <div class="input-wrap">
         <textarea
           id="question"
-          placeholder="Ask about drug shortages, manufacturers, categories…"
+          placeholder="Ask about cyberattacks, hospital disruptions, and healthcare incidents…"
           rows="1"
         ></textarea>
       </div>
@@ -464,11 +382,6 @@
           <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
         </svg>
       </button>
-    </div>
-    <div class="input-meta">
-      <div class="meta-tag"><div class="dot"></div> Llama 3 · Local</div>
-      <div class="meta-tag"><div class="dot"></div> all-MiniLM-L6-v2 · Embeddings</div>
-      <div class="meta-tag"><div class="dot"></div> ChromaDB · Vector Store</div>
     </div>
   </div>
 
@@ -518,29 +431,7 @@
     textarea.focus();
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  // function getStatusBadge(status) {
-  //   if (!status || status === '—') return `<span class="badge unknown">—</span>`;
-  //   const s = status.toLowerCase();
-  //   if (s.includes('current') || s.includes('active') || s.includes('shortage'))
-  //     return `<span class="badge shortage">${status}</span>`;
-  //   if (s.includes('resolved') || s.includes('discontinued') || s.includes('available'))
-  //     return `<span class="badge resolved">${status}</span>`;
-  //   return `<span class="badge unknown">${status}</span>`;
-  // }
-  function getStatusBadge(status) {
-    if (!status || status === '—') return `<span class="badge unknown">—</span>`;
-    const s = status.toLowerCase();
-    if (s.includes('unavailable') || s.includes('discontinued') || s.includes('shortage'))
-      return `<span class="badge shortage">${status}</span>`;
-    if (s.includes('limited'))
-      return `<span class="badge limited">${status}</span>`;
-    if (s.includes('available') || s.includes('resolved'))
-      return `<span class="badge resolved">${status}</span>`;
-    return `<span class="badge unknown">${status}</span>`;
-  }
-
-  function addMessage(role, content, sources) {
+  function addMessage(role, content) {
     const area = document.getElementById('chatArea');
     const empty = document.getElementById('emptyState');
     if (empty) empty.remove();
@@ -550,34 +441,11 @@
 
     const isAI = role === 'ai';
 
-    let sourcesHTML = '';
-    if (isAI && sources && sources.length > 0) {
-      const rows = sources.map(s => `
-        <div class="source-row">
-          <div class="source-cell name">${s.generic_name}</div>
-          <div class="source-cell brand">${s.brand_name}</div>
-          <div class="source-cell status">${getStatusBadge(s.status)}</div>
-          <div class="source-cell date">${s.updated}</div>
-        </div>`).join('');
-
-      sourcesHTML = `
-        <div class="sources">
-          <div class="sources-header">
-            Retrieved Records <span>${sources.length}</span>
-          </div>
-          <div class="source-row" style="opacity:0.45;font-size:10px;padding-top:4px;padding-bottom:4px">
-            <div>Generic Name</div><div>Brand</div><div>Status</div><div>Updated</div>
-          </div>
-          ${rows}
-        </div>`;
-    }
-
     div.innerHTML = `
       <div class="msg-avatar">${isAI ? 'AI' : 'YOU'}</div>
       <div class="msg-body">
         <div class="msg-label">${isAI ? 'Intelligence System' : 'Query'}</div>
         <div class="msg-text">${content}</div>
-        ${sourcesHTML}
       </div>`;
 
     area.appendChild(div);
@@ -635,7 +503,7 @@
         addMessage('error', `⚠ ${err.detail || 'Unknown error'}`);
       } else {
         const data = await res.json();
-        addMessage('ai', data.answer, data.sources);
+        addMessage('ai', data.answer);
       }
     } catch (e) {
       document.getElementById('thinking')?.remove();

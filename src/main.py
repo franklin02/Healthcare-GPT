@@ -13,7 +13,7 @@ from langchain_core.runnables import RunnablePassthrough
 CHROMA_DIR = str(Path(__file__).parent.parent / "chroma_db")
 COLLECTION = "agentic_data"
 EMBED_MODEL = "all-MiniLM-L6-v2"
-OLLAMA_MODEL = "deepseek-r1:8b"
+OLLAMA_MODEL = "llama3.2"#"deepseek-r1:8b"
 TOP_K = 6 
 #NOTE: may need to tweak TOP_K in the future
 

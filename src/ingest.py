@@ -126,8 +126,8 @@ empty string, the document is skipped.
 def build_documents(records: list[dict]) -> list[Document]:
     # Set up the splitter: 500 characters with some overlap so we don't cut off numbers
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=600, 
-        chunk_overlap=120,
+        chunk_size=800, #limit is about 1000 characters so we want to stay under
+        chunk_overlap=160, # 20 % of overlap, a little on the high side but its still good 
         separators=["\n\n", "\n", " ", ""]
     )
     
@@ -214,7 +214,7 @@ def ingest(filepath: str, new_db: bool = False) -> None:
 
     # batched in 500 chunks to avoid memory spikes on large files
     # NOTE: This might need to be tweaked in the future, depending on future testing/ avg lenth of JSON objects
-    BATCH = 500
+    BATCH = 500 
     db = None
     for start in range(0, len(docs), BATCH):
         batch = docs[start : start + BATCH]

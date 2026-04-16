@@ -77,7 +77,7 @@ uvicorn main:app --reload
 - Open [http://127.0.0.1:8000](http://127.0.0.1:8000)
 - Ask: "What cyberattacks have targeted hospitals?" (or any question)
 
-### 6. Ingestion Pipeline (detailed)
+### 6. Ingestion Pipeline
 
 - JSON format SHOULD follow the schema under src/data/schema.json, but as fall back it will ingest { "sources": [ { ... }, ... ] }
 - Document the full schema (id, title, source_name, direct_link, 

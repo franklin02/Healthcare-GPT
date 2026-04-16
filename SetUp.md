@@ -22,7 +22,8 @@ python3 -m venv .venv && source .venv/bin/activate
 ```
 
 WARNING: make sure you do the command below from your .venv environment. 
-Check your terminal, should say `(.venv) your_name@your_system Healthcare-GPT %` 
+Check your terminal, should say 
+`(.venv) your_name@your_system Healthcare-GPT %` 
 
 ```bash
 pip install -r requirements.txt  (single command, no extras)

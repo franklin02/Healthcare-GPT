@@ -26,7 +26,7 @@ Check your terminal, should say
 `(.venv) your_name@your_system Healthcare-GPT %` 
 
 ```bash
-pip install -r requirements.txt  (single command, no extras)
+pip install -r requirements.txt  
 ```
 
 ```bash

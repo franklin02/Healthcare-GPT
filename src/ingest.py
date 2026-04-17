@@ -9,7 +9,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
-CHROMA_DIR   = "./chroma_db"
+CHROMA_DIR = str(Path(__file__).parent.parent / "chroma_db")
 EMBED_MODEL  = "all-MiniLM-L6-v2"
 COLLECTION   = "agentic_data"
 

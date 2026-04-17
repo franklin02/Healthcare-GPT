@@ -65,11 +65,9 @@ Healthcare-GPT/
 ### 5. Quick Start: Your First Query (end-to-end)
 
 ```bash
-
+cd Healthcare-GPT
+python src/ingest.py --file src/data/Ready_for_RAG/CyberScoop.json
 cd src
-
-python ingest.py --file data/Ready_for_RAG/CyberScoop.json
-
 uvicorn main:app --reload
 
 ```

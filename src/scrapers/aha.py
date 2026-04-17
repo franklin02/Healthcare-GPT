@@ -25,10 +25,10 @@ HEADERS = {
 
 
 def clean_text(text: str) -> str:
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    text = text.replace('\x0c', '\n')
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = text.replace("\x0c", "\n")
     lines = [line.rstrip() for line in text.splitlines()]
-    text = '\n'.join(lines)
+    text = "\n".join(lines)
     return text.strip()
 
 
@@ -37,7 +37,6 @@ def slugify(title: str, max_len: int = 80) -> str:
     slug = title.lower()
     slug = re.sub(r"[^a-z0-9]+", "_", slug)
     return slug.strip("_")[:max_len]
-
 
 
 def scrape_page(page_num: int) -> list[dict]:
@@ -61,25 +60,30 @@ def scrape_page(page_num: int) -> list[dict]:
     # Try <article> elements first, then fall back to headings with links.
     cards = soup.find_all("div", class_="views-row")
     for card in cards:
-        a = card.find("div", class_="views-field-title") and \
-            card.find("div", class_="views-field-title").find("a", href=True)
+        a = card.find("div", class_="views-field-title") and card.find(
+            "div", class_="views-field-title"
+        ).find("a", href=True)
         if not a:
             continue
         title = a.get_text(strip=True)
         if not title:
             continue
         body_div = card.find("div", class_="views-field-body")
-        blurb = body_div.find("div", class_="field-content").get_text(strip=True) \
-                if body_div else ""
+        blurb = (
+            body_div.find("div", class_="field-content").get_text(strip=True)
+            if body_div
+            else ""
+        )
         href = a["href"]
-        articles.append({
-            "title": title,
-            "body":  blurb,
-            "url":   href if href.startswith("http") else ARTICLE_BASE + href,
-        })
+        articles.append(
+            {
+                "title": title,
+                "body": blurb,
+                "url": href if href.startswith("http") else ARTICLE_BASE + href,
+            }
+        )
 
     return articles
-
 
 
 def is_attack(article: dict) -> bool:
@@ -108,8 +112,8 @@ Answer NO if the article is any of the following:
 - A government or agency announcement not tied to a specific incident
 - News about legislation, regulations, or organizational updates
 
-TITLE: {article.get('title', '')}
-EXCERPT: {article.get('body', '')}
+TITLE: {article.get("title", "")}
+EXCERPT: {article.get("body", "")}
 
 Answer (YES or NO only):"""
 
@@ -129,7 +133,6 @@ Answer (YES or NO only):"""
 
     answer = resp.json().get("response", "").strip().upper()
     return answer.startswith("YES")
-
 
 
 def flush_outputs(confirmed: list[dict], skipped: list[str]) -> None:
@@ -155,11 +158,11 @@ def flush_outputs(confirmed: list[dict], skipped: list[str]) -> None:
     json_path = OUTPUT_DIR / "confirmed_articles.json"
     docs = [
         {
-            "source":      "AHA Cybersecurity News",
-            "title":       a["title"],
-            "url":         a["url"],
-            "body":        a.get("body", ""),
-            "char_count":  len(a.get("body", "")),
+            "source": "AHA Cybersecurity News",
+            "title": a["title"],
+            "url": a["url"],
+            "body": a.get("body", ""),
+            "char_count": len(a.get("body", "")),
             "ai_verified": True,
         }
         for a in confirmed
@@ -175,28 +178,27 @@ def flush_outputs(confirmed: list[dict], skipped: list[str]) -> None:
     print(f"  [SKIP] {len(skipped)} skipped titles → {skip_path.name}")
 
 
-
 def run():
-    manifest          = []
+    manifest = []
     confirmed_articles: list[dict] = []
-    skipped_titles:     list[str]  = []
+    skipped_titles: list[str] = []
 
     print(f"\n{'=' * 60}")
     print("AHA Cybersecurity News — Scraper + AI Classifier")
     print(f"Output: {OUTPUT_DIR.resolve()}")
     print(f"{'=' * 60}\n")
 
-    for page_num in range(PAGES):           # outer loop: 25 listing pages
+    for page_num in range(PAGES):  # outer loop: 25 listing pages
         print(f"\n── Page {page_num} ──────────────────────────────────────")
         articles = scrape_page(page_num)
 
         if not articles:
-            print(f"  No articles found. Stopping early.")
+            print("  No articles found. Stopping early.")
             break
 
         print(f"  Found {len(articles)} articles.")
 
-        for article in articles:            # inner loop: each card on the page
+        for article in articles:  # inner loop: each card on the page
             print(f"\n  {article['title'][:70]}")
 
             try:
@@ -208,22 +210,26 @@ def run():
 
             if result:
                 confirmed_articles.append(article)
-                print(f"  [YES]  Confirmed attack")
-                manifest.append({
-                    "title":  article["title"],
-                    "url":    article["url"],
-                    "status": "confirmed",
-                })
+                print("  [YES]  Confirmed attack")
+                manifest.append(
+                    {
+                        "title": article["title"],
+                        "url": article["url"],
+                        "status": "confirmed",
+                    }
+                )
             else:
                 skipped_titles.append(article["title"])
-                print(f"  [NO]   Skipped")
-                manifest.append({
-                    "title":  article["title"],
-                    "url":    article["url"],
-                    "status": "skipped",
-                })
+                print("  [NO]   Skipped")
+                manifest.append(
+                    {
+                        "title": article["title"],
+                        "url": article["url"],
+                        "status": "skipped",
+                    }
+                )
 
-        time.sleep(1)                       # one pause per page, not per article
+        time.sleep(1)  # one pause per page, not per article
 
     # Write all consolidated output files at once
     flush_outputs(confirmed_articles, skipped_titles)
@@ -234,7 +240,7 @@ def run():
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
     print(f"\n{'=' * 60}")
-    print(f"Done.")
+    print("Done.")
     print(f"  Confirmed : {len(confirmed_articles)}")
     print(f"  Skipped   : {len(skipped_titles)}")
     print(f"  Manifest  : {manifest_path}")

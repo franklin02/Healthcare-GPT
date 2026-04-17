@@ -1,4 +1,9 @@
-import json, uuid, datetime, csv, requests, time
+import json
+import uuid
+import datetime
+import csv
+import requests
+import time
 from pathlib import Path
 from bs4 import BeautifulSoup
 from ask_llm import ai_check_validation, find_subsector_fields
@@ -17,29 +22,63 @@ HEADERS = {
 }
 SUBSECTOR_FIELDS = {
     "drug_shortage": [
-        "drug_name", "generic_name", "manufacturer", "dosage_form", 
-        "shortage_reason", "estimated_resolution_date", "affected_regions"
+        "drug_name",
+        "generic_name",
+        "manufacturer",
+        "dosage_form",
+        "shortage_reason",
+        "estimated_resolution_date",
+        "affected_regions",
     ],
     "medical_device_shortage": [
-        "device_name", "device_category", "manufacturer", "manufacturer_country", 
-        "shortage_reason", "fda_recall_number", "recall_class", 
-        "affected_specialties", "alternatives_available", "estimated_resolution_date"
+        "device_name",
+        "device_category",
+        "manufacturer",
+        "manufacturer_country",
+        "shortage_reason",
+        "fda_recall_number",
+        "recall_class",
+        "affected_specialties",
+        "alternatives_available",
+        "estimated_resolution_date",
     ],
     "cyber_attack": [
-        "attack_type", "threat_actor", "individuals_affected", "data_types_exposed", 
-        "systems_affected", "ransom_demanded_usd", "ransom_paid", "downtime_days", 
-        "services_disrupted", "law_enforcement_involved", "hhs_breach_portal_listed"
+        "attack_type",
+        "threat_actor",
+        "individuals_affected",
+        "data_types_exposed",
+        "systems_affected",
+        "ransom_demanded_usd",
+        "ransom_paid",
+        "downtime_days",
+        "services_disrupted",
+        "law_enforcement_involved",
+        "hhs_breach_portal_listed",
     ],
     "natural_disaster": [
-        "disaster_type", "disaster_name", "fema_declaration_id", "category_magnitude", 
-        "affected_facilities_count", "evacuation_ordered", "field_hospitals", 
-        "beds_offline", "facility_status", "estimated_damage_usd", 
-        "infrastructure_damage", "services_disrupted"
+        "disaster_type",
+        "disaster_name",
+        "fema_declaration_id",
+        "category_magnitude",
+        "affected_facilities_count",
+        "evacuation_ordered",
+        "field_hospitals",
+        "beds_offline",
+        "facility_status",
+        "estimated_damage_usd",
+        "infrastructure_damage",
+        "services_disrupted",
     ],
     "other": [
-        "event_type", "event_description", "severity", "departments_affected", 
-        "staff_type_affected", "beds_offline", "services_disrupted", "regulatory_response"
-    ]
+        "event_type",
+        "event_description",
+        "severity",
+        "departments_affected",
+        "staff_type_affected",
+        "beds_offline",
+        "services_disrupted",
+        "regulatory_response",
+    ],
 }
 SITES_TO_SCRAPE = [
     {
@@ -54,7 +93,7 @@ SITES_TO_SCRAPE = [
             "published_date": "pubDate",
             "starting_page": 1,
             "cap": 3,
-        }
+        },
     },
     {
         "type": "rss_external",
@@ -68,7 +107,7 @@ SITES_TO_SCRAPE = [
             "body_selector": "main article",
             "starting_page": 1,
             "cap": -1,
-        }
+        },
     },
     {
         "type": "rss",
@@ -82,7 +121,7 @@ SITES_TO_SCRAPE = [
             "published_date": "pubDate",
             "starting_page": 1,
             "cap": -1,
-        }
+        },
     },
     {
         "type": "html",
@@ -95,28 +134,30 @@ SITES_TO_SCRAPE = [
             "body_selector": "article",
             "starting_page": 1,
             "cap": 1,
-        }
+        },
     },
 ]
 
 
-
-'''
+"""
 This function is a shared HTTP GET with a User-Agent header to blend 
 in with normal traffic and avoid getting blocked by the website.
-'''
+"""
+
+
 def _get_page(url):
     resp = requests.get(url, timeout=15, headers=HEADERS)
     resp.raise_for_status()
     return resp
 
 
-
-'''
+"""
 This function parses a full XML/RSS feed and retuns a list of normalised articles.
 A normalized article is {"title": title, "link": link, "body": body, "date": date}
 This runs once and grabs all articles from the single page. 
-'''
+"""
+
+
 def fetch_rss_page(site_config, page_url):
     response = _get_page(page_url)
     soup = BeautifulSoup(response.content, "lxml-xml")
@@ -131,17 +172,22 @@ def fetch_rss_page(site_config, page_url):
         link = item.find(m["link"]).text
         raw_body = item.find(m["body"]).text
         body = BeautifulSoup(raw_body, "lxml").get_text(separator=" ", strip=True)
-        date = item.find(m.get("published_date", "")).text if item.find(m.get("published_date", "")) else ""
+        date = (
+            item.find(m.get("published_date", "")).text
+            if item.find(m.get("published_date", ""))
+            else ""
+        )
         articles.append({"title": title, "link": link, "body": body, "date": date})
     return articles
 
 
-
-'''
+"""
 Similar to fetch_rss_page, but for external RSS feeds. This would be for pages who have an RSS page
 that has a title and link, but the body is on a different page. This then grabs the html body from the link
 and returns a list of normalised articles. Same concept {"title": title, "link": link, "body": body, "date": date}
-'''
+"""
+
+
 def fetch_rss_external_page(site_config, page_url):
     response = _get_page(page_url)
     soup = BeautifulSoup(response.content, "lxml-xml")
@@ -155,7 +201,11 @@ def fetch_rss_external_page(site_config, page_url):
     for item in items:
         title = item.find(m["title"]).text
         link = item.find(m["link"]).text
-        date = item.find(m.get("published_date", "")).text if item.find(m.get("published_date", "")) else ""
+        date = (
+            item.find(m.get("published_date", "")).text
+            if item.find(m.get("published_date", ""))
+            else ""
+        )
 
         body = ""
         try:
@@ -173,11 +223,12 @@ def fetch_rss_external_page(site_config, page_url):
     return articles
 
 
-
-'''
+"""
 This function scrapes a pure-HTML listing page for article links, then fetches each body.
 Same concept {"title": title, "link": link, "body": body, "date": date}
-'''
+"""
+
+
 def fetch_html_page(site_config, page_url):
     response = _get_page(page_url)
     soup = BeautifulSoup(response.content, "html.parser")
@@ -230,16 +281,24 @@ def fetch_html_page(site_config, page_url):
             body = ""
 
         if body:
-            articles.append({"title": entry["title"], "link": entry["link"], "body": body, "date": ""})
+            articles.append(
+                {
+                    "title": entry["title"],
+                    "link": entry["link"],
+                    "body": body,
+                    "date": "",
+                }
+            )
     return articles
 
 
-
-'''
+"""
 This function builds the page url for the site.
 It handles the pagination differences between types 
 eg, it might go from RSS to HTML, this handles that pagination differnce
-'''
+"""
+
+
 def build_page_url(site_config, current_page, starting_page):
     if current_page == starting_page:
         return site_config["url"]
@@ -252,7 +311,6 @@ def build_page_url(site_config, current_page, starting_page):
     return f"{site_config['url']}?{page_param}={current_page}"
 
 
-
 FETCHERS = {
     "rss": fetch_rss_page,
     "rss_external": fetch_rss_external_page,
@@ -260,12 +318,13 @@ FETCHERS = {
 }
 
 
-
-'''
+"""
 This function reads the type field from the config, picks the right fetcher function from the FETCHERS dict, 
 then runs a page-by-page while True loop. Each iteration it builds a URL, calls the fetcher, gets back a list 
 of article dicts, and runs each one through AI validation and output.
-'''
+"""
+
+
 def run_scraper(site_config):
     site_type = site_config.get("type", "rss")
     fetcher = FETCHERS.get(site_type)
@@ -301,19 +360,33 @@ def run_scraper(site_config):
             # NOTE: Eventually we will need to see if the article is something we have already seen
             is_threat, detail = ai_check_validation(article["title"], article["body"])
             if is_threat:
-                json_output(site_config["name"], article["title"], article["link"], article["body"], detail)
-            report_output(is_threat, site_config["name"], article["title"], article["link"], article["body"], detail)
+                json_output(
+                    site_config["name"],
+                    article["title"],
+                    article["link"],
+                    article["body"],
+                    detail,
+                )
+            report_output(
+                is_threat,
+                site_config["name"],
+                article["title"],
+                article["link"],
+                article["body"],
+                detail,
+            )
 
         current_page += 1
         time.sleep(1)
 
 
-
-'''
+"""
 This function checks to see that we have 2 valid files in the data directory.
 One being [title].json under the valid data/valid and the other being [title].txt under the invalid data/invalid.
 This will automatically add the files if they are not found
-'''
+"""
+
+
 def check_valid_file(title):
     READY_FOR_RAG_DIR.mkdir(parents=True, exist_ok=True)
     NOISE_DIR.mkdir(parents=True, exist_ok=True)
@@ -325,7 +398,14 @@ def check_valid_file(title):
         print(f"Created {json_path}")
 
     # these are the columns that will be written to the CSV files, we may need to add more later
-    headers = ["date_accessed", "is_threat", "subsector", "title", "url", "body_preview"]
+    headers = [
+        "date_accessed",
+        "is_threat",
+        "subsector",
+        "title",
+        "url",
+        "body_preview",
+    ]
 
     noise_path = NOISE_DIR / f"{title.strip()}.csv"
     if not noise_path.exists():
@@ -340,39 +420,47 @@ def check_valid_file(title):
         print(f"Created {vulnerabilities_path}")
 
 
-
-'''
+"""
 This function will write to src/data/Ready_for_RAG/[site_name].json
 It will write all fields that we have found and leave a "" for all other fields not found.
-'''
+"""
+
+
 def json_output(site_name, title, url, body, subsector):
-    print(f"[VALID] {title} | {url}") # makes easy to see, delete later
+    print(f"[VALID] {title} | {url}")  # makes easy to see, delete later
     json_path = READY_FOR_RAG_DIR / f"{site_name.lower()}.json"
     data = json.loads(json_path.read_text(encoding="utf-8"))
-    data["sources"].append({
-        "id": str(uuid.uuid4()), 
-        "title": title,
-        "source_name": site_name,
-        "direct_link": url,
-        "subsector": subsector,
-        "date_accessed": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "date_published": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), #TODO: add a published date to the SITES_TO_SCRAPE
-        "content": body,
-        "exec_summary": "", #TODO: add a fucntion for this in ask_llm.py
-        #if there is no subsector just insert an empty dict {} 
-        #TODO: make subsector_data more peaceful when empty
-        "subsector_data": find_subsector_fields(subsector, title, body) if subsector in SUBSECTOR_FIELDS else {},
-    })
+    data["sources"].append(
+        {
+            "id": str(uuid.uuid4()),
+            "title": title,
+            "source_name": site_name,
+            "direct_link": url,
+            "subsector": subsector,
+            "date_accessed": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "date_published": datetime.datetime.now().strftime(
+                "%Y-%m-%d %H:%M"
+            ),  # TODO: add a published date to the SITES_TO_SCRAPE
+            "content": body,
+            "exec_summary": "",  # TODO: add a fucntion for this in ask_llm.py
+            # if there is no subsector just insert an empty dict {}
+            # TODO: make subsector_data more peaceful when empty
+            "subsector_data": find_subsector_fields(subsector, title, body)
+            if subsector in SUBSECTOR_FIELDS
+            else {},
+        }
+    )
     json_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
     print(f"[VALID] ([{subsector}]: {title}")
 
 
-
-'''
+"""
 This function writes to a CSV file in src/data/[Noise OR Vulnerabilities]/[site_name].csv
 It reports everything it sees here, to make it easier for us to review and evaluate the accuracy 
 of the AI later. 
-'''
+"""
+
+
 def report_output(is_threat, site_name, title, url, body, reason):
     target_dir = VULNERABILITIES_DIR if is_threat else NOISE_DIR
     csv_path = target_dir / f"{site_name}.csv"
@@ -386,6 +474,7 @@ def report_output(is_threat, site_name, title, url, body, reason):
     ]
     with open(csv_path, "a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(row)
+
 
 # Run everything in one go
 for site in SITES_TO_SCRAPE:

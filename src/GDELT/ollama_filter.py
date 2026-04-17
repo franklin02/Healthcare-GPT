@@ -2,10 +2,10 @@ import time
 import requests
 from html.parser import HTMLParser
 
-OLLAMA_URL   = "http://localhost:11434/api/generate"
+OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "llama3.2"
-MAX_CHARS    = 3000
-FETCH_DELAY  = 1.0  # seconds between article fetches
+MAX_CHARS = 3000
+FETCH_DELAY = 1.0  # seconds between article fetches
 
 HEADERS = {
     "User-Agent": (
@@ -45,12 +45,13 @@ Answer (YES or NO only):"""
 
 # ── HTML stripping ────────────────────────────────────────────────────────────
 
+
 class _TextExtractor(HTMLParser):
     _SKIP_TAGS = {"script", "style", "noscript", "head", "nav", "footer", "aside"}
 
     def __init__(self):
         super().__init__()
-        self._skip  = 0
+        self._skip = 0
         self._parts = []
 
     def handle_starttag(self, tag, attrs):
@@ -75,6 +76,8 @@ class _TextExtractor(HTMLParser):
 Fetch a URL and return plain text, truncated to MAX_CHARS.
 Returns None on any network or HTTP error.
 """
+
+
 def fetch_article_text(url: str) -> str | None:
 
     try:
@@ -91,11 +94,14 @@ def fetch_article_text(url: str) -> str | None:
     except Exception:
         return None
 
+
 """
 Ask Ollama (change to chat l8er) whether the article is about a US hospital cyberattack.
 Returns True if AI answers YES, False otherwise.
 Raises ConnectionError if AI is not running.
 """
+
+
 def ask_ai(url: str, text: str) -> bool:
 
     prompt = PROMPT_TEMPLATE.format(url=url, text=text)
@@ -114,6 +120,7 @@ def ask_ai(url: str, text: str) -> bool:
     answer = resp.json().get("response", "").strip().upper()
     return answer.startswith("YES")
 
+
 """
 Filter a list of candidate URLs using Ollama.
 
@@ -125,12 +132,14 @@ For each URL:
 Prints progress for every URL processed.
 Returns the confirmed list.
 """
+
+
 def filter_with_ollama(urls: list[str]) -> list[str]:
 
     if not urls:
         return []
 
-    total     = len(urls)
+    total = len(urls)
     confirmed = []
 
     print(f"\nRunning AI filter on {total} candidate URLs...")
@@ -144,8 +153,7 @@ def filter_with_ollama(urls: list[str]) -> list[str]:
             print(f"{prefix} SKIP (fetch failed)  {url}")
             time.sleep(FETCH_DELAY)
             continue
-        #print(f"  DEBUG text preview: {text[:200]}") # remove 
-
+        # print(f"  DEBUG text preview: {text[:200]}") # remove
 
         try:
             result = ask_ai(url, text)

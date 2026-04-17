@@ -1,10 +1,9 @@
 """
 This file is going to scrape Reports to Congress from the FDA website (2024-2020)
-Some pdf included have images, these have been skipped (we dont know how the digestions 
+Some pdf included have images, these have been skipped (we dont know how the digestions
 works rn). It also gets outputed as text and json files for RAG ingestion (same reason)
 """
 
-import os
 import re
 import json
 import time
@@ -17,9 +16,9 @@ OUTPUT_DIR = Path(__file__).parent / "fda_congress_reports"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-PDF_DIR    = OUTPUT_DIR / "pdfs"
-TEXT_DIR   = OUTPUT_DIR / "texts"
-JSON_DIR   = OUTPUT_DIR / "json"
+PDF_DIR = OUTPUT_DIR / "pdfs"
+TEXT_DIR = OUTPUT_DIR / "texts"
+JSON_DIR = OUTPUT_DIR / "json"
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 PDF_DIR.mkdir(exist_ok=True)
@@ -71,13 +70,14 @@ REPORTS = [
 
 def clean_text(text: str) -> str:
     # Collapse multiple blank lines → single blank line
-    text = re.sub(r'\n{3,}', '\n\n', text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
     # Remove stray form-feed characters
-    text = text.replace('\x0c', '\n')
+    text = text.replace("\x0c", "\n")
     # Strip leading/trailing whitespace per line
     lines = [line.rstrip() for line in text.splitlines()]
-    text = '\n'.join(lines)
+    text = "\n".join(lines)
     return text.strip()
+
 
 #  Download a PDF and return its local path, or None on failure.
 def download_pdf(report: dict) -> Path | None:
@@ -89,7 +89,9 @@ def download_pdf(report: dict) -> Path | None:
 
     print(f"  [GET]  {report['url']}")
     try:
-        resp = requests.get(report["url"], headers=HEADERS, timeout=60, allow_redirects=True)
+        resp = requests.get(
+            report["url"], headers=HEADERS, timeout=60, allow_redirects=True
+        )
         resp.raise_for_status()
 
         content_type = resp.headers.get("Content-Type", "")
@@ -116,10 +118,12 @@ def extract_text(pdf_path: Path, report: dict) -> str | None:
             for i, page in enumerate(pdf.pages):
                 page_text = page.extract_text(x_tolerance=2, y_tolerance=3) or ""
                 if page_text.strip():
-                    pages_text.append(f"[Page {i+1}/{total}]\n{page_text}")
+                    pages_text.append(f"[Page {i + 1}/{total}]\n{page_text}")
 
         if not pages_text:
-            print(f"  [WARN] No text extracted from {pdf_path.name} (may be scanned image PDF)")
+            print(
+                f"  [WARN] No text extracted from {pdf_path.name} (may be scanned image PDF)"
+            )
             return None
 
         raw = "\n\n".join(pages_text)
@@ -156,13 +160,15 @@ def save_json(text: str, report: dict, pages: int, char_count: int) -> Path:
     # Split into page chunks for finer-grained RAG retrieval
     page_chunks = []
     for block in text.split("\n\n"):
-        match = re.match(r'^\[Page (\d+)/(\d+)\]\n(.*)', block, re.DOTALL)
+        match = re.match(r"^\[Page (\d+)/(\d+)\]\n(.*)", block, re.DOTALL)
         if match:
-            page_chunks.append({
-                "page": int(match.group(1)),
-                "total_pages": int(match.group(2)),
-                "content": match.group(3).strip(),
-            })
+            page_chunks.append(
+                {
+                    "page": int(match.group(1)),
+                    "total_pages": int(match.group(2)),
+                    "content": match.group(3).strip(),
+                }
+            )
 
     doc = {
         "source": "FDA Drug Shortages – Report to Congress",
@@ -180,6 +186,7 @@ def save_json(text: str, report: dict, pages: int, char_count: int) -> Path:
 
     print(f"  [JSON] Saved JSON → {json_path.name}")
     return json_path
+
 
 def run():
     manifest = []

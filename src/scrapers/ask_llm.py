@@ -1,45 +1,78 @@
-import json, uuid, datetime, csv
-import requests, time
-from pathlib import Path
-from bs4 import BeautifulSoup
-from enum import Enum
+import json
+import requests
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
 SUBSECTOR_FIELDS = {
     "drug_shortage": [
-        "drug_name", "generic_name", "manufacturer", "dosage_form", 
-        "shortage_reason", "estimated_resolution_date", "affected_regions"
+        "drug_name",
+        "generic_name",
+        "manufacturer",
+        "dosage_form",
+        "shortage_reason",
+        "estimated_resolution_date",
+        "affected_regions",
     ],
     "medical_device_shortage": [
-        "device_name", "device_category", "manufacturer", "manufacturer_country", 
-        "shortage_reason", "fda_recall_number", "recall_class", 
-        "affected_specialties", "alternatives_available", "estimated_resolution_date"
+        "device_name",
+        "device_category",
+        "manufacturer",
+        "manufacturer_country",
+        "shortage_reason",
+        "fda_recall_number",
+        "recall_class",
+        "affected_specialties",
+        "alternatives_available",
+        "estimated_resolution_date",
     ],
     "cyber_attack": [
-        "attack_type", "threat_actor", "individuals_affected", "data_types_exposed", 
-        "systems_affected", "ransom_demanded_usd", "ransom_paid", "downtime_days", 
-        "services_disrupted", "law_enforcement_involved", "hhs_breach_portal_listed"
+        "attack_type",
+        "threat_actor",
+        "individuals_affected",
+        "data_types_exposed",
+        "systems_affected",
+        "ransom_demanded_usd",
+        "ransom_paid",
+        "downtime_days",
+        "services_disrupted",
+        "law_enforcement_involved",
+        "hhs_breach_portal_listed",
     ],
     "natural_disaster": [
-        "disaster_type", "disaster_name", "fema_declaration_id", "category_magnitude", 
-        "affected_facilities_count", "evacuation_ordered", "field_hospitals", 
-        "beds_offline", "facility_status", "estimated_damage_usd", 
-        "infrastructure_damage", "services_disrupted"
+        "disaster_type",
+        "disaster_name",
+        "fema_declaration_id",
+        "category_magnitude",
+        "affected_facilities_count",
+        "evacuation_ordered",
+        "field_hospitals",
+        "beds_offline",
+        "facility_status",
+        "estimated_damage_usd",
+        "infrastructure_damage",
+        "services_disrupted",
     ],
     "other": [
-        "event_type", "event_description", "severity", "departments_affected", 
-        "staff_type_affected", "beds_offline", "services_disrupted", "regulatory_response"
-    ]
+        "event_type",
+        "event_description",
+        "severity",
+        "departments_affected",
+        "staff_type_affected",
+        "beds_offline",
+        "services_disrupted",
+        "regulatory_response",
+    ],
 }
 
-'''
+"""
 This function is used to call an AI model (current Ollama) to check
 if the article we parsed presents a risk to the healthcare industry.
 It expects 2 arguments: the title and the body of the article which 
 at this point should be already parsed and cleaned.
 
-'''
+"""
+
+
 def ai_check_validation(title, body) -> tuple[bool, str]:
     prompt = f"""
         [INST] <<SYS>>
@@ -72,28 +105,32 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
 
         [/INST]
     """
-    
+
     try:
         resp = requests.post(
             AI_URL,
             json={
-                "model": AI_MODEL, 
-                "prompt": prompt, 
+                "model": AI_MODEL,
+                "prompt": prompt,
                 "stream": False,
                 "format": "json",
-                "options": { "temperature": 0.1 }
+                "options": {"temperature": 0.1},
             },
             timeout=60,
         )
-        
+
         raw_response = resp.json().get("response", "{}")
         data = json.loads(raw_response)
-        
+
         is_threat = data.get("is_operational_disruption", False)
 
         # Use subsector if it's a threat, otherwise use the analysis as the "reason"
-        detail = data.get("subsector", "none") if is_threat else data.get("analysis", "No impact detected")
-        
+        detail = (
+            data.get("subsector", "none")
+            if is_threat
+            else data.get("analysis", "No impact detected")
+        )
+
         return is_threat, detail
 
     except Exception as e:
@@ -101,10 +138,12 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
         return False, "Parsing Error"
 
 
-'''
+"""
 Once we KNOW a source clasifies as a vulnerability, we need to find all the
 subsector specific fields (found in src/data/schema.json) and return them in a dictionary.
-'''
+"""
+
+
 def find_subsector_fields(subsector, title, body) -> dict:
 
     # Get the specific fields for this subsector or exist if none found
@@ -112,7 +151,7 @@ def find_subsector_fields(subsector, title, body) -> dict:
     if not fields_to_extract:
         print(f"No fields found for subsector: {subsector}")
         exit(1)
-    
+
     # Format the list into a string for the prompt
     fields_string = ", ".join([f'"{f}"' for f in fields_to_extract])
 
@@ -145,15 +184,14 @@ def find_subsector_fields(subsector, title, body) -> dict:
                 "prompt": prompt,
                 "stream": False,
                 "format": "json",
-                "options": { "temperature": 0.0 }
+                "options": {"temperature": 0.0},
             },
             timeout=30,
         )
-        
+
         raw_response = resp.json().get("response", "{}")
         return json.loads(raw_response)
 
     except Exception as e:
         print(f"Error extracting subsector fields: {e}")
         return {key: None for key in fields_to_extract}
-    

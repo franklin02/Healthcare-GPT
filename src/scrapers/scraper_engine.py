@@ -81,6 +81,63 @@ SUBSECTOR_FIELDS = {
     ],
 }
 SITES_TO_SCRAPE = [
+    # {
+    #     "type": "rss",
+    #     "name": "NPR_Shots",
+    #     "url": "https://feeds.npr.org/1128/rss.xml",
+    #     "map": {
+    #         "container": "item",
+    #         "title": "title",
+    #         "link": "link",
+    #         "body": "encoded",
+    #         "published_date": "pubDate",
+    #         "starting_page": 1,
+    #         "cap": -1,
+    #     },
+    # },
+    # {
+    #     "type": "rss", #pagination doesnt work 
+    #     "name": "EndPoints_News",
+    #     "url": "https://endpoints.news/feed/", #html https://endpoints.news/news/
+    #     "map": {
+    #         "container": "item",
+    #         "title": "title",
+    #         "link": "link",
+    #         "body": "description",  # NOTE: full articles require a subscription
+    #         "published_date": "pubDate",
+    #         "starting_page": 1,
+    #         "cap": -1,
+    #     },
+    # },
+    # {
+    #     "type": "rss",
+    #     "name": "AIScoop",
+    #     "url": "https://aiscoop.com/feed/",
+    #     "map": {
+    #         "container": "item",
+    #         "title": "title",
+    #         "link": "link",
+    #         "body": "encoded",
+    #         "published_date": "pubDate",
+    #         "starting_page": 1,
+    #         "cap": -1,
+    #     },
+    # },
+    # {
+    #     "type": "html",
+    #     "name": "MedicalNewsToday",
+    #     "url": "https://www.medicalnewstoday.com/news",
+    #     "map": {
+    #         "container": "a[href^='https://www.medicalnewstoday.com/articles/']",
+    #         "title": None,
+    #         "link_selector": None,
+    #         "body_selector": "article",
+    #         "page_param": "page",
+    #         "starting_page": 1,
+    #         "cap": -1,
+    #     },
+    # },
+    
     {
         "type": "rss",
         "name": "CyberScoop",
@@ -136,6 +193,7 @@ SITES_TO_SCRAPE = [
             "cap": 1,
         },
     },
+
 ]
 
 

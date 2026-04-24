@@ -5,13 +5,19 @@
             "title": "",
             "source_name": "",
             "direct_link": "",
-            "subsector": "",
+            "subsector": "drug_shortage",
             "date_accessed": "",
             "date_published": "",
             "content": "",
             "exec_summary": "",
             "subsector_data": {
-                
+                "drug_name": "",
+                "generic_name": "",
+                "manufacturer": "",
+                "dosage_form": "",
+                "shortage_reason": "",
+                "estimated_resolution_date": "",
+                "affected_regions": ""
             }
         },
         {

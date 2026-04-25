@@ -14,3 +14,4 @@ pandas
 python-dotenv
 pdfplumber
 beautifulsoup4
+lxml

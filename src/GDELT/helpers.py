@@ -1,5 +1,7 @@
 import json
+import re
 import requests
+from bs4 import BeautifulSoup
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
@@ -65,6 +67,83 @@ SUBSECTOR_FIELDS = {
         "regulatory_response",
     ],
 }
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
+_NOISE_PATTERNS = (
+    "ad", "advert", "promo", "sidebar", "related", "newsletter",
+    "subscribe", "comment", "social", "share", "cookie",
+)
+_NOISE_RE = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
+_NOISE_SELECTOR = ",".join(f'[class*="{p}"]' for p in _NOISE_PATTERNS)
+
+'''
+This function takes a url (string) as an argument and returns the ENTIRE
+body. This works on most cites. The body may be needed to be truncated depending
+on your use case.
+'''
+def get_body(url: str) -> str:
+    if not url:
+        return ""
+
+    # Normalize URL
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    # Fetch
+    try:
+        resp = requests.get(url, timeout = 30, headers = HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException:
+        print("[ERROR] Status is unexpected: ", resp.status_code)
+        return ""
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Strip non-content tags
+    for tag in soup(["script", "style", "noscript", "iframe", "form",
+                     "header", "footer", "nav", "aside"]):
+        tag.decompose()
+
+    # Strip noise by class
+    for el in soup.select(_NOISE_SELECTOR):
+        el.decompose()
+
+    # Strip noise by id
+    for el in soup.find_all(id=_NOISE_RE):
+        el.decompose()
+
+    # Pick the best content container, in order of preference
+    main = None
+    for candidate in (
+        soup.find("article"),
+        soup.find("main"),
+        soup.find(attrs={"role": "main"}),
+        soup.body,
+        soup,
+    ):
+        if candidate and candidate.get_text(strip=True):
+            main = candidate
+            break
+
+    if main is None:
+        print("[WARNING] no body found")
+        return ""
+
+    # Prefer paragraph text (gives cleaner article body across sites.)
+    # Fall back to all text if no <p> tags found.
+    paragraphs = [p.get_text(" ", strip=True) for p in main.find_all("p")]
+    paragraphs = [p for p in paragraphs if p]
+
+    if paragraphs:
+        return "\n\n".join(paragraphs)
+    return main.get_text(" ", strip=True)
 
 """
 This function is used to call an AI model (currently Ollama) to check

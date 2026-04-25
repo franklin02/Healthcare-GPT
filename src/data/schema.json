@@ -10,6 +10,16 @@
             "date_published": "",
             "content": "",
             "exec_summary": "",
+
+
+            "confidence_level":  "NOTE: one of the following {high, medium, low} To be calculated by INL",
+            "risk level": "To be calculated by INL later",
+            "geography_scope": "NOTE: US or US Territory(Specify)", 
+            "start_date": "NOTE: this format MM/DD/YYYY ",
+            "end_date": "NOTE: this format MM/DD/YYYY ",
+            "resilience_or_mitigation_observed": "examples here: https://docs.google.com/spreadsheets/d/1vntuDegn4Kdtx1X89IptHQ27Ta4jA6MGIwxJOBgpDts/edit?usp=sharing",
+
+
             "subsector_data": {
                 "drug_name": "",
                 "generic_name": "",
@@ -17,7 +27,8 @@
                 "dosage_form": "",
                 "shortage_reason": "",
                 "estimated_resolution_date": "",
-                "affected_regions": ""
+                "affected_regions": "",
+                "domestic_vs_foreign_dependency": "NOTE: one of the following {domestic, foreign, both}"
             }
         },
         {
@@ -30,17 +41,25 @@
             "date_published": "",
             "content": "",
             "exec_summary": "",
+            "confidence_level":  "NOTE: one of the following {high, medium, low} To be calculated by INL",
+            "risk level": "To be calculated by INL later",
+            "geography_scope": "NOTE: US or US Territory(Specify)", 
+            "start_date": "NOTE: this format MM/DD/YYYY ",
+            "end_date": "NOTE: this format MM/DD/YYYY ",
+            "resilience_or_mitigation_observed": "examples here: https://docs.google.com/spreadsheets/d/1vntuDegn4Kdtx1X89IptHQ27Ta4jA6MGIwxJOBgpDts/edit?usp=sharing",
             "subsector_data": {
-                "device_name": "Infusion Pump Model X",
-                "device_category": "Infusion Systems",
-                "manufacturer": "Baxter International",
-                "manufacturer_country": "US",
-                "shortage_reason": "Manufacturing disruption",
-                "fda_recall_number": "Z-1234-2026",
-                "recall_class": "Class II",
-                "affected_specialties": ["ICU", "Oncology"],
+                "device_name": "",
+                "device_category": "",
+                "manufacturer": "",
+                "manufacturer_country": "",
+                "shortage_reason": "",
+                "fda_recall_number": "",
+                "recall_class": "",
+                "affected_specialties": [],
                 "alternatives_available": false,
-                "estimated_resolution_date": "2026-08-01"
+                "estimated_resolution_date": "",
+                "domestic_vs_foreign_dependency": "NOTE: one of the following {domestic, foreign, both}"
+
             }
         },
         {
@@ -53,16 +72,22 @@
             "date_published": "",
             "content": "",
             "exec_summary": "",
+            "confidence_level":  "NOTE: one of the following {high, medium, low} To be calculated by INL",
+            "risk level": "To be calculated by INL later",
+            "geography_scope": "NOTE: US or US Territory(Specify)", 
+            "start_date": "NOTE: this format MM/DD/YYYY ",
+            "end_date": "NOTE: this format MM/DD/YYYY ",
+            "resilience_or_mitigation_observed": "examples here: https://docs.google.com/spreadsheets/d/1vntuDegn4Kdtx1X89IptHQ27Ta4jA6MGIwxJOBgpDts/edit?usp=sharing",
             "subsector_data": {
-                "attack_type": "ransomware",
-                "threat_actor": "BlackCat/ALPHV",
-                "individuals_affected": 450000,
-                "data_types_exposed": ["PHI", "SSN", "financial"],
-                "systems_affected": ["EHR", "billing"],
-                "ransom_demanded_usd": 5000000,
+                "attack_type": "",
+                "threat_actor": "",
+                "individuals_affected": 10000,
+                "data_types_exposed": [],
+                "systems_affected": [],
+                "ransom_demanded_usd": 10000,
                 "ransom_paid": false,
-                "downtime_days": 14,
-                "services_disrupted": ["emergency", "radiology", "pharmacy"],
+                "downtime_days": 10000,
+                "services_disrupted": [],
                 "law_enforcement_involved": true,
                 "hhs_breach_portal_listed": true
             }
@@ -77,19 +102,25 @@
             "date_published": "",
             "content": "",
             "exec_summary": "",
+            "confidence_level":  "NOTE: one of the following {high, medium, low} To be calculated by INL",
+            "risk level": "To be calculated by INL later",
+            "geography_scope": "NOTE: US or US Territory(Specify)", 
+            "start_date": "NOTE: this format MM/DD/YYYY ",
+            "end_date": "NOTE: this format MM/DD/YYYY ",
+            "resilience_or_mitigation_observed": "examples here: https://docs.google.com/spreadsheets/d/1vntuDegn4Kdtx1X89IptHQ27Ta4jA6MGIwxJOBgpDts/edit?usp=sharing",
             "subsector_data": {
-                "disaster_type": "hurricane",
-                "disaster_name": "Hurricane Milton",
-                "fema_declaration_id": "DR-4828",
-                "category_magnitude": "Category 4",
-                "affected_facilities_count": 12,
+                "disaster_type": "",
+                "disaster_name": "",
+                "fema_declaration_id": "",
+                "category_magnitude": "",
+                "affected_facilities_count": 10000,
                 "evacuation_ordered": true,
                 "field_hospitals": true, 
-                "beds_offline": 340,
-                "facility_status": "diverting",
-                "estimated_damage_usd": 15000000,
-                "infrastructure_damage": ["power", "water"],
-                "services_disrupted": ["emergency", "surgery", "dialysis"]
+                "beds_offline": 10000,
+                "facility_status": "",
+                "estimated_damage_usd": 10000,
+                "infrastructure_damage": [],
+                "services_disrupted": []
             }
         },
         {
@@ -102,15 +133,21 @@
             "date_published": "",
             "content": "",
             "exec_summary": "",
+            "confidence_level":  "NOTE: one of the following {high, medium, low} To be calculated by INL",
+            "risk level": "To be calculated by INL later",
+            "geography_scope": "NOTE: US or US Territory(Specify)", 
+            "start_date": "NOTE: this format MM/DD/YYYY ",
+            "end_date": "NOTE: this format MM/DD/YYYY ",
+            "resilience_or_mitigation_observed": "examples here: https://docs.google.com/spreadsheets/d/1vntuDegn4Kdtx1X89IptHQ27Ta4jA6MGIwxJOBgpDts/edit?usp=sharing",
             "subsector_data": {
-                "event_type": "mass_resignation",
-                "event_description": "All 15 ER physicians resigned simultaneously citing unsafe staffing",
-                "severity": "critical",
-                "departments_affected": ["Emergency", "Trauma"],
-                "staff_type_affected": "physicians",
-                "beds_offline": 45,
-                "services_disrupted": ["emergency", "trauma"],
-                "regulatory_response": "CMS survey triggered"
+                "event_type": "",
+                "event_description": "",
+                "severity": "",
+                "departments_affected": [],
+                "staff_type_affected": "",
+                "beds_offline": 10000,
+                "services_disrupted": [],
+                "regulatory_response": ""
             }
         }
        

@@ -180,9 +180,11 @@ Only needed if you'll run scripts in `src/fda_apis/`. The keys are free.
 
 ```bash
 cd src
-python ingest.py --file data/Ready_for_RAG/CyberScoop.json
+python ingest.py --file ../data/processed/CyberScoop.json --new_db
 uvicorn main:app --reload
 ```
+
+If asked 'are you sure you want to delete the existing database?', type 'y' and press enter.
 
 Open http://127.0.0.1:8000 and ask a question.
 

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, asdict
 from typing import List
-from models.ndc_snapshot import NDCSnapshot
+from .ndc_snapshot import NDCSnapshot
 
 
 @dataclass

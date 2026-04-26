@@ -32,6 +32,7 @@ pip install -r requirements.txt
 ```bash
 ollama pull llama3.2
 ```
+If using BERT as a classifier download the model from google drive [here](https://drive.google.com/drive/folders/1rRqZBmgcjEHLE_fc5CecUGVGpzvDgCqm?usp=drive_link) and place it in /src/models
 
 ### 3. Environment Variables
 
@@ -89,3 +90,6 @@ subsector, content, exec_summary, subsector_data, etc.)
 - GET /status   → System health check
 - Updated source doc shape: { id, title, source_name, direct_link }
 
+### Model training:
+
+If training a new classifier version please grab datasets from the google drive [here](https://drive.google.com/drive/folders/16-yWzqTwKiQK7ah7ya4eLd8729sw7iUl?usp=drive_link)

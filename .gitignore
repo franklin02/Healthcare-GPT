@@ -4,3 +4,7 @@ __pycache__/
 .DS_Store
 .env
 chroma_db/
+src/tests/train-bert/.ipynb_checkpoints
+src/tests/train-bert/.jupyter
+src/models/
+src/tests/train-bert/*.csv

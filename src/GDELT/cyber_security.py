@@ -235,12 +235,12 @@ def backfill_cyber_seeds(num_files=20):
         ]
         print(f"  Themes: {' | '.join(relevant[:8])}\n")
 
-    return [s["url"] for s in unique]
+    return unique
 
 
 if __name__ == "__main__":
-    #    backfill_cyber_seeds(num_files=150)
-    urls = backfill_cyber_seeds(num_files=150)
+    seeds = backfill_cyber_seeds(num_files=150)
+    urls = [s["url"] for s in seeds]
     from ollama_filter import filter_with_ollama
 
     confirmed = filter_with_ollama(urls)

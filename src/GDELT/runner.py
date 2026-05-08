@@ -10,6 +10,10 @@ Pipeline:
 """
 import argparse
 import hashlib
+import json
+from datetime import datetime
+from pathlib import Path
+import os
 
 from cyber_security import backfill_cyber_seeds
 from helpers import ai_check_validation, find_subsector_fields, get_body
@@ -19,6 +23,16 @@ BODY_CHAR_LIMIT = 4000
 
 def stable_id(url: str) -> str:
     return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+
+
+def fmt_dt(value: str) -> str:
+    try:
+        return datetime.strptime(value, "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return value
 
 
 def process_seed(seed: dict) -> dict | None:
@@ -82,6 +96,44 @@ def run(num_files: int, limit: int | None) -> list[dict]:
         print(f"URL: {rec['direct_link']}")
         print(f"Source: {rec['source_name']}")
         print(f"Fields: {rec['subsector_data']}")
+
+    # write records out grouped by source to src/data/Ready_for_RAG/<source>.json
+    def _norm_source(name: str) -> str:
+        if not name:
+            return "unknown"
+        return "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in name).lower()
+
+    out_dir = Path(__file__).parent.parent / "data" / "Ready_for_RAG"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # write single GDELT.json with top-level "sources" array (schema-like)
+    out_file = out_dir / "GDELT.json"
+    out_recs = []
+    for r in records:
+        out_recs.append(
+            {
+                "id": r.get("id", ""),
+                "title": r.get("title", ""),
+                "source_name": r.get("source_name", ""),
+                "direct_link": r.get("direct_link", ""),
+                "subsector": r.get("subsector", ""),
+                "date_accessed": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "date_published": fmt_dt(r.get("date_published", "")),
+                "content": r.get("content", ""),
+                "exec_summary": "",
+                "confidence_level": "",
+                "risk level": "",
+                "geography_scope": "",
+                "start_date": "",
+                "end_date": "",
+                "resilience_or_mitigation_observed": "",
+                "subsector_data": r.get("subsector_data", {}),
+            }
+        )
+
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump({"sources": out_recs}, f, ensure_ascii=False, indent=2)
+    print(f"Wrote {len(out_recs)} records to {out_file}")
 
     return records
 

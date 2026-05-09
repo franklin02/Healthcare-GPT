@@ -229,8 +229,8 @@ def find_subsector_fields(subsector, title, body) -> dict:
     # Get the specific fields for this subsector or exist if none found
     fields_to_extract = SUBSECTOR_FIELDS.get(subsector)
     if not fields_to_extract:
-        print(f"No fields found for subsector: {subsector}")
-        exit(1)
+        print(f"Error: No fields found for subsector: {subsector}")
+        return {}
 
     # Format the list into a string for the prompt
     fields_string = ", ".join([f'"{f}"' for f in fields_to_extract])

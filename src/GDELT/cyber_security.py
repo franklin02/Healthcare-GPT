@@ -40,6 +40,33 @@ HEALTH_THEMES = {
     "HEALTHCARE",
 }
 
+
+DRUG_SHORAGE_THEMES = {
+    "SHORTAGE", 
+    "PHARMACEUTICAL_SUPPLY_CHAIN",
+    "ESSENTIAL_MEDICINES",
+    "MANUFACTURING_OF_DRUGS",
+    "PHARMACEUTICALS",
+    "GENERIC_DRUGS",
+    "PHARMACEUTICAL_PRICING",
+    "PHARMACEUTICAL_POLICY",
+    "PHARMACEUTICAL_REGULATION",
+    "QUALITY_ASSURANCE_FOR_PHARMACEUTICALS",
+    "FINANCING_OF_DRUGS",
+    "RATIONAL_SELECTION_AND_USE_OF_DRUGS"
+}
+
+DEVICE_SHORTAGE_THEMES = {
+    "MEDICAL_EQUIPMENT",
+    "HEALTH_TECHNOLOGIES",
+    "PROCUREMENT_OF_HEALTH_TECHNOLOGIES",
+    "MEDICAL_SUPPLIES_FINANCE"
+}
+
+NATURAL_DISASTER_THEMES = {
+    "NATURAL_DISASTER"
+}
+
 NOISE_THEMES = {"SPORTS", "GAMES_ESPORTS", "ENV_", "TOURISM", "EDUCATION_UNIVERSITY"}
 
 US_TLDS = {
@@ -172,14 +199,17 @@ def process_gkg_file(link):
         noise = df["themes"].apply(lambda t: themes_match(t, NOISE_THEMES))
         df = df[cyber & health & ~noise].copy()
         if df.empty:
+            print(f"    [FILTERED OUT] No results after theme filter")
             return []
 
         df = df[df["locs"].apply(is_us_located)].copy()
         if df.empty:
+            print(f"    [FILTERED OUT] No results after US location filter")
             return []
 
         df = df[df["url"].apply(url_passes_quality)].copy()
         if df.empty:
+            print(f"    [FILTERED OUT] No results after URL quality filter")
             return []
 
         fname = link.split("/")[-1]

@@ -56,6 +56,13 @@ def process_seed(seed: dict) -> dict | None:
         return None
 
     subsector = detail
+    
+    # Skip if subsector is invalid or "none"
+    valid_subsectors = {"drug_shortage", "medical_device_shortage", "cyber_attack", "natural_disaster", "other"}
+    if subsector not in valid_subsectors:
+        print(f"     [skip] invalid subsector: {subsector}")
+        return None
+    
     print(f"     OK  disruption confirmed: {subsector}")
 
     fields = find_subsector_fields(subsector, title, excerpt)

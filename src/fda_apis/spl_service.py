@@ -2,7 +2,7 @@ import re
 import requests
 import time
 import os
-from models.drug_snapshot import DrugSnapshot
+from .models.drug_snapshot import DrugSnapshot
 
 
 def get_drug_name(openfda):

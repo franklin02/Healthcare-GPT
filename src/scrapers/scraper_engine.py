@@ -6,7 +6,7 @@ import requests
 import time
 from pathlib import Path
 from bs4 import BeautifulSoup
-from ask_llm import ai_check_validation, find_subsector_fields
+from .ask_llm import ai_check_validation, find_subsector_fields
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"

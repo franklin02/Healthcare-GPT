@@ -3,8 +3,8 @@ import time
 import os
 from typing import List
 from datetime import datetime
-from models.drug_snapshot import DrugSnapshot
-from models.drug_snapshot import NDCSnapshot
+from .models.drug_snapshot import DrugSnapshot
+from .models.drug_snapshot import NDCSnapshot
 
 
 def get_earliest_date(ndc_list: List[NDCSnapshot]):

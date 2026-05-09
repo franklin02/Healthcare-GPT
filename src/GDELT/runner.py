@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 import os
 
-from cyber_security import backfill_cyber_seeds
+from cyber_security import backfill_cyber_seeds, SUBSECTOR_THEMES
 from helpers import ai_check_validation, find_subsector_fields, get_body
 
 BODY_CHAR_LIMIT = 4000
@@ -79,8 +79,18 @@ def process_seed(seed: dict) -> dict | None:
     }
 
 
-def run(num_files: int, limit: int | None) -> list[dict]:
-    seeds = backfill_cyber_seeds(num_files=num_files)
+def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
+    subsector_list = ["all"] if subsectors == "all" else [s.strip() for s in subsectors.split(",") if s.strip()]
+    
+    # Validate subsectors early
+    valid_subsectors = set(SUBSECTOR_THEMES.keys()) | {"all"}
+    invalid = [s for s in subsector_list if s not in valid_subsectors]
+    if invalid:
+        print(f"Error: Invalid subsector(s): {', '.join(invalid)}")
+        print(f"Valid subsectors are: cyber_attack, drug_shortage, medical_device_shortage, natural_disaster, or all")
+        return []
+    
+    seeds = [seed for subsector in subsector_list for seed in backfill_cyber_seeds(num_files=num_files, subsector=subsector)]
     if limit:
         seeds = seeds[:limit]
 
@@ -159,5 +169,6 @@ if __name__ == "__main__":
         default=3,
         help="Cap on seeds to process; useful for smoke-testing (default: 3)",
     )
+    parser.add_argument("--subsectors", default="all", help="Comma-separated subsectors to scan, or all")
     args = parser.parse_args()
-    run(num_files=args.num_files, limit=args.limit)
+    run(num_files=args.num_files, limit=args.limit, subsectors=args.subsectors)

@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 import os
 
-from cyber_security import backfill_cyber_seeds, SUBSECTOR_THEMES
+from gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES
 from helpers import ai_check_validation, find_subsector_fields, get_body
 
 BODY_CHAR_LIMIT = 4000

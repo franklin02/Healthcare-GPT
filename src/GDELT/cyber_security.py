@@ -69,6 +69,14 @@ NATURAL_DISASTER_THEMES = {
 
 NOISE_THEMES = {"SPORTS", "GAMES_ESPORTS", "ENV_", "TOURISM", "EDUCATION_UNIVERSITY"}
 
+# Mapping of subsectors to their required theme sets
+SUBSECTOR_THEMES = {
+    "drug_shortage": DRUG_SHORAGE_THEMES,
+    "medical_device_shortage": DEVICE_SHORTAGE_THEMES,
+    "cyber_attack": CYBER_THEMES,
+    "natural_disaster": NATURAL_DISASTER_THEMES,
+}
+
 US_TLDS = {
     ".com",
     ".org",
@@ -120,11 +128,40 @@ def is_us_located(location_str):
     return False
 
 
-def themes_match(theme_str, theme_set):
+def _matches_any_theme(theme_str, theme_set):
     if not isinstance(theme_str, str):
         return False
-    u = theme_str.upper()
-    return any(t in u for t in theme_set)
+    tokens = [token.strip().upper() for token in theme_str.split(";") if token.strip()]
+    return any(any(expected in token for token in tokens) for expected in theme_set)
+
+
+def themes_match(theme_str, subsector="all"):
+    """
+    Check if themes match a requested subsector.
+
+    Supported subsector values:
+    - a specific subsector name in SUBSECTOR_THEMES
+    - "all" to match any supported subsector
+    """
+    if subsector == "all":
+        return any(
+            _matches_any_theme(theme_str, HEALTH_THEMES) and _matches_any_theme(theme_str, theme_set)
+            for theme_set in SUBSECTOR_THEMES.values()
+        )
+
+    return subsector in SUBSECTOR_THEMES and _matches_any_theme(theme_str, HEALTH_THEMES) and _matches_any_theme(theme_str, SUBSECTOR_THEMES[subsector])
+
+
+def detect_subsector(theme_str):
+    """Return the first matching subsector for a theme string, or None."""
+    if not _matches_any_theme(theme_str, HEALTH_THEMES):
+        return None
+
+    for subsector, theme_set in SUBSECTOR_THEMES.items():
+        if _matches_any_theme(theme_str, theme_set):
+            return subsector
+
+    return None
 
 
 def themes_match_noise(theme_str):
@@ -155,7 +192,7 @@ def url_passes_quality(url):
     return True
 
 
-def process_gkg_file(link):
+def process_gkg_file(link, subsector="all"):
     try:
         r = requests.get(link, timeout=20)
         r.raise_for_status()
@@ -194,10 +231,10 @@ def process_gkg_file(link):
         )
 
         total = len(df)
-        cyber = df["themes"].apply(lambda t: themes_match(t, CYBER_THEMES))
-        health = df["themes"].apply(lambda t: themes_match(t, HEALTH_THEMES))
-        noise = df["themes"].apply(lambda t: themes_match(t, NOISE_THEMES))
-        df = df[cyber & health & ~noise].copy()
+        # Filter for the requested subsector, or all supported subsectors, excluding noise
+        subsector_match = df["themes"].apply(lambda t: themes_match(t, subsector))
+        noise = df["themes"].apply(lambda t: themes_match_noise(t))
+        df = df[subsector_match & ~noise].copy()
         if df.empty:
             print(f"    [FILTERED OUT] No results after theme filter")
             return []
@@ -219,6 +256,7 @@ def process_gkg_file(link):
                 "url": row["url"],
                 "source": row["source"],
                 "themes": row["themes"],
+                "subsector": subsector if subsector != "all" else (detect_subsector(row["themes"]) or "other"),
                 "date": row["date"],
                 "file": fname,
             }
@@ -229,7 +267,7 @@ def process_gkg_file(link):
         return []
 
 
-def backfill_cyber_seeds(num_files=20):
+def backfill_cyber_seeds(num_files=20, subsector="all"):
     print("Fetching GDELT master file list...")
     resp = requests.get(
         "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt", timeout=15
@@ -240,11 +278,12 @@ def backfill_cyber_seeds(num_files=20):
         if ".gkg.csv.zip" in line
     ]
     recent = links[-num_files:]
-    print(f"Scanning {num_files} files (~{num_files * 15 / 60:.1f} hours)...\n")
+    scope_label = "all subsectors" if subsector == "all" else subsector
+    print(f"Scanning {num_files} files for {scope_label} (~{num_files * 15 / 60:.1f} hours)...\n")
 
     all_seeds = []
     for link in recent:
-        all_seeds.extend(process_gkg_file(link))
+        all_seeds.extend(process_gkg_file(link, subsector=subsector))
 
     seen, unique = set(), []
     for s in all_seeds:
@@ -258,6 +297,8 @@ def backfill_cyber_seeds(num_files=20):
     for s in unique:
         print(f"[{s['date']}]  {s['source']}")
         print(f"  URL: {s['url']}")
+        # Can remove print later, for debugging rn
+        print(f"  ALL THEMES: {s['themes']}")
         relevant = [
             t
             for t in (s["themes"] or "").split(";")

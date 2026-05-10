@@ -100,8 +100,8 @@ def get_body(url: str) -> str:
     try:
         resp = requests.get(url, timeout = 30, headers = HEADERS)
         resp.raise_for_status()
-    except requests.RequestException:
-        print("[ERROR] Status is unexpected: ", resp.status_code)
+    except requests.RequestException as e:
+        print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
         return ""
 
     soup = BeautifulSoup(resp.text, "html.parser")

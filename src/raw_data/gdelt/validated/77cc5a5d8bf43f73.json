@@ -1,0 +1,28 @@
+{
+  "id": "77cc5a5d8bf43f73",
+  "stage": "validated",
+  "url": "https://www.executivebiz.com/articles/exostar-army-ncode-dib-cybersecurity",
+  "record": {
+    "id": "77cc5a5d8bf43f73",
+    "title": "https://www.executivebiz.com/articles/exostar-army-ncode-dib-cybersecurity",
+    "source_name": "executivebiz.com",
+    "direct_link": "https://www.executivebiz.com/articles/exostar-army-ncode-dib-cybersecurity",
+    "subsector": "cyber_attack",
+    "date_published": "20260508203000",
+    "content": "Exostar Joins Army NCODE Program Hello, Guest!",
+    "subsector_data": {
+      "attack_type": null,
+      "threat_actor": "Army NCODE Program",
+      "individuals_affected": null,
+      "data_types_exposed": null,
+      "systems_affected": null,
+      "ransom_demanded_usd": null,
+      "ransom_paid": null,
+      "downtime_days": null,
+      "services_disrupted": null,
+      "law_enforcement_involved": null,
+      "hhs_breach_portal_listed": false
+    }
+  },
+  "saved_at": "2026-05-09T14:55:14"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "51edbbbbed7fdb16",
+  "stage": "enriched",
+  "url": "https://www.13abc.com/2026/05/08/canvas-cyberattack-impacts-local-schools-threatens-data-leak/",
+  "record": {
+    "id": "51edbbbbed7fdb16",
+    "title": "https://www.13abc.com/2026/05/08/canvas-cyberattack-impacts-local-schools-threatens-data-leak/",
+    "source_name": "13abc.com",
+    "direct_link": "https://www.13abc.com/2026/05/08/canvas-cyberattack-impacts-local-schools-threatens-data-leak/",
+    "subsector": "cyber_attack",
+    "date_published": "20260509013000",
+    "content": "TOLEDO, Ohio (WTVG) - A cyberattack knocked out a widely used learning management platform called Canvas Thursday night, leaving many students and teachers unable to access homework, study materials and tests.\n\nStudents who tried to access the platform were met with a warning that had made the system inaccessible. The warning also threatened that data would be leaked May 12 if there was no settlement.\n\nThe hack affected local schools including St. Ursula Academy, Four County Career Center, Ohio Virtual Academy and BGSU.\n\n“Assuming the numbers I told you, I would say this is one of the largest known breaches to date and sadly I think you are going to see a lot more of this before it gets better cause as a society, we are not taking this stuff seriously,” said Dave Hatter, a cybersecurity consultant at Intrust IT.\n\nHatter said his son attends one of the thousands of schools affected by the Canvas cyberattack. He said he expects in the coming weeks more will be learned about the fallout.\n\n“From what I’ve read it looks like information was stolen about students, I don’t know exactly what that is could it be social security numbers, could it sensitive mental health records,” Hatter said. “Parents of students I would say you now need to be extremely extremely vigilant and skeptical of any kind of communications you get related to this breach because now the bad guys potentially know your email address, they know your phone number. Could the bad guys send you an email claiming to be your high school or college? Yes they could.”\n\nClasses were affected Friday. Some schools reported Canvas is back up and running.\n\nA spokesperson for St. Ursula Academy said the school cannot confirm at this time whether its data was included in the breach.\n\nSt. Ursula Academy does not appear on the list of affected schools released by the threat actor. Access has since been restored, and the school is now able to use Canvas again.\n\nThe school is continuing to work with Instructure to determine the impact on St. Ursula Academy information.\n\nStudents at BGSU reported Canvas is back up, but the university is requesting students do not click on Canvas or Instructure related links in emails or messages until further notice.\n\nLatest Local News | First Alert Weather | Crime | National | 13abc Originals\n\nCopyright 2026 WTVG. All rights reserved.",
+    "subsector_data": {
+      "attack_type": null,
+      "threat_actor": null,
+      "individuals_affected": null,
+      "data_types_exposed": null,
+      "systems_affected": null,
+      "ransom_demanded_usd": null,
+      "ransom_paid": null,
+      "downtime_days": null,
+      "services_disrupted": null,
+      "law_enforcement_involved": null,
+      "hhs_breach_portal_listed": null
+    }
+  },
+  "saved_at": "2026-05-09T15:04:11"
+}

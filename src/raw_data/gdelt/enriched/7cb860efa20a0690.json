@@ -1,0 +1,30 @@
+{
+  "id": "7cb860efa20a0690",
+  "stage": "enriched",
+  "url": "https://www.whec.com/ap-top-news/cyberattack-hits-canvas-system-used-by-thousands-of-schools-as-finals-loom/",
+  "record": {
+    "id": "7cb860efa20a0690",
+    "title": "https://www.whec.com/ap-top-news/cyberattack-hits-canvas-system-used-by-thousands-of-schools-as-finals-loom/",
+    "source_name": "whec.com",
+    "direct_link": "https://www.whec.com/ap-top-news/cyberattack-hits-canvas-system-used-by-thousands-of-schools-as-finals-loom/",
+    "subsector": "cyber_attack",
+    "date_published": "20260509010000",
+    "content": "Cyberattack hits Canvas system used by thousands of schools as finals loom - WHEC.com",
+    "subsector_data": {
+      "attack_type": null,
+      "threat_actor": null,
+      "individuals_affected": null,
+      "data_types_exposed": null,
+      "systems_affected": [
+        "Canvas system"
+      ],
+      "ransom_demanded_usd": null,
+      "ransom_paid": null,
+      "downtime_days": null,
+      "services_disrupted": null,
+      "law_enforcement_involved": false,
+      "hhs_breach_portal_listed": true
+    }
+  },
+  "saved_at": "2026-05-09T15:01:59"
+}

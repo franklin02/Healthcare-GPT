@@ -1,0 +1,28 @@
+{
+  "id": "f19afe7c6f7ac7e2",
+  "stage": "validated",
+  "url": "https://www.govinfosecurity.com/missouri-alleges-conduent-stonewalling-state-on-hack-a-31645",
+  "record": {
+    "id": "f19afe7c6f7ac7e2",
+    "title": "https://www.govinfosecurity.com/missouri-alleges-conduent-stonewalling-state-on-hack-a-31645",
+    "source_name": "govinfosecurity.com",
+    "direct_link": "https://www.govinfosecurity.com/missouri-alleges-conduent-stonewalling-state-on-hack-a-31645",
+    "subsector": "cyber_attack",
+    "date_published": "20260508221500",
+    "content": "Missouri Alleges Conduent is Stonewalling State on Hack",
+    "subsector_data": {
+      "attack_type": null,
+      "threat_actor": null,
+      "individuals_affected": null,
+      "data_types_exposed": null,
+      "systems_affected": null,
+      "ransom_demanded_usd": null,
+      "ransom_paid": null,
+      "downtime_days": null,
+      "services_disrupted": null,
+      "law_enforcement_involved": false,
+      "hhs_breach_portal_listed": true
+    }
+  },
+  "saved_at": "2026-05-09T14:58:21"
+}

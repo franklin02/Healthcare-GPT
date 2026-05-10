@@ -1,0 +1,28 @@
+{
+  "id": "6707725d8702fb67",
+  "stage": "validated",
+  "url": "https://www.fox19.com/2026/05/08/canvas-cyber-attack-threatens-data-millions-students-nationwide/",
+  "record": {
+    "id": "6707725d8702fb67",
+    "title": "https://www.fox19.com/2026/05/08/canvas-cyber-attack-threatens-data-millions-students-nationwide/",
+    "source_name": "fox19.com",
+    "direct_link": "https://www.fox19.com/2026/05/08/canvas-cyber-attack-threatens-data-millions-students-nationwide/",
+    "subsector": "cyber_attack",
+    "date_published": "20260509000000",
+    "content": "CINCINNATI (WXIX) - Canvas is back up for most users, but Canvas Beta and Canvas Test remain under maintenance following a cyber attack that breached the online system millions of students use every day for coursework, assignments and messaging with professors.\n\nThe criminal group behind the attack is threatening to release stolen student data unless schools negotiate with them by the end of day Tuesday, May 12, according to the Associated Press .\n\nTri-State school districts like Lakota use the software.\n\nThe hacking group Shiny Hunters is claiming responsibility for the attack. The group says it has breached Instructure, the company that runs Canvas, and has access to data from nearly 9,000 schools and more than 275 million people’s information.\n\nThe group posted a warning message directly on Canvas pages at multiple universities, telling schools to contact them to negotiate or “everything is leaked.”\n\n“When these systems go down, you know, it causes a huge impact,” said cybersecurity analyst Dave Hatter.\n\nHatter said that although information is limited right now regarding the extent of the attack, nationwide hacks like this can be detrimental for people’s information.\n\n“Depending on what the bad actors had access to, you know, it could be your son or daughter’s social security number, it could be their mental health records that the school has accumulated and that sort of thing,” Hatter said.\n\nThe confirmed stolen data includes names, student ID numbers, email addresses, course enrollments and private messages between students and faculty.\n\nNorthern Kentucky University said it is not alone in being impacted by the breach and has been monitoring the situation closely and working in conjunction with Canvas.\n\n“Canvas is fully functional for student and faculty use at this time. While the university is taking all necessary precautions, the campus community is reminded to stay vigilant online and follow cybersecurity best practices,” the university said.\n\nNKU added that it is working with the vendor to determine what records, if any, were compromised. At this time, NKU has not been informed by Canvas the extent of the breach.\n\nHatter said families should be cautious of any communication they receive regarding the breach.\n\n“You now need to be very, very cautious and skeptical of any kind of communications you get, via email, text or phone call, related to this breach,” Hatter said.\n\nHatter said situations like this show how important protecting systems is.\n\n“It reinforces how critical it is that we get focused on security and uptime as opposed to speed to market, market share, collecting and monetizing your data,” Hatter said.\n\nSee a spelling or grammatical error in our story? Please click here to report it .\n\nDo you have a photo or video of a breaking news story? Send it to us here with a brief description.\n\nCopyright 2026 WXIX. All rights reserved.",
+    "subsector_data": {
+      "attack_type": null,
+      "threat_actor": null,
+      "individuals_affected": null,
+      "data_types_exposed": null,
+      "systems_affected": null,
+      "ransom_demanded_usd": null,
+      "ransom_paid": null,
+      "downtime_days": null,
+      "services_disrupted": null,
+      "law_enforcement_involved": null,
+      "hhs_breach_portal_listed": null
+    }
+  },
+  "saved_at": "2026-05-09T15:00:41"
+}

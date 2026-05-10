@@ -35,43 +35,36 @@ def fmt_dt(value: str) -> str:
             return value
 
 
-def already_seen(url: str, seen_file: Path | None = None) -> bool:
-    """Return True if `url` is present in the seen file."""
+def load_seen(seen_file: Path | None = None) -> set:
+    """Load seen URLs from file. Returns empty set if file doesn't exist."""
     if seen_file is None:
         seen_file = Path(__file__).parent.parent / "seen_urls.json"
     try:
         with open(seen_file, "r", encoding="utf-8") as sf:
-            seen = set(json.load(sf) or [])
+            return set(json.load(sf) or [])
     except Exception:
-        seen = set()
-    return url in seen
+        return set()
 
 
-def mark_seen(url: str, seen_file: Path | None = None) -> None:
-    """Add `url` to the seen file (creates file if needed)."""
+def save_seen(seen: set, seen_file: Path | None = None) -> None:
+    """Save seen URLs to file."""
     if seen_file is None:
         seen_file = Path(__file__).parent.parent / "seen_urls.json"
-    try:
-        with open(seen_file, "r", encoding="utf-8") as sf:
-            seen = set(json.load(sf) or [])
-    except Exception:
-        seen = set()
-    seen.add(url)
     try:
         with open(seen_file, "w", encoding="utf-8") as sf:
-            json.dump(list(seen), sf, ensure_ascii=False, indent=2)
+            json.dump(sorted(list(seen)), sf, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
 
-def process_seed(seed: dict) -> dict | None:
+def process_seed(seed: dict, seen: set) -> dict | None:
     """
     Run a single seed through validation + extraction.
     Returns a record dict if validated as a disruption, else None.
     """
     url = seed["url"]
 
-    if already_seen(url):
+    if url in seen:
         print(f"  -> [skip] already seen by LLM {url[:90]}")
         return None
 
@@ -86,7 +79,7 @@ def process_seed(seed: dict) -> dict | None:
 
     is_disruption, detail = ai_check_validation(title, excerpt)
 
-    mark_seen(url)
+    seen.add(url)
 
     if not is_disruption:
         print(f"     [skip] not a disruption: {detail}")
@@ -127,6 +120,9 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
         print(f"Valid subsectors are: cyber_attack, drug_shortage, medical_device_shortage, natural_disaster, or all")
         return []
     
+    # Load seen URLs once at the start
+    seen = load_seen()
+    
     seeds = [seed for subsector in subsector_list for seed in backfill_cyber_seeds(num_files=num_files, subsector=subsector)]
     if limit:
         seeds = seeds[:limit]
@@ -135,9 +131,12 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
     records = []
     for i, seed in enumerate(seeds, start=1):
         print(f"[{i}/{len(seeds)}]")
-        rec = process_seed(seed)
+        rec = process_seed(seed, seen)
         if rec:
             records.append(rec)
+
+    # Save seen URLs once at the end
+    save_seen(seen)
 
     print("\n" + "=" * 60)
     print(f"Seeds in:  {len(seeds)}")

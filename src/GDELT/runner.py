@@ -35,6 +35,35 @@ def fmt_dt(value: str) -> str:
             return value
 
 
+def already_seen(url: str, seen_file: Path | None = None) -> bool:
+    """Return True if `url` is present in the seen file."""
+    if seen_file is None:
+        seen_file = Path(__file__).parent.parent / "seen_urls.json"
+    try:
+        with open(seen_file, "r", encoding="utf-8") as sf:
+            seen = set(json.load(sf) or [])
+    except Exception:
+        seen = set()
+    return url in seen
+
+
+def mark_seen(url: str, seen_file: Path | None = None) -> None:
+    """Add `url` to the seen file (creates file if needed)."""
+    if seen_file is None:
+        seen_file = Path(__file__).parent.parent / "seen_urls.json"
+    try:
+        with open(seen_file, "r", encoding="utf-8") as sf:
+            seen = set(json.load(sf) or [])
+    except Exception:
+        seen = set()
+    seen.add(url)
+    try:
+        with open(seen_file, "w", encoding="utf-8") as sf:
+            json.dump(list(seen), sf, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 def process_seed(seed: dict) -> dict | None:
     """
     Run a single seed through validation + extraction.
@@ -42,14 +71,7 @@ def process_seed(seed: dict) -> dict | None:
     """
     url = seed["url"]
 
-    seen_file = Path(__file__).parent.parent / "seen_urls.json"
-    try:
-        with open(seen_file, "r", encoding="utf-8") as sf:
-            seen = set(json.load(sf) or [])
-    except Exception:
-        seen = set()
-
-    if url in seen:
+    if already_seen(url):
         print(f"  -> [skip] already seen by LLM {url[:90]}")
         return None
 
@@ -64,12 +86,8 @@ def process_seed(seed: dict) -> dict | None:
 
     is_disruption, detail = ai_check_validation(title, excerpt)
 
-    try:
-        seen.add(url)
-        with open(seen_file, "w", encoding="utf-8") as sf:
-            json.dump(list(seen), sf, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    mark_seen(url)
+
     if not is_disruption:
         print(f"     [skip] not a disruption: {detail}")
         return None

@@ -198,7 +198,7 @@ def process_gkg_file(link, subsector="all"):
         r.raise_for_status()
     except Exception as e:
         print(f"  [SKIP] Download failed {link.split('/')[-1]}: {e}")
-        return []
+        return [], 0
     try:
         with zipfile.ZipFile(io.BytesIO(r.content)) as z:
             raw = pd.read_csv(
@@ -212,7 +212,7 @@ def process_gkg_file(link, subsector="all"):
             )
         if raw.shape[1] < 16:
             print(f"  [SKIP] Only {raw.shape[1]} cols in {link.split('/')[-1]}")
-            return []
+            return [], 0
 
         date_col = raw.iloc[:, 1]
         source_col = raw.iloc[:, 3]
@@ -237,21 +237,21 @@ def process_gkg_file(link, subsector="all"):
         df = df[subsector_match & ~noise].copy()
         if df.empty:
             print(f"    [FILTERED OUT] No results after theme filter")
-            return []
+            return [], total
 
         df = df[df["locs"].apply(is_us_located)].copy()
         if df.empty:
             print(f"    [FILTERED OUT] No results after US location filter")
-            return []
+            return [], total
 
         df = df[df["url"].apply(url_passes_quality)].copy()
         if df.empty:
             print(f"    [FILTERED OUT] No results after URL quality filter")
-            return []
+            return [], total
 
         fname = link.split("/")[-1]
         print(f"  ✓ {fname}: {len(df)} leads from {total} rows")
-        return [
+        seeds = [
             {
                 "url": row["url"],
                 "source": row["source"],
@@ -262,9 +262,10 @@ def process_gkg_file(link, subsector="all"):
             }
             for _, row in df.iterrows()
         ]
+        return seeds, total
     except Exception as e:
         print(f"  [SKIP] Parse error {link.split('/')[-1]}: {e}")
-        return []
+        return [], 0
 
 
 def backfill_cyber_seeds(num_files=20, subsector="all"):
@@ -282,8 +283,11 @@ def backfill_cyber_seeds(num_files=20, subsector="all"):
     print(f"Scanning {num_files} files for {scope_label} (~{num_files * 15 / 60:.1f} hours)...\n")
 
     all_seeds = []
+    total_rows = 0
     for link in recent:
-        all_seeds.extend(process_gkg_file(link, subsector=subsector))
+        seeds, rows = process_gkg_file(link, subsector=subsector)
+        all_seeds.extend(seeds)
+        total_rows += rows
 
     seen, unique = set(), []
     for s in all_seeds:
@@ -292,13 +296,13 @@ def backfill_cyber_seeds(num_files=20, subsector="all"):
             unique.append(s)
 
     print(f"\n{'=' * 60}")
-    print(f"Total Unique Seeds Found: {len(unique)}")
+    print(f"Total Unique Seeds Found: {len(unique)} out of {total_rows} rows checked")
     print(f"{'=' * 60}\n")
     for s in unique:
         print(f"[{s['date']}]  {s['source']}")
         print(f"  URL: {s['url']}")
         # Can remove print later, for debugging rn
-        print(f"  ALL THEMES: {s['themes']}")
+        # print(f"  ALL THEMES: {s['themes']}")
         relevant = [
             t
             for t in (s["themes"] or "").split(";")

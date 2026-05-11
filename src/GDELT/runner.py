@@ -35,12 +35,39 @@ def fmt_dt(value: str) -> str:
             return value
 
 
-def process_seed(seed: dict) -> dict | None:
+def load_seen(seen_file: Path | None = None) -> set:
+    """Load seen URLs from file. Returns empty set if file doesn't exist."""
+    if seen_file is None:
+        seen_file = Path(__file__).parent.parent / "seen_urls.json"
+    try:
+        with open(seen_file, "r", encoding="utf-8") as sf:
+            return set(json.load(sf) or [])
+    except Exception:
+        return set()
+
+
+def save_seen(seen: set, seen_file: Path | None = None) -> None:
+    """Save seen URLs to file."""
+    if seen_file is None:
+        seen_file = Path(__file__).parent.parent / "seen_urls.json"
+    try:
+        with open(seen_file, "w", encoding="utf-8") as sf:
+            json.dump(sorted(list(seen)), sf, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def process_seed(seed: dict, seen: set) -> dict | None:
     """
     Run a single seed through validation + extraction.
     Returns a record dict if validated as a disruption, else None.
     """
     url = seed["url"]
+
+    if url in seen:
+        print(f"  -> [skip] already seen by LLM {url[:90]}")
+        return None
+
     print(f"  -> fetching {url[:90]}")
     body = get_body(url)
     if not body:
@@ -51,6 +78,9 @@ def process_seed(seed: dict) -> dict | None:
     excerpt = body[:BODY_CHAR_LIMIT]
 
     is_disruption, detail = ai_check_validation(title, excerpt)
+
+    seen.add(url)
+
     if not is_disruption:
         print(f"     [skip] not a disruption: {detail}")
         return None
@@ -90,6 +120,9 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
         print(f"Valid subsectors are: cyber_attack, drug_shortage, medical_device_shortage, natural_disaster, or all")
         return []
     
+    # Load seen URLs once at the start
+    seen = load_seen()
+    
     seeds = [seed for subsector in subsector_list for seed in backfill_cyber_seeds(num_files=num_files, subsector=subsector)]
     if limit:
         seeds = seeds[:limit]
@@ -98,9 +131,12 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
     records = []
     for i, seed in enumerate(seeds, start=1):
         print(f"[{i}/{len(seeds)}]")
-        rec = process_seed(seed)
+        rec = process_seed(seed, seen)
         if rec:
             records.append(rec)
+
+    # Save seen URLs once at the end
+    save_seen(seen)
 
     print("\n" + "=" * 60)
     print(f"Seeds in:  {len(seeds)}")
@@ -148,9 +184,24 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
             }
         )
 
+    try:
+        if out_file.exists():
+            with open(out_file, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            if isinstance(existing, dict) and "sources" in existing and isinstance(existing["sources"], list):
+                combined = existing["sources"] + out_recs
+            elif isinstance(existing, list):
+                combined = existing + out_recs
+            else:
+                combined = out_recs
+        else:
+            combined = out_recs
+    except Exception:
+        combined = out_recs
+
     with open(out_file, "w", encoding="utf-8") as f:
-        json.dump({"sources": out_recs}, f, ensure_ascii=False, indent=2)
-    print(f"Wrote {len(out_recs)} records to {out_file}")
+        json.dump({"sources": combined}, f, ensure_ascii=False, indent=2)
+    print(f"Appended {len(out_recs)} records to {out_file} (total: {len(combined)})")
 
     return records
 
@@ -158,17 +209,17 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GDELT end-to-end runner")
     parser.add_argument(
-        "--num-files",
+        "--num-files", "-n",
         type=int,
         default=2,
         help="GDELT GKG files to scan (default: 2 ~= 30 min of data)",
     )
     parser.add_argument(
-        "--limit",
+        "--limit", "-l",
         type=int,
         default=3,
         help="Cap on seeds to process; useful for smoke-testing (default: 3)",
     )
-    parser.add_argument("--subsectors", default="all", help="Comma-separated subsectors to scan, or all")
+    parser.add_argument("--subsectors", "-s", default="all", help="Comma-separated subsectors to scan, or all")
     args = parser.parse_args()
     run(num_files=args.num_files, limit=args.limit, subsectors=args.subsectors)

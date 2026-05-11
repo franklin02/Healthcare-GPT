@@ -100,8 +100,8 @@ def get_body(url: str) -> str:
     try:
         resp = requests.get(url, timeout = 30, headers = HEADERS)
         resp.raise_for_status()
-    except requests.RequestException:
-        print("[ERROR] Status is unexpected: ", resp.status_code)
+    except requests.RequestException as e:
+        print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
         return ""
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -205,6 +205,11 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
         data = json.loads(raw_response)
 
         is_threat = data.get("is_operational_disruption", False)
+        # Handle both boolean False and string "NO" as not a disruption
+        if isinstance(is_threat, str):
+            is_threat = is_threat.upper() != "NO"
+        else:
+            is_threat = bool(is_threat)
 
         # Use subsector if it's a threat, otherwise use the analysis as the "reason"
         detail = (

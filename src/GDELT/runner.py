@@ -38,7 +38,7 @@ def fmt_dt(value: str) -> str:
 def load_seen(seen_file: Path | None = None) -> set:
     """Load seen URLs from file. Returns empty set if file doesn't exist."""
     if seen_file is None:
-        seen_file = Path(__file__).parent.parent / "seen_urls.json"
+        seen_file = Path(__file__).parent.parent / "data" / "seen_urls.json"
     try:
         with open(seen_file, "r", encoding="utf-8") as sf:
             return set(json.load(sf) or [])
@@ -49,7 +49,7 @@ def load_seen(seen_file: Path | None = None) -> set:
 def save_seen(seen: set, seen_file: Path | None = None) -> None:
     """Save seen URLs to file."""
     if seen_file is None:
-        seen_file = Path(__file__).parent.parent / "seen_urls.json"
+        seen_file = Path(__file__).parent.parent / "data" / "seen_urls.json"
     try:
         with open(seen_file, "w", encoding="utf-8") as sf:
             json.dump(sorted(list(seen)), sf, ensure_ascii=False, indent=2)
@@ -109,8 +109,15 @@ def process_seed(seed: dict, seen: set) -> dict | None:
     }
 
 
-def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
+def run(num_files: int, limit: int | None, subsectors: str, output_path: str | None = None, start_date: str | None = None, end_date: str | None = None, seen_urls_file: str | None = None) -> list[dict]:
     subsector_list = ["all"] if subsectors == "all" else [s.strip() for s in subsectors.split(",") if s.strip()]
+    
+    if seen_urls_file:
+        seen_urls_path = Path(seen_urls_file)
+        if seen_urls_path.suffix.lower() != ".json":
+            seen_urls_path = seen_urls_path / "seen_urls.json"
+    else:
+        seen_urls_path = None
     
     # Validate subsectors early
     valid_subsectors = set(SUBSECTOR_THEMES.keys()) | {"all"}
@@ -121,10 +128,10 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
         return []
     
     # Load seen URLs once at the start
-    seen = load_seen()
+    seen = load_seen(seen_urls_path)
     
-    seeds = [seed for subsector in subsector_list for seed in backfill_cyber_seeds(num_files=num_files, subsector=subsector)]
-    if limit:
+    seeds = [seed for subsector in subsector_list for seed in backfill_cyber_seeds(num_files=num_files, subsector=subsector, start_date=start_date, end_date=end_date)]
+    if limit and not (start_date or end_date):
         seeds = seeds[:limit]
 
     print(f"\nProcessing {len(seeds)} seeds...\n")
@@ -136,7 +143,7 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
             records.append(rec)
 
     # Save seen URLs once at the end
-    save_seen(seen)
+    save_seen(seen, seen_urls_path)
 
     print("\n" + "=" * 60)
     print(f"Seeds in:  {len(seeds)}")
@@ -150,17 +157,14 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
         print(f"Source: {rec['source_name']}")
         print(f"Fields: {rec['subsector_data']}")
 
-    # write records out grouped by source to src/data/Ready_for_RAG/<source>.json
-    def _norm_source(name: str) -> str:
-        if not name:
-            return "unknown"
-        return "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in name).lower()
+    default_out_dir = Path(__file__).parent.parent / "data" / "Ready_for_RAG"
+    if output_path:
+        out_path = Path(output_path)
+        out_file = out_path if out_path.suffix.lower() == ".json" else out_path / "GDELT.json"
+    else:
+        out_file = default_out_dir / "GDELT.json"
 
-    out_dir = Path(__file__).parent.parent / "data" / "Ready_for_RAG"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # write single GDELT.json with top-level "sources" array (schema-like)
-    out_file = out_dir / "GDELT.json"
+    out_file.parent.mkdir(parents=True, exist_ok=True)
     out_recs = []
     for r in records:
         out_recs.append(
@@ -220,6 +224,30 @@ if __name__ == "__main__":
         default=3,
         help="Cap on seeds to process; useful for smoke-testing (default: 3)",
     )
-    parser.add_argument("--subsectors", "-s", default="all", help="Comma-separated subsectors to scan, or all")
+    parser.add_argument(
+        "--output-path", "-o",
+        default=None,
+        help="Output JSON file or directory. If a directory is provided, GDELT.json is written inside it. (default: src/data/Ready_for_RAG/GDELT.json)",
+    )
+    parser.add_argument(
+        "--start-date", 
+        default=None, 
+        help="Earliest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)"
+    )
+    parser.add_argument(
+        "--end-date", 
+        default=None, 
+        help="Latest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)"
+    )
+    parser.add_argument(
+        "--seen-urls-file",
+        default=None,
+        help="Path to store/load seen URLs JSON file (default: src/data/seen_urls.json)"
+    )
+    parser.add_argument(
+        "--subsectors", "-s", 
+        default="all", 
+        help="Comma-separated subsectors to scan, or all"
+    )
     args = parser.parse_args()
-    run(num_files=args.num_files, limit=args.limit, subsectors=args.subsectors)
+    run(num_files=args.num_files, limit=args.limit, subsectors=args.subsectors, output_path=args.output_path, start_date=args.start_date, end_date=args.end_date, seen_urls_file=args.seen_urls_file)

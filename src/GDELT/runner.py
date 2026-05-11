@@ -109,8 +109,15 @@ def process_seed(seed: dict, seen: set) -> dict | None:
     }
 
 
-def run(num_files: int, limit: int | None, subsectors: str, output_path: str | None = None, start_date: str | None = None, end_date: str | None = None) -> list[dict]:
+def run(num_files: int, limit: int | None, subsectors: str, output_path: str | None = None, start_date: str | None = None, end_date: str | None = None, seen_urls_file: str | None = None) -> list[dict]:
     subsector_list = ["all"] if subsectors == "all" else [s.strip() for s in subsectors.split(",") if s.strip()]
+    
+    if seen_urls_file:
+        seen_urls_path = Path(seen_urls_file)
+        if seen_urls_path.suffix.lower() != ".json":
+            seen_urls_path = seen_urls_path / "seen_urls.json"
+    else:
+        seen_urls_path = None
     
     # Validate subsectors early
     valid_subsectors = set(SUBSECTOR_THEMES.keys()) | {"all"}
@@ -121,7 +128,7 @@ def run(num_files: int, limit: int | None, subsectors: str, output_path: str | N
         return []
     
     # Load seen URLs once at the start
-    seen = load_seen()
+    seen = load_seen(seen_urls_path)
     
     seeds = [seed for subsector in subsector_list for seed in backfill_cyber_seeds(num_files=num_files, subsector=subsector, start_date=start_date, end_date=end_date)]
     if limit and not (start_date or end_date):
@@ -136,7 +143,7 @@ def run(num_files: int, limit: int | None, subsectors: str, output_path: str | N
             records.append(rec)
 
     # Save seen URLs once at the end
-    save_seen(seen)
+    save_seen(seen, seen_urls_path)
 
     print("\n" + "=" * 60)
     print(f"Seeds in:  {len(seeds)}")
@@ -220,19 +227,27 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-path", "-o",
         default=None,
-        help="Output JSON file or directory. If a directory is provided, GDELT.json is written inside it.",
+        help="Output JSON file or directory. If a directory is provided, GDELT.json is written inside it. (default: src/data/Ready_for_RAG/GDELT.json)",
     )
     parser.add_argument(
         "--start-date", 
         default=None, 
-        help="Earliest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)")
+        help="Earliest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)"
+    )
     parser.add_argument(
         "--end-date", 
         default=None, 
-        help="Latest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)")
+        help="Latest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)"
+    )
+    parser.add_argument(
+        "--seen-urls-file",
+        default=None,
+        help="Path to store/load seen URLs JSON file (default: src/data/seen_urls.json)"
+    )
     parser.add_argument(
         "--subsectors", "-s", 
         default="all", 
-        help="Comma-separated subsectors to scan, or all")
+        help="Comma-separated subsectors to scan, or all"
+    )
     args = parser.parse_args()
-    run(num_files=args.num_files, limit=args.limit, subsectors=args.subsectors, output_path=args.output_path, start_date=args.start_date, end_date=args.end_date)
+    run(num_files=args.num_files, limit=args.limit, subsectors=args.subsectors, output_path=args.output_path, start_date=args.start_date, end_date=args.end_date, seen_urls_file=args.seen_urls_file)

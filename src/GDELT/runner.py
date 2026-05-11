@@ -35,22 +35,19 @@ def fmt_dt(value: str) -> str:
             return value
 
 #intermediate stages directory constants + helper functions
-RAW_GDELT_DIR = Path(__file__).parent.parent / "raw_data" / "gdelt"
+PROJECT_ROOT = Path(__file__).parents[2]
+RAW_GDELT_DIR = PROJECT_ROOT / "data" / "raw" / "gdelt"
 SEEDS_DIR = RAW_GDELT_DIR / "seeds"
 VALIDATED_DIR = RAW_GDELT_DIR / "validated"
 ENRICHED_DIR = RAW_GDELT_DIR / "enriched"
 
-def ensure_raw_dir() -> None:
+def ensure_raw_dirs() -> None:
     for directory in (SEEDS_DIR, VALIDATED_DIR, ENRICHED_DIR):
         directory.mkdir(parents=True, exist_ok=True)
 
 def save_json(path: Path, data: dict) -> None:
     with open(path, "w", encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
-
-def load_completed_ids() -> set[str]:
-    ensure_raw_dir()
-    return {path.stem for path in ENRICHED_DIR.glob("*.json")}
 
 def persist_raw_seeds(raw_seeds: list[dict]) -> None:
     for seed in raw_seeds:
@@ -124,13 +121,13 @@ def process_seed(seed: dict, seen: set) -> dict | None:
         return None
 
     subsector = detail
-    
+
     # Skip if subsector is invalid or "none"
     valid_subsectors = {"drug_shortage", "medical_device_shortage", "cyber_attack", "natural_disaster", "other"}
     if subsector not in valid_subsectors:
         print(f"     [skip] invalid subsector: {subsector}")
         return None
-    
+
     print(f"     OK  disruption confirmed: {subsector}")
 
     fields = find_subsector_fields(subsector, title, excerpt)
@@ -148,7 +145,7 @@ def process_seed(seed: dict, seen: set) -> dict | None:
 
 def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
     subsector_list = ["all"] if subsectors == "all" else [s.strip() for s in subsectors.split(",") if s.strip()]
-    
+
     # Validate subsectors early
     valid_subsectors = set(SUBSECTOR_THEMES.keys()) | {"all"}
     invalid = [s for s in subsector_list if s not in valid_subsectors]
@@ -157,12 +154,11 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
         print(f"Valid subsectors are: cyber_attack, drug_shortage, medical_device_shortage, natural_disaster, or all")
         return []
 
-    ensure_raw_dir()
-    completed_ids = load_completed_ids()
+    ensure_raw_dirs()
 
-# Load seen URLs once at the start
+    # Load seen URLs once at the start
     seen = load_seen()
-    
+
     raw_seeds = [
         seed for subsector in subsector_list
         for seed in backfill_cyber_seeds(num_files=num_files, subsector=subsector)
@@ -179,15 +175,11 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
         print(f"[{i}/{len(seeds)}]")
         url = seed["url"]
         article_id = stable_id(url)
-        if article_id in completed_ids:
-            print(f"[skipped] already enriched: {url}")
-            continue
 
         rec = process_seed(seed, seen)
         if rec:
-            persist_stage(VALIDATED_DIR,article_id,"validated",url,rec,)
-            persist_stage(ENRICHED_DIR, article_id,"enriched", url, rec,)
-            completed_ids.add(article_id)
+            persist_stage(VALIDATED_DIR, article_id, "validated", url, rec)
+            persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec)
             records.append(rec)
 
     # Save seen URLs once at the end
@@ -211,7 +203,8 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
             return "unknown"
         return "".join(c if c.isalnum() or c in ('-', '_') else '_' for c in name).lower()
 
-    out_dir = Path(__file__).parent.parent / "data" / "Ready_for_RAG"
+    # TODO: verify final output path with directory restructuring
+    out_dir = PROJECT_ROOT / "data" / "Ready_for_RAG"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # write single GDELT.json with top-level "sources" array (schema-like)

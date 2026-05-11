@@ -80,7 +80,6 @@ def load_seen(seen_file: Path | None = None) -> set:
     except Exception:
         return set()
 
-
 def save_seen(seen: set, seen_file: Path | None = None) -> None:
     """Save seen URLs to file."""
     if seen_file is None:
@@ -90,7 +89,6 @@ def save_seen(seen: set, seen_file: Path | None = None) -> None:
             json.dump(sorted(list(seen)), sf, ensure_ascii=False, indent=2)
     except Exception:
         pass
-
 
 def process_seed(seed: dict, seen: set) -> dict | None:
     """
@@ -175,7 +173,6 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
         print(f"[{i}/{len(seeds)}]")
         url = seed["url"]
         article_id = stable_id(url)
-
         rec = process_seed(seed, seen)
         if rec:
             persist_stage(VALIDATED_DIR, article_id, "validated", url, rec)
@@ -252,7 +249,6 @@ def run(num_files: int, limit: int | None, subsectors: str) -> list[dict]:
     print(f"Appended {len(out_recs)} records to {out_file} (total: {len(combined)})")
 
     return records
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GDELT end-to-end runner")

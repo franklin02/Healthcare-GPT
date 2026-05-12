@@ -13,9 +13,9 @@ if str(_PROJECT_ROOT) not in _sys.path:
 from src.classes import Vulnerability
 
 
-READY_FOR_RAG_DIR = _PROJECT_ROOT / "data" / "Ready_for_RAG"
-NOISE_DIR = _PROJECT_ROOT / "data" / "Noise"
-VULNERABILITIES_DIR = _PROJECT_ROOT / "data" / "Vulnerabilities"
+READY_FOR_RAG_DIR = _PROJECT_ROOT / "data" / "processed"
+NOISE_DIR = _PROJECT_ROOT / "data" / "noise"
+VULNERABILITIES_DIR = _PROJECT_ROOT / "data" / "vulnerabilities"
 
 HEADERS = {
     "User-Agent": (

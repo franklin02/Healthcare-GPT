@@ -34,6 +34,41 @@ def fmt_dt(value: str) -> str:
         except Exception:
             return value
 
+#intermediate stages directory constants + helper functions
+PROJECT_ROOT = Path(__file__).parents[2]
+RAW_GDELT_DIR = PROJECT_ROOT / "data" / "raw" / "gdelt"
+SEEDS_DIR = RAW_GDELT_DIR / "seeds"
+VALIDATED_DIR = RAW_GDELT_DIR / "validated"
+ENRICHED_DIR = RAW_GDELT_DIR / "enriched"
+
+def ensure_raw_dirs() -> None:
+    for directory in (SEEDS_DIR, VALIDATED_DIR, ENRICHED_DIR):
+        directory.mkdir(parents=True, exist_ok=True)
+
+def save_json(path: Path, data: dict) -> None:
+    with open(path, "w", encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+
+def persist_raw_seeds(raw_seeds: list[dict]) -> None:
+    for seed in raw_seeds:
+        article_id = stable_id(seed["url"])
+
+        save_json(SEEDS_DIR / f"{article_id}.json", {
+            "id": article_id,
+            "stage": "seed",
+            "url": seed["url"],
+            "seed": seed,
+            "saved_at": datetime.now().isoformat(timespec="seconds"),
+        })
+
+def persist_stage(directory: Path, article_id: str, stage: str, url: str, data: dict,) -> None:
+    save_json(directory / f"{article_id}.json", {
+        "id": article_id,
+        "stage": stage,
+        "url": url,
+        "record": data,
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+    })
 
 def load_seen(seen_file: Path | None = None) -> set:
     """Load seen URLs from file. Returns empty set if file doesn't exist."""
@@ -45,7 +80,6 @@ def load_seen(seen_file: Path | None = None) -> set:
     except Exception:
         return set()
 
-
 def save_seen(seen: set, seen_file: Path | None = None) -> None:
     """Save seen URLs to file."""
     if seen_file is None:
@@ -55,7 +89,6 @@ def save_seen(seen: set, seen_file: Path | None = None) -> None:
             json.dump(sorted(list(seen)), sf, ensure_ascii=False, indent=2)
     except Exception:
         pass
-
 
 def process_seed(seed: dict, seen: set) -> dict | None:
     """
@@ -86,13 +119,13 @@ def process_seed(seed: dict, seen: set) -> dict | None:
         return None
 
     subsector = detail
-    
+
     # Skip if subsector is invalid or "none"
     valid_subsectors = {"drug_shortage", "medical_device_shortage", "cyber_attack", "natural_disaster", "other"}
     if subsector not in valid_subsectors:
         print(f"     [skip] invalid subsector: {subsector}")
         return None
-    
+
     print(f"     OK  disruption confirmed: {subsector}")
 
     fields = find_subsector_fields(subsector, title, excerpt)
@@ -126,11 +159,15 @@ def run(num_files: int, limit: int | None, subsectors: str, output_path: str | N
         print(f"Error: Invalid subsector(s): {', '.join(invalid)}")
         print(f"Valid subsectors are: cyber_attack, drug_shortage, medical_device_shortage, natural_disaster, or all")
         return []
-    
+
+    ensure_raw_dirs()
+
     # Load seen URLs once at the start
     seen = load_seen(seen_urls_path)
     
-    seeds = [seed for subsector in subsector_list for seed in backfill_cyber_seeds(num_files=num_files, subsector=subsector, start_date=start_date, end_date=end_date)]
+    raw_seeds = [seed for subsector in subsector_list for seed in backfill_cyber_seeds(num_files=num_files, subsector=subsector, start_date=start_date, end_date=end_date)]
+    persist_raw_seeds(raw_seeds)
+    seeds = raw_seeds
     if limit and not (start_date or end_date):
         seeds = seeds[:limit]
 
@@ -138,8 +175,12 @@ def run(num_files: int, limit: int | None, subsectors: str, output_path: str | N
     records = []
     for i, seed in enumerate(seeds, start=1):
         print(f"[{i}/{len(seeds)}]")
+        url = seed["url"]
+        article_id = stable_id(url)
         rec = process_seed(seed, seen)
         if rec:
+            persist_stage(VALIDATED_DIR, article_id, "validated", url, rec)
+            persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec)
             records.append(rec)
 
     # Save seen URLs once at the end
@@ -208,7 +249,6 @@ def run(num_files: int, limit: int | None, subsectors: str, output_path: str | N
     print(f"Appended {len(out_recs)} records to {out_file} (total: {len(combined)})")
 
     return records
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GDELT end-to-end runner")

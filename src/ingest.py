@@ -326,6 +326,34 @@ def log_duplicate(
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(block)
 
+def _is_valid_disruption(record: dict, *, use_bert: bool) -> bool:
+    """Return True if the record describes an active healthcare disruption.
+
+    Calls ``ai_check_validation`` from ask_llm with the ``use_bert`` flag so
+    the caller controls which pipeline (LLM-only vs BERT) is used.
+    Skips classification and returns True when ask_llm is not importable 
+    (e.g. Ollama not running), so ingestion can still proceed.
+    """
+    import sys
+    scrapers_dir = str(Path(__file__).resolve().parent / "scrapers")
+    if scrapers_dir not in sys.path:
+        sys.path.insert(0, scrapers_dir)
+
+    try:
+        from ask_llm import ai_check_validation  # type: ignore[import]
+    except ImportError:
+        print("         [WARN] ask_llm not found — skipping classification gate")
+        return True
+ 
+    title = str(record.get("title", ""))
+    body = str(record.get("content", record.get("exec_summary", "")))
+ 
+    is_threat, detail = ai_check_validation(title, body, use_bert=use_bert)
+ 
+    if not is_threat:
+        print(f"         [SKIP] classifier rejected: {detail}")
+    return is_threat
+
 
 
 '''
@@ -342,6 +370,7 @@ def ingest(
     diff_dir: str | None = None,
     force: bool = False,
     dup_threshold: float = DEFAULT_DUP_THRESHOLD,
+    use_bert: bool = False,
 ) -> None:
     print(f"\n{'-'*55}")
     print("Ingestion Pipeline")
@@ -403,15 +432,20 @@ def ingest(
         print("----->  You can now start the server: uvicorn main:app --reload\n")
         return
 
-    stats = {"new": 0, "id_skipped": 0, "merged": 0, "logged_only": 0}
+    stats = {"new": 0, "id_skipped": 0, "merged": 0, "logged_only": 0, "rejected": 0}
     for idx, record in enumerate(records, start=1):
         rec_id = str(record.get("id", ""))
         print(f"-----> [{idx}/{len(records)}] record id={rec_id!r}")
 
-        #skips exact id matches (lets run JSON files with half new data, half old without inserting old data twice)
+        # Skip exact id matches
         if rec_id and rec_id in existing_ids:
-            print("         [WARN] exact id already in DB, skipping this record: " + rec_id) 
+            print("         [WARN] exact id already in DB, skipping: " + rec_id)
             stats["id_skipped"] += 1
+            continue
+
+        # Classification gate
+        if not _is_valid_disruption(record, use_bert=use_bert):
+            stats["rejected"] += 1
             continue
 
         dup = find_duplicate(db, record, dup_threshold)
@@ -515,6 +549,16 @@ if __name__ == "__main__":
         default=DEFAULT_DUP_THRESHOLD,
         help=f"Cosine distance upper bound for duplicate detection (default: {DEFAULT_DUP_THRESHOLD}).",
     )
+    parser.add_argument(
+        "--use-bert",
+        action="store_true",
+        default=False,
+        help=(
+            "Enable BERT pre-screening before each LLM validation call. "
+            "Articles rejected by BERT skip the LLM entirely, reducing ingestion time."
+        )
+    )
+
 
     args = parser.parse_args()
 
@@ -528,4 +572,5 @@ if __name__ == "__main__":
         diff_dir=args.diff_dir,
         force=args.force,
         dup_threshold=args.dup_threshold,
+        use_bert=args.use_bert,
     )

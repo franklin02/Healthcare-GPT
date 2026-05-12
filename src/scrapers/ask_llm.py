@@ -66,6 +66,24 @@ SUBSECTOR_FIELDS = {
     ],
 }
 
+
+def _run_bert(title: str, body: str) -> str:
+    import sys
+    from pathlib import Path
+
+    gdelt_dir = Path(__file__).resolve().parent.parent / "GDELT"
+    if str(gdelt_dir) not in sys.path:
+        sys.path.append(str(gdelt_dir))
+
+    try:
+        from BERT_filter import run_bert_inference
+    except ImportError as exc:
+        raise RuntimeError(
+            f"bert_filter.py not found at {gdelt_dir}"
+        ) from exc
+
+    return run_bert_inference({"title": title, "body": body})
+
 """
 This function is used to call an AI model (currently Ollama) to check
 if the article we parsed presents a risk to the healthcare industry.
@@ -74,9 +92,16 @@ at this point should be already parsed and cleaned.
 Returns a tuple: (is_threat, detail)
     - is_threat (bool): True if an active disruption is identified.
     - detail (str): The subsector name (if True) OR the reason for exclusion/analysis (if False).
-NOTE: this will be subbed out for BERT later one
+NOTE: BERT implementation is now handled with a command line argument.
 """
-def ai_check_validation(title, body) -> tuple[bool, str]:
+def ai_check_validation(title, body, use_bert = False) -> tuple[bool, str]:
+    if use_bert:
+        bert_subsector = _run_bert(title, body)
+        if bert_subsector == "none":
+            print("[BERT] rejected skipping LLM")
+            return False, "BERT: unrelated news"
+        print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
+    
     prompt = f"""
         [INST] <<SYS>>
         You are a Healthcare Crisis Auditor. Your task is to identify ACTIVE OPERATIONAL DISRUPTIONS in healthcare. 

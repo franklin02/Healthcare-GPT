@@ -3,6 +3,7 @@ import pandas as pd
 import zipfile
 import io
 import re
+from datetime import datetime
 from urllib.parse import urlparse
 
 GKG_COLS = {
@@ -192,6 +193,22 @@ def url_passes_quality(url):
     return True
 
 
+def _normalize_date_bound(value, end=False):
+    if not value:
+        return None
+    if value.isdigit() and len(value) in (8, 14):
+        return (value + ("235959" if end else "000000"))[:14] if len(value) == 8 else value
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(value, fmt).strftime("%Y%m%d%H%M%S")
+        except ValueError:
+            pass
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%Y%m%d%H%M%S")
+    except ValueError:
+        return value
+
+
 def process_gkg_file(link, subsector="all"):
     try:
         r = requests.get(link, timeout=20)
@@ -268,7 +285,7 @@ def process_gkg_file(link, subsector="all"):
         return [], 0
 
 
-def backfill_cyber_seeds(num_files=20, subsector="all"):
+def backfill_cyber_seeds(num_files=20, subsector="all", start_date=None, end_date=None):
     print("Fetching GDELT master file list...")
     resp = requests.get(
         "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt", timeout=15
@@ -278,9 +295,15 @@ def backfill_cyber_seeds(num_files=20, subsector="all"):
         for line in resp.text.strip().split("\n")
         if ".gkg.csv.zip" in line
     ]
-    recent = links[-num_files:]
+    start_date = _normalize_date_bound(start_date)
+    end_date = _normalize_date_bound(end_date, end=True)
+    if start_date:
+        links = [link for link in links if link.split("/")[-1][:14] >= start_date]
+    if end_date:
+        links = [link for link in links if link.split("/")[-1][:14] <= end_date]
+    recent = links if (start_date or end_date) else links[-num_files:]
     scope_label = "all subsectors" if subsector == "all" else subsector
-    print(f"Scanning {num_files} files for {scope_label} (~{num_files * 15 / 60:.1f} hours)...\n")
+    print(f"Scanning {len(recent)} files for {scope_label} (~{len(recent) * 15 / 60:.1f} hours)...\n")
 
     all_seeds = []
     total_rows = 0

@@ -8,3 +8,4 @@ src/tests/train-bert/.ipynb_checkpoints
 src/tests/train-bert/.jupyter
 src/models/
 src/tests/train-bert/*.csv
+CLAUDE.md

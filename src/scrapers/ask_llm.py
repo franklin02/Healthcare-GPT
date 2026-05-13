@@ -3,6 +3,25 @@ import requests
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
+SECTOR_FIELDS = [
+    "exec_summary",
+    "confidence_level",
+    "risk_level",
+    "geography_scope",
+    "start_date",
+    "end_date",
+    "resilience_or_mitigation_observed"
+]
+# Subset of SECTOR_FIELDS actually extracted by the LLM. `confidence_level` and
+# `risk_level` are left null here because schema.json marks them as calculated
+# by INL downstream.
+LLM_SECTOR_FIELDS = [
+    "exec_summary",
+    "geography_scope",
+    "start_date",
+    "end_date",
+    "resilience_or_mitigation_observed",
+]
 SUBSECTOR_FIELDS = {
     "drug_shortage": [
         "drug_name",
@@ -188,19 +207,22 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
 
 
 """
-Once we KNOW a source classifies as a vulnerability, we need to find all the
-subsector specific fields (found in src/data/schema.json) and return them in a dictionary.
+Once we KNOW a source classifies as a vulnerability, we need to extract both the
+cross-cutting sector fields and the subsector-specific fields (defined in
+src/config/schema.json) in a single LLM call. Returns a tuple:
+    (sector_data, subsector_data)
+- sector_data keys: LLM_SECTOR_FIELDS
+- subsector_data keys: SUBSECTOR_FIELDS[subsector]
 """
-def find_subsector_fields(subsector, title, body) -> dict:
+def extract_fields(subsector, title, body) -> tuple[dict, dict]:
 
-    # Get the specific fields for this subsector or exist if none found
-    fields_to_extract = SUBSECTOR_FIELDS.get(subsector)
-    if not fields_to_extract:
+    subsector_fields = SUBSECTOR_FIELDS.get(subsector)
+    if not subsector_fields:
         print(f"No fields found for subsector: {subsector}")
         exit(1)
 
-    # Format the list into a string for the prompt
-    fields_string = ", ".join([f'"{f}"' for f in fields_to_extract])
+    all_fields = LLM_SECTOR_FIELDS + subsector_fields
+    fields_string = ", ".join([f'"{f}"' for f in all_fields])
 
     prompt = f"""
         [INST] <<SYS>>
@@ -215,6 +237,12 @@ def find_subsector_fields(subsector, title, body) -> dict:
         6. Boolean fields: true or false ONLY if explicitly stated; otherwise null. Do not infer booleans from context.
         7. List fields: return a JSON array of strings, each lifted directly from the article. If nothing is stated, use null (not an empty array).
         8. Output VALID JSON only — no markdown fences, no commentary, no trailing text.
+
+        FIELD-SPECIFIC GUIDANCE (sector fields, applied to ALL subsectors):
+        - "exec_summary": a 1-2 sentence factual summary of the disruption, naming the entity and the impact. Lift facts only from the article. Empty string allowed if the article is too vague to summarize.
+        - "geography_scope": the U.S. state, region, or "US Territory" the disruption affects, only if stated. Otherwise null.
+        - "start_date" / "end_date": ISO YYYY-MM-DD; null if not explicit.
+        - "resilience_or_mitigation_observed": any specific mitigation, workaround, or response action stated in the article (e.g. "diverted ambulances to nearby hospital", "restored systems within 48 hours"). Null if none stated.
         <</SYS>>
 
         ARTICLE TITLE: {title}
@@ -240,8 +268,15 @@ def find_subsector_fields(subsector, title, body) -> dict:
         )
 
         raw_response = resp.json().get("response", "{}")
-        return json.loads(raw_response)
+        raw = json.loads(raw_response)
+
+        sector_data = {k: raw.get(k) for k in LLM_SECTOR_FIELDS}
+        subsector_data = {k: raw.get(k) for k in subsector_fields}
+        return sector_data, subsector_data
 
     except Exception as e:
-        print(f"Error extracting subsector fields: {e}")
-        return {key: None for key in fields_to_extract}
+        print(f"Error extracting fields: {e}")
+        return (
+            {k: None for k in LLM_SECTOR_FIELDS},
+            {k: None for k in subsector_fields},
+        )

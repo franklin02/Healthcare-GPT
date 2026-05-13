@@ -1,6 +1,8 @@
 import json
 import csv
 import datetime
+import os
+import tempfile
 import requests
 from pathlib import Path
 import sys as _sys
@@ -145,6 +147,171 @@ def noise_output(site_name: str, title: str, url: str, body: str, reason: str) -
     ]
     with open(csv_path, "a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow(row)
+
+
+def _content_preview(body: str | None) -> str:
+    return (body or "")[:250].replace("\n", " ")
+
+
+def _top_row_matches(
+    csv_path: Path,
+    title: str,
+    body_snippet: str,
+    preview_column: str,
+) -> bool:
+    if not csv_path.exists():
+        return False
+
+    with open(csv_path, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        try:
+            first_row = next(reader)
+        except StopIteration:
+            return False
+
+    if first_row.get("title", "") != title:
+        return False
+
+    incoming_preview = _content_preview(body_snippet)
+    if first_row.get(preview_column, "") != incoming_preview:
+        print(
+            f"[WARN] Title matched but body preview differs for {title!r} "
+            f"— stopping anyway"
+        )
+    return True
+
+
+"""
+Cheap "have we already seen this article?" check used by the HTML scraper to
+break out of pagination once it walks back into known territory. Inspects ONLY
+the first data row of BOTH data/vulnerabilities/{site_name}.csv AND
+data/noise/{site_name}.csv (newest-first ordering is enforced by
+prepend_vuln_csv / prepend_noise_csv below).
+
+Returns True if the incoming title matches the top row of either file. Body
+mismatch on a title hit prints a [WARN] but still returns True.
+"""
+def is_known_article(site_name: str, title: str, body_snippet: str) -> bool:
+    site = _site_filename(site_name)
+    if _top_row_matches(
+        VULNERABILITIES_DIR / f"{site}.csv", title, body_snippet, "content_preview"
+    ):
+        return True
+    if _top_row_matches(
+        NOISE_DIR / f"{site}.csv", title, body_snippet, "body_preview"
+    ):
+        return True
+    return False
+
+
+"""
+Atomically rewrite data/vulnerabilities/{site_name}.csv as
+    header + new_rows + existing_data_rows
+so the most recent run's articles end up at the top. new_rows must already be
+ordered newest-first. No-op when new_rows is empty.
+"""
+def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
+    if not new_rows:
+        return
+
+    csv_path = VULNERABILITIES_DIR / f"{_site_filename(site_name)}.csv"
+    existing_data_rows: list[list[str]] = []
+    if csv_path.exists():
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            try:
+                next(reader)  # drop the existing header
+            except StopIteration:
+                pass
+            existing_data_rows = list(reader)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{_site_filename(site_name)}.",
+        suffix=".csv.tmp",
+        dir=str(VULNERABILITIES_DIR),
+    )
+    try:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(VULN_CSV_HEADER)
+            writer.writerows(new_rows)
+            writer.writerows(existing_data_rows)
+        os.replace(tmp_path, csv_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+
+"""
+Atomically rewrite data/noise/{site_name}.csv as
+    header + new_rows + existing_data_rows
+so the most recent run's articles end up at the top. new_rows must already be
+ordered newest-first. No-op when new_rows is empty.
+"""
+def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
+    if not new_rows:
+        return
+
+    csv_path = NOISE_DIR / f"{_site_filename(site_name)}.csv"
+    existing_data_rows: list[list[str]] = []
+    if csv_path.exists():
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            try:
+                next(reader)  # drop the existing header
+            except StopIteration:
+                pass
+            existing_data_rows = list(reader)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{_site_filename(site_name)}.",
+        suffix=".csv.tmp",
+        dir=str(NOISE_DIR),
+    )
+    try:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(NOISE_CSV_HEADER)
+            writer.writerows(new_rows)
+            writer.writerows(existing_data_rows)
+        os.replace(tmp_path, csv_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+
+"""
+Insert new vulns at the FRONT of data/processed/{site_name}.json's `sources`
+list (newest-first). No-op when new_vulns is empty.
+"""
+def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None:
+    if not new_vulns:
+        return
+
+    json_path = READY_FOR_RAG_DIR / f"{_site_filename(site_name)}.json"
+    if json_path.exists():
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+    else:
+        data = {"sources": []}
+
+    new_dicts = [v.to_dict() for v in new_vulns]
+    data["sources"] = new_dicts + data.get("sources", [])
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{_site_filename(site_name)}.",
+        suffix=".json.tmp",
+        dir=str(READY_FOR_RAG_DIR),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        os.replace(tmp_path, json_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
 
 """

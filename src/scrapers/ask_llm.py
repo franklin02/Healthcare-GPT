@@ -1,3 +1,24 @@
+""" Facilitates interactions with a large language model (LLM).
+
+Attributes
+    - `AI_URL`: The base URL for the AI service.
+    - `AI_MODEL`: The specific model that the AI will use for processing.
+    - `SUBSECTOR_FIELDS`: A dictionary that maps subsectors to their specific fields.
+
+Function:
+    - `ai_check_validation`: Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach
+       at a named healthcare entity based on strict, predefined criteria.
+    - `find_subsector_fields`: Extracts specific fields for a given healthcare subsector by utilizing an AI-based metadata extraction process from the provided article title and body.
+
+Possible subsectors:
+        - "drug_shortage": A confirmed shortage of a named drug patients need now.
+        - "medical_device_shortage": A confirmed inability to supply a specific named medical device.
+        - "cyber_attack": A confirmed breach or attack involving a named healthcare entity.
+        - "natural_disaster": Operational shutdowns due to fire, flood, storm, or other physical events.
+        - "other": Other confirmed operational disruptions that do not fit the previous categories.
+        - "none": Used when no operational disruption or breach is confirmed.
+"""
+
 import json
 import requests
 
@@ -66,17 +87,25 @@ SUBSECTOR_FIELDS = {
     ],
 }
 
-"""
-This function is used to call an AI model (currently Ollama) to check
-if the article we parsed presents a risk to the healthcare industry.
-It expects 2 arguments: the title and the body of the article which 
-at this point should be already parsed and cleaned.
-Returns a tuple: (is_threat, detail)
-    - is_threat (bool): True if an active disruption is identified.
-    - detail (str): The subsector name (if True) OR the reason for exclusion/analysis (if False).
-NOTE: this will be subbed out for BERT later one
-"""
+
 def ai_check_validation(title, body) -> tuple[bool, str]:
+    """
+    Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach at a named healthcare entity based on strict, predefined criteria.
+
+    Parameters:
+    title: The title of the article being analyzed.
+    body: The main content or excerpt of the article.
+
+    Returns:
+    A tuple:
+    - A boolean indicating whether the article is flagged as a threat (True if operational disruption or confirmed breach).
+    - A string providing further details: the subsector if flagged as a disruption or the reason for rejection if not flagged.
+
+    This function sends the article's title and body to an AI system for evaluation. The AI follows explicit rules to assess disruptions or breaches in healthcare. If an operational disruption is identified, the response will specify the subsector such as 'cyber_attack', 'drug_shortage', etc. If not, the output will explain why the article was rejected.
+
+    Exceptions:
+    If an error occurs during the request or response parsing, the function catches the error, logs it, and returns False with "Parsing Error".
+    """
     prompt = f"""
         [INST] <<SYS>>
         You are a strict Healthcare Operations Auditor. Your ONLY job is to flag articles that describe a REAL, ALREADY-OCCURRING healthcare disruption or a CONFIRMED breach at a named healthcare entity.
@@ -187,12 +216,21 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
         return False, "Parsing Error"
 
 
-"""
-Once we KNOW a source classifies as a vulnerability, we need to find all the
-subsector specific fields (found in src/data/schema.json) and return them in a dictionary.
-"""
 def find_subsector_fields(subsector, title, body) -> dict:
+    """
+    Extracts specific fields for a given healthcare subsector by utilizing an AI-based metadata extraction process from the provided article title and body.
 
+    Parameters:
+    subsector (str): The subsector for which specific fields are to be extracted. It serves as a key to look up in the SUBSECTOR_FIELDS dictionary.
+    title (str): The title of the healthcare disruption article from which to extract metadata.
+    body (str): The body content of the healthcare disruption article from which to extract metadata.
+
+    Returns:
+    dict: A dictionary containing the extracted metadata fields as key-value pairs. Keys correspond to the required fields for the subsector. If fields are not explicitly mentioned or an error occurs during extraction, the dictionary will contain null values.
+
+    Raises:
+    SystemExit: Terminates the program if no specific fields are found for the given subsector in SUBSECTOR_FIELDS.
+    """
     # Get the specific fields for this subsector or exist if none found
     fields_to_extract = SUBSECTOR_FIELDS.get(subsector)
     if not fields_to_extract:

@@ -37,6 +37,7 @@ except ImportError:
 FINETUNE_BERT_PATH = current_dir.parent.parent / "models" / "healthcare_bert_v2"
 FALLBACK_MODEL_ID = "typeform/distilbert-base-uncased-mnli"
 
+
 def get_device():
     if torch.cuda.is_available():
         return 0
@@ -44,7 +45,8 @@ def get_device():
         return "mps"
     else:
         return -1
-    
+
+
 def load_model():
     device = get_device()
     if FINETUNE_BERT_PATH.exists():
@@ -54,8 +56,10 @@ def load_model():
         MODEL_ID = FALLBACK_MODEL_ID
     return pipeline("zero-shot-classification", model=MODEL_ID, device=device)
 
+
 CONCURRENT_REQUESTS = 10
-    
+
+
 def run_bert_inference(data: dict, classifier) -> str:
     """Classify a single article as a potential healthcare-related hit.
 
@@ -69,7 +73,7 @@ def run_bert_inference(data: dict, classifier) -> str:
         data (dict): Article payload. Expected keys:
             - "title" (str): Article headline. Missing/None treated as "".
             - "body" (str): Article body/text. Missing/None treated as "".
-            - classifier: Loaded transformers pipeline instance for inference.
+        classifier: Loaded transformers pipeline instance for inference.
 
     Returns:
         str: One of:
@@ -153,7 +157,7 @@ async def process_link(url, sem, classifier):
     Args:
         url (str): Target page URL to scrape.
         sem (asyncio.Semaphore): Semaphore to limit concurrent scrapes.
-        classifier: Loaded transformers pipeline instance passed through 
+        classifier: Loaded transformers pipeline instance passed through
             to run_bert_inference.
 
     Returns:
@@ -207,7 +211,9 @@ async def main():
         - Reads `sys.argv[1]` for CSV path when invoked as a script.
     """
     classifier = load_model()
-    csv_path = (sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith(".csv") else None)
+    csv_path = (
+        sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith(".csv") else None
+    )
     all_results = []
     llama_confirmed_urls = []
 

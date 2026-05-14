@@ -55,9 +55,8 @@ def load_model():
     return pipeline("zero-shot-classification", model=MODEL_ID, device=device)
 
 CONCURRENT_REQUESTS = 10
-
-
-def run_bert_inference(data: dict) -> str:
+    
+def run_bert_inference(data: dict, classifier) -> str:
     """Classify a single article as a potential healthcare-related hit.
 
     The function composes a short prompt from the article title and the first
@@ -70,13 +69,13 @@ def run_bert_inference(data: dict) -> str:
         data (dict): Article payload. Expected keys:
             - "title" (str): Article headline. Missing/None treated as "".
             - "body" (str): Article body/text. Missing/None treated as "".
+            - classifier: Loaded transformers pipeline instance for inference.
 
     Returns:
         str: One of:
             - "potential_hit": a threat label passed the threshold.
             - "none": no threat labels passed the threshold.
     """
-def run_bert_inference(data: dict, classifier) -> str:
     title = str(data.get("title") or "").strip()
     body = str(data.get("body") or "").strip()
 
@@ -154,6 +153,8 @@ async def process_link(url, sem, classifier):
     Args:
         url (str): Target page URL to scrape.
         sem (asyncio.Semaphore): Semaphore to limit concurrent scrapes.
+        classifier: Loaded transformers pipeline instance passed through 
+            to run_bert_inference.
 
     Returns:
         dict: Result with keys:
@@ -205,9 +206,6 @@ async def main():
         - Prints pipeline summary to stdout.
         - Reads `sys.argv[1]` for CSV path when invoked as a script.
     """
-    csv_path = (
-        sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith(".csv") else None
-    )
     classifier = load_model()
     csv_path = (sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith(".csv") else None)
     all_results = []

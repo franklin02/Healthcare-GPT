@@ -55,3 +55,23 @@ Compare Ollama vs BERT validation:
 - Run `python freeze_data.py` to benchmark the two models' accuracy and speed using an existing .csv of historical URLs (`frozen_race_data.csv`).
 
 
+## Output File Locations
+
+Intermediate and final data structures are saved automatically to track pipeline progress and prevent data loss.
+
+TODO: update output locations in `runner.py` to match new file structure.
+
+Final output:
+- `src/data/Ready_for_RAG/GDELT.json`
+
+URL history (list of processed URLs to prevent future duplicates):
+- `src/data/seen_urls.json`
+
+Raw seeds (candidate URLs before scraping): 
+- `data/raw/gdelt/seeds/`
+
+Validated data (articles confirmed as threats by the LLM):
+- `data/raw/gdelt/validated/`
+
+Extracted data (articles with fully extracted .json metadata):
+- `data/raw/gdelt/enriched/`

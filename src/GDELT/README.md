@@ -41,3 +41,17 @@ Targeted historical run (Jan 01 - 31, cyberattacks and drug shortages):
 - `-o`, `--output-path`: Path for the final JSON output.
 
 
+## Single-Stage Debugging
+
+If you need to isolate stages for testing / benchmarking without running the full end-to-end pipeline:
+
+Check GDELT seed filtering without scraping:
+- Run `python gdelt_seeds.py` to test the regex and theme filters. It will print the matched URLs to the console without triggering the LLM.
+
+Test URL scraping and AI validation without GDELT:
+- Use `ollama_filter.py` by passing a hardcoded list of URLs to `filter_with_ollama()`.
+
+Compare Ollama vs BERT validation:
+- Run `python freeze_data.py` to benchmark the two models' accuracy and speed using an existing .csv of historical URLs (`frozen_race_data.csv`).
+
+

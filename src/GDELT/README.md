@@ -75,4 +75,4 @@ Extracted data (articles with fully extracted JSON metadata):
 - `data/raw/gdelt/enriched/`
 
 ---
-*TODO: update output locations in `runner.py` to match `/data`'s new file structure.*
+*TODO: update output locations in `runner.py` and above to match `/data`'s new file structure.*

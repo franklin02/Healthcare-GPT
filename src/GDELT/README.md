@@ -38,7 +38,9 @@ Command arguments:
 
 - `--start-date` / `--end-date`: Date bounds for historical scraping.
 
-- `-o`, `--output-path`: Path for the final JSON output.
+- `-o`, `--output-path`: Path for the final JSON output. Defaults to `src/data/Ready_for_RAG/GDELT.json`.
+
+- `--seen-urls-file`: Path for the JSON file of processed URLs. Defaults to `src/data/seen_urls.json`.
 
 
 ## Single-Stage Debugging
@@ -57,7 +59,7 @@ Compare Ollama vs BERT validation:
 
 ## Output File Locations
 
-Intermediate and final data structures are saved to track pipeline progress and prevent data loss.
+Intermediate and final data structures are saved to track pipeline progress and prevent data loss. For final output and URL history, paths can be changed with commands but default to the following.
 
 Final output:
 - `src/data/Ready_for_RAG/GDELT.json`

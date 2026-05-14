@@ -1,3 +1,18 @@
+"""Filter and classify healthcare-related news items using a zero-shot BERT model.
+
+This module provides helpers to run zero-shot classification on article
+text (headline + excerpt), an async wrapper to scrape pages and classify them,
+and utilities to compare BERT results with LLM-confirmed hits.
+
+Dependencies:
+- transformers (pipeline)
+- pandas
+- a local `bert_scraper(url)` function in `src/scrapers/bert_scraper.py`
+
+Typical CLI usage:
+    python src/GDELT/BERT_filter.py path/to/articles.csv
+"""
+
 import asyncio
 import sys
 import os
@@ -24,6 +39,24 @@ CONCURRENT_REQUESTS = 10
 
 
 def run_bert_inference(data: dict) -> str:
+    """Classify a single article as a potential healthcare-related hit.
+
+    The function composes a short prompt from the article title and the first
+    500 characters of the body, then runs a zero-shot classifier with a set
+    of candidate labels. A result is considered a "potential_hit" when any of
+    the threat labels scores above 0.60 and is higher than the "unrelated
+    news" score.
+
+    Args:
+        data (dict): Article payload. Expected keys:
+            - "title" (str): Article headline. Missing/None treated as "".
+            - "body" (str): Article body/text. Missing/None treated as "".
+
+    Returns:
+        str: One of:
+            - "potential_hit": a threat label passed the threshold.
+            - "none": no threat labels passed the threshold.
+    """
     title = str(data.get("title") or "").strip()
     body = str(data.get("body") or "").strip()
 
@@ -61,7 +94,15 @@ def run_bert_inference(data: dict) -> str:
 
 
 def print_comparison_stats(bert_results: list, llama_hits: list):
-    """Handles all the summary and comparison bloat in one place."""
+    """Print a summary comparing BERT-flagged URLs with LLM-confirmed hits.
+
+    Args:
+        bert_results (list[str]): Iterable of URLs flagged by the BERT filter.
+        llama_hits (list[str]): Iterable of URLs confirmed by the LLM/ollama pipeline.
+
+    Returns:
+        None: Prints counts and disagreement lists to stdout for human inspection.
+    """
     bert_set = set(url for url in bert_results if url)
     llama_set = set(url for url in llama_hits if url)
 
@@ -84,6 +125,24 @@ def print_comparison_stats(bert_results: list, llama_hits: list):
 
 
 async def process_link(url, sem):
+    """Asynchronously scrape a URL and run BERT classification on the content.
+
+    This coroutine calls the blocking `bert_scraper(url)` in a threadpool
+    executor so that many scrapes can run concurrently under asyncio. The
+    provided semaphore is used to bound parallelism.
+
+    Args:
+        url (str): Target page URL to scrape.
+        sem (asyncio.Semaphore): Semaphore to limit concurrent scrapes.
+
+    Returns:
+        dict: Result with keys:
+            - "url" (str): The input URL.
+            - "title" (str): Scraped title or empty string.
+            - "body" (str): Scraped body text or empty string.
+            - "subsector" (str): Classification result ("potential_hit" or "none").
+            - "status" (str): One of "YES", "NO", "SKIP", or "ERROR: <msg>".
+    """
     async with sem:
         try:
             loop = asyncio.get_event_loop()
@@ -105,6 +164,27 @@ async def process_link(url, sem):
 
 
 async def main():
+    """CLI entry point: run offline CSV filtering and print comparison stats.
+
+    If the first command-line argument is a path to a CSV file, the CSV is
+    loaded with pandas and each row is classified with `run_bert_inference`.
+    The function collects BERT-confirmed URLs, compares them to any
+    `llama_hit` flags in the CSV, prints a summary via
+    `print_comparison_stats`, and returns the list of URLs flagged by BERT.
+
+    Expected CSV columns:
+        - "url" (str)
+        - "title" (str)
+        - "body" (str)
+        - optional "llama_hit" (int, where 1 indicates an LLM-confirmed hit)
+
+    Returns:
+        list[str]: URLs where BERT reported a hit ("potential_hit").
+
+    Side effects:
+        - Prints pipeline summary to stdout.
+        - Reads `sys.argv[1]` for CSV path when invoked as a script.
+    """
     csv_path = (
         sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith(".csv") else None
     )

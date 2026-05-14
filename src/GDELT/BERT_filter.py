@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import pandas as pd
 from transformers import pipeline
+import torch
 
 current_dir = Path(__file__).resolve().parent
 scraper_dir = current_dir.parent / "scrapers"
@@ -30,10 +31,28 @@ try:
     from bert_scraper import bert_scraper
 except ImportError:
     print(f"Error: Could not find bert_scraper.py in {scraper_dir}")
+    sys.exit(1)
 
 
-MODEL_ID = "typeform/distilbert-base-uncased-mnli"
-classifier = pipeline("zero-shot-classification", model=MODEL_ID, device=0)
+FINETUNE_BERT_PATH = current_dir.parent.parent / "models" / "healthcare_bert_v2"
+FALLBACK_MODEL_ID = "typeform/distilbert-base-uncased-mnli"
+
+def get_device():
+    if torch.cuda.is_available():
+        return 0
+    elif torch.backends.mps.is_available():
+        return "mps"
+    else:
+        return -1
+    
+def load_model():
+    device = get_device()
+    if FINETUNE_BERT_PATH.exists():
+        MODEL_ID = FINETUNE_BERT_PATH
+    else:
+        print("[WARN] Finetuned model not found, reverting to base model.")
+        MODEL_ID = FALLBACK_MODEL_ID
+    return pipeline("zero-shot-classification", model=MODEL_ID, device=device)
 
 CONCURRENT_REQUESTS = 10
 
@@ -57,6 +76,7 @@ def run_bert_inference(data: dict) -> str:
             - "potential_hit": a threat label passed the threshold.
             - "none": no threat labels passed the threshold.
     """
+def run_bert_inference(data: dict, classifier) -> str:
     title = str(data.get("title") or "").strip()
     body = str(data.get("body") or "").strip()
 
@@ -124,7 +144,7 @@ def print_comparison_stats(bert_results: list, llama_hits: list):
     print(f"{'=' * 49}\n")
 
 
-async def process_link(url, sem):
+async def process_link(url, sem, classifier):
     """Asynchronously scrape a URL and run BERT classification on the content.
 
     This coroutine calls the blocking `bert_scraper(url)` in a threadpool
@@ -151,7 +171,7 @@ async def process_link(url, sem):
             if not data or not data.get("body"):
                 return {"url": url, "title": "", "body": "", "status": "SKIP"}
 
-            subsector = run_bert_inference(data)
+            subsector = run_bert_inference(data, classifier)
             return {
                 "url": url,
                 "title": data.get("title", ""),
@@ -188,6 +208,8 @@ async def main():
     csv_path = (
         sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith(".csv") else None
     )
+    classifier = load_model()
+    csv_path = (sys.argv[1] if len(sys.argv) > 1 and sys.argv[1].endswith(".csv") else None)
     all_results = []
     llama_confirmed_urls = []
 
@@ -197,7 +219,7 @@ async def main():
 
         for _, row in df.iterrows():
             data = {"title": row["title"], "body": row["body"]}
-            subsector = run_bert_inference(data)
+            subsector = run_bert_inference(data, classifier)  # fixed
 
             all_results.append({"url": row["url"], "subsector": subsector})
 

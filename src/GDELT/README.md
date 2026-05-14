@@ -1,4 +1,5 @@
 # GDELT Healthcare Disruption Pipeline
+
 This pipeline ingests GDELT Global Knowledge Graph (GKG) data, filters for US-based healthcare  disruptions, and uses a local LLM to extract structured metadata.
 
 
@@ -18,6 +19,7 @@ This pipeline ingests GDELT Global Knowledge Graph (GKG) data, filters for US-ba
 
 
 ## End-to-End Run Command
+
 Run the pipeline from the root directory using `runner.py`. You must have Ollama running locally with the llama3.2 model (ollama serve).
 
 Basic run (to process 2 recent GDELT files, test with 3 URLs):

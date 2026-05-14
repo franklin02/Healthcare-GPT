@@ -289,5 +289,20 @@ if __name__ == "__main__":
         default="all", 
         help="Comma-separated subsectors to scan, or all"
     )
+    parser.add_argument(
+        "--use-bert",
+        default=False,
+        action="store_true",
+        help="Use BERT-based validation instead of LLM"
+    )
     args = parser.parse_args()
-    run(num_files=args.num_files, limit=args.limit, subsectors=args.subsectors, output_path=args.output_path, start_date=args.start_date, end_date=args.end_date, seen_urls_file=args.seen_urls_file)
+    run(
+        num_files=args.num_files,
+        limit=args.limit, 
+        subsectors=args.subsectors, 
+        output_path=args.output_path, 
+        start_date=args.start_date, 
+        end_date=args.end_date, 
+        seen_urls_file=args.seen_urls_file, 
+        use_bert=args.use_bert
+    )

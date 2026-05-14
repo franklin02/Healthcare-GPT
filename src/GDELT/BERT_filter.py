@@ -39,6 +39,11 @@ FALLBACK_MODEL_ID = "typeform/distilbert-base-uncased-mnli"
 
 
 def get_device():
+    """Detect the best available device for model inference.
+
+    Returns:
+        int | str: 0 for CUDA, "mps" for Apple Silicon, or -1 for CPU.
+    """
     if torch.cuda.is_available():
         return 0
     elif torch.backends.mps.is_available():
@@ -48,6 +53,14 @@ def get_device():
 
 
 def load_model():
+    """Load the zero-shot classification pipeline.
+
+    Checks for a local finetuned model at FINETUNE_BERT_PATH. If found,
+    loads it; otherwise warns and falls back to FALLBACK_MODEL_ID.
+
+    Returns:
+        transformers.Pipeline: Loaded zero-shot classification pipeline.
+    """
     device = get_device()
     if FINETUNE_BERT_PATH.exists():
         MODEL_ID = FINETUNE_BERT_PATH

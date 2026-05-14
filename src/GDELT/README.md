@@ -22,7 +22,7 @@ Run the pipeline from the root directory using `runner.py`. You must have Ollama
 
 Basic run (to process 2 recent GDELT files, test with 3 URLs):
 
-`python runner.py --num-files 2 --limit 3 --subsectors all`
+`python runner.py --num-files 2 --limit 3`
 
 Targeted historical run (Jan 01 - 31, cyberattacks and drug shortages):
 
@@ -34,7 +34,7 @@ Command arguments:
 
 - `-l`, `--limit`: Maximum number of seeds to process.
 
-- `-s`, `--subsectors`: Which subsectors to filter for. Comma-separated list (`cyber_attack`, `drug_shortage`, `medical_device_shortage`, `natural_disaster`, `all`).
+- `-s`, `--subsectors`: Which subsectors to filter for. Comma-separated list (`cyber_attack`, `drug_shortage`, `medical_device_shortage`, `natural_disaster`, `all`). Defaults to `all`.
 
 - `--start-date` / `--end-date`: Date bounds for historical scraping.
 

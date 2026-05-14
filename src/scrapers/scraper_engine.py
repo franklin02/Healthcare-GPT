@@ -228,13 +228,13 @@ def _get_page(url):
     Fetches the content of a webpage using an HTTP GET request.
 
     Parameters:
-    url (str): The URL of the webpage to fetch.
+        url (str): The URL of the webpage to fetch.
 
     Returns:
-    requests.Response: The response object containing the webpage content.
+        requests.Response: The response object containing the webpage content.
 
     Raises:
-    requests.exceptions.RequestException: If the request failed or the server returned a bad status code.
+        requests.exceptions.RequestException: If the request failed or the server returned a bad status code.
     """
     resp = requests.get(url, timeout=15, headers=HEADERS)
     resp.raise_for_status()

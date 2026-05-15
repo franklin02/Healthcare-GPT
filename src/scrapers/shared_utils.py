@@ -1,6 +1,5 @@
 import json
 import csv
-import datetime
 import os
 import tempfile
 import requests
@@ -27,8 +26,7 @@ HEADERS = {
     )
 }
 
-# CSV column orders. Vulnerabilities = "real" disruptions; Noise = everything
-# the AI rejected. Kept intentionally small so we can scan them easier
+
 VULN_CSV_HEADER = [
     "date_accessed",
     "date_published",
@@ -50,10 +48,6 @@ NOISE_CSV_HEADER = [
 ]
 
 
-"""
-This function is a shared HTTP GET with a User-Agent header to blend 
-in with normal traffic and avoid getting blocked by the website.
-"""
 def get_page(url):
     resp = requests.get(url, timeout=15, headers=HEADERS)
     resp.raise_for_status()
@@ -64,11 +58,6 @@ def _site_filename(site_name: str) -> str:
     return site_name.strip()
 
 
-"""
-This function checks to see that we have the data subfolders created and
-seeds each output file with the right header so the first run never produces
-an empty CSV with no column names.
-"""
 def check_valid_file(site_name):
     READY_FOR_RAG_DIR.mkdir(parents=True, exist_ok=True)
     NOISE_DIR.mkdir(parents=True, exist_ok=True)
@@ -92,61 +81,6 @@ def check_valid_file(site_name):
         with open(vulnerabilities_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(VULN_CSV_HEADER)
         print(f"Created {vulnerabilities_path}")
-
-
-"""
-Append a confirmed Vulnerability to data/Ready_for_RAG/{source_name}.json.
-The caller is responsible for fully populating the Vulnerability dataclass
-(including wrapping subsector_data in the right SubsectorData subclass).
-"""
-def json_output(vuln: Vulnerability) -> None:
-    json_path = READY_FOR_RAG_DIR / f"{_site_filename(vuln.source_name)}.json"
-    data = json.loads(json_path.read_text(encoding="utf-8"))
-    data["sources"].append(vuln.to_dict())
-    json_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
-    print(f"[VALID] ({vuln.subsector}): {vuln.title}")
-
-
-"""
-Append a confirmed Vulnerability to data/Vulnerabilities/{source_name}.csv as
-ONE row using the base reviewer-friendly columns. No is_threat branching:
-every row in this file is, by definition, a confirmed disruption.
-"""
-def vuln_output(vuln: Vulnerability) -> None:
-    csv_path = VULNERABILITIES_DIR / f"{_site_filename(vuln.source_name)}.csv"
-    content_preview = (vuln.content or "")[:250].replace("\n", " ")
-    row = [
-        vuln.date_accessed,
-        vuln.date_published,
-        vuln.source_name,
-        vuln.subsector,
-        vuln.title,
-        vuln.direct_link,
-        vuln.exec_summary,
-        content_preview,
-    ]
-    with open(csv_path, "a", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(row)
-
-
-"""
-Append a non-disruption ("noise") article to data/Noise/{site_name}.csv.
-`reason` is the AI's one-sentence analysis from ai_check_validation, so
-reviewers can see WHY the article was filtered out without re-reading the body.
-"""
-def noise_output(site_name: str, title: str, url: str, body: str, reason: str) -> None:
-    csv_path = NOISE_DIR / f"{_site_filename(site_name)}.csv"
-    body_preview = (body or "")[:250].replace("\n", " ")
-    row = [
-        datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-        site_name,
-        title,
-        url,
-        reason,
-        body_preview,
-    ]
-    with open(csv_path, "a", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(row)
 
 
 def _content_preview(body: str | None) -> str:
@@ -181,16 +115,7 @@ def _top_row_matches(
     return True
 
 
-"""
-Cheap "have we already seen this article?" check used by the HTML scraper to
-break out of pagination once it walks back into known territory. Inspects ONLY
-the first data row of BOTH data/vulnerabilities/{site_name}.csv AND
-data/noise/{site_name}.csv (newest-first ordering is enforced by
-prepend_vuln_csv / prepend_noise_csv below).
 
-Returns True if the incoming title matches the top row of either file. Body
-mismatch on a title hit prints a [WARN] but still returns True.
-"""
 def is_known_article(site_name: str, title: str, body_snippet: str) -> bool:
     site = _site_filename(site_name)
     if _top_row_matches(
@@ -204,12 +129,7 @@ def is_known_article(site_name: str, title: str, body_snippet: str) -> bool:
     return False
 
 
-"""
-Atomically rewrite data/vulnerabilities/{site_name}.csv as
-    header + new_rows + existing_data_rows
-so the most recent run's articles end up at the top. new_rows must already be
-ordered newest-first. No-op when new_rows is empty.
-"""
+
 def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
     if not new_rows:
         return
@@ -243,12 +163,7 @@ def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
         raise
 
 
-"""
-Atomically rewrite data/noise/{site_name}.csv as
-    header + new_rows + existing_data_rows
-so the most recent run's articles end up at the top. new_rows must already be
-ordered newest-first. No-op when new_rows is empty.
-"""
+
 def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
     if not new_rows:
         return
@@ -282,10 +197,7 @@ def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
         raise
 
 
-"""
-Insert new vulns at the FRONT of data/processed/{site_name}.json's `sources`
-list (newest-first). No-op when new_vulns is empty.
-"""
+
 def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None:
     if not new_vulns:
         return
@@ -314,13 +226,3 @@ def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None
         raise
 
 
-"""
-This function builds the page url for the site. Each scraper module
-passes in its own page_param default since RSS and HTML paginate differently.
-"""
-def build_page_url(site_config, current_page, starting_page, default_page_param):
-    if current_page == starting_page:
-        return site_config["url"]
-
-    page_param = site_config["map"].get("page_param", default_page_param)
-    return f"{site_config['url']}?{page_param}={current_page}"

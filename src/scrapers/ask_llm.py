@@ -3,18 +3,8 @@ import requests
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
-SECTOR_FIELDS = [
-    "exec_summary",
-    "confidence_level",
-    "risk_level",
-    "geography_scope",
-    "start_date",
-    "end_date",
-    "resilience_or_mitigation_observed"
-]
-# Subset of SECTOR_FIELDS actually extracted by the LLM. `confidence_level` and
-# `risk_level` are left null here because schema.json marks them as calculated
-# by INL downstream.
+
+
 LLM_SECTOR_FIELDS = [
     "exec_summary",
     "geography_scope",
@@ -85,16 +75,7 @@ SUBSECTOR_FIELDS = {
     ],
 }
 
-"""
-This function is used to call an AI model (currently Ollama) to check
-if the article we parsed presents a risk to the healthcare industry.
-It expects 2 arguments: the title and the body of the article which 
-at this point should be already parsed and cleaned.
-Returns a tuple: (is_threat, detail)
-    - is_threat (bool): True if an active disruption is identified.
-    - detail (str): The subsector name (if True) OR the reason for exclusion/analysis (if False).
-NOTE: this will be subbed out for BERT later one
-"""
+
 def ai_check_validation(title, body) -> tuple[bool, str]:
     prompt = f"""
         [INST] <<SYS>>
@@ -206,14 +187,7 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
         return False, "Parsing Error"
 
 
-"""
-Once we KNOW a source classifies as a vulnerability, we need to extract both the
-cross-cutting sector fields and the subsector-specific fields (defined in
-src/config/schema.json) in a single LLM call. Returns a tuple:
-    (sector_data, subsector_data)
-- sector_data keys: LLM_SECTOR_FIELDS
-- subsector_data keys: SUBSECTOR_FIELDS[subsector]
-"""
+
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
 
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)

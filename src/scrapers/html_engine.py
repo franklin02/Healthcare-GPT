@@ -86,6 +86,21 @@ HTML_SITES = [
             "cap": 1,
         },
     },
+
+    {
+        "name": "AHA",
+        "url": "https://www.aha.org/news",
+        "pagination_url": "https://www.aha.org/news?page=%2C{page}",
+        "map": {
+            "container": "section.views-latest-feed div.views-row",
+            "title": None,
+            "link_selector": "div.views-field-title span.field-content a",
+            "body_selector": "article .body",
+            "date_selector": "time[datetime]",
+            "starting_page": 0,
+            "cap": 10,
+        },
+    },
     {
         "name": "HealthIT_News",
         "url": "https://www.techtarget.com/news/health-it",
@@ -180,7 +195,7 @@ def fetch_html_page(site_config, page_url):
 
             if is_known_article(site_config["name"], entry["title"], body):
                 print(
-                    f"[STOP] Reached known article on {site_config['name']}: "
+                    f"[FINISH] Reached known article on {site_config['name']}: "
                     f"{entry['title']!r}"
                 )
                 stop = True
@@ -207,16 +222,18 @@ def fetch_html_page(site_config, page_url):
 
 
 def run_html_scraper(site_config):
-    print(f"--- Scraping for {site_config['name']} (html) has started ---")
+    print(f"--- Scraping for {site_config['name']} has started ---")
     check_valid_file(site_config["name"])
 
     starting_page = site_config["map"]["starting_page"]
     cap = site_config["map"]["cap"]
     current_page = starting_page
 
-    # Buffer this run's new vulns + CSV rows so we can prepend them in one shot
-    # at the end. Order in these lists is newest-first because pagination
-    # progresses oldest-page-last and each page lists articles newest-first.
+    '''
+    Buffer this run's new vulns + CSV rows so we can prepend them in one shot
+    at the end. Order in these lists is newest-first because pagination
+    progresses oldest-page-last and each page lists articles newest-first.
+    '''
     new_vulns: list[Vulnerability] = []
     new_rows: list[list[str]] = []
     new_noise_rows: list[list[str]] = []

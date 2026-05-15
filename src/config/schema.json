@@ -9,7 +9,6 @@
             "date_accessed": "",
             "date_published": "",
             "content": "",
-
             "exec_summary": "",
             "confidence_level":  "NOTE: one of the following {high, medium, low} To be calculated by INL",
             "risk level": "To be calculated by INL later",
@@ -17,7 +16,6 @@
             "start_date": "NOTE: this format MM/DD/YYYY ",
             "end_date": "NOTE: this format MM/DD/YYYY ",
             "resilience_or_mitigation_observed": "examples here: https://docs.google.com/spreadsheets/d/1vntuDegn4Kdtx1X89IptHQ27Ta4jA6MGIwxJOBgpDts/edit?usp=sharing",
-            
             "subsector_data": {
                 "drug_name": "",
                 "generic_name": "",

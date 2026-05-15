@@ -1,3 +1,29 @@
+"""Streamlines the scraping and processing of data
+
+This module is the engine responsible for web scraping and data extraction from various sources, particularly websites and RSS feeds.
+It handles fetching, parsing, and processing of data, while organizing outputs into structured formats suitable for further use or analysis.
+
+Attributes:
+    - 'SITES_TO_SCRAPE': A list of dictionaries defining the websites to be scraped, including their type (rss or html), name, URL, and mapping configuration.
+    - 'READY_FOR_RAG_DIR': The directory where processed data is stored, organized by subdirectories for each website.
+    - 'NOISE_DIR': The directory where scraping errors and other non-critical data is stored.
+    - 'VULNERABILITIES_DIR': The directory where vulnerabilities are stored, organized by subdirectories for each website.
+    - 'HEADERS': HTTP headers to be used in HTTP requests.
+    - 'SUBSECTOR_FIELDS': A dictionary mapping subsector names to a list of fields that should be extracted from the scraped data.
+    - 'Fetchers': A dictionary mapping fetcher types (rss or html) to their corresponding fetcher functions.
+
+Functions:
+    - '_get_page': Fetches the content of a webpage using an HTTP GET request.
+    - 'fetch_rss_page': Fetches and parses the RSS feed for a given page URL based on the provided site configuration.
+    - 'fetch_rss_external_page': Fetches and processes articles from an external RSS feed.
+    - 'fetch_html_page': Fetches and processes HTML pages based on the given site configuration and page URL.
+    - 'build_page_url': Generates complete URLs for scraping by combining base URLs and query parameters.
+    - 'run_scraper': Orchestrates the scraping process by iterating over the list of websites defined in SITES_TO_SCRAPE.
+    - 'check_valid_file': Ensures that necessary directory structures and files exist for organizing data.
+    - 'json_output': Appends processed data into a JSON file located in READY_FOR_RAG_DIR.
+    - 'report_output': Generates a report summarizing the results of the scraping process, including metrics or other detailed information.
+"""
+
 import json
 import uuid
 import datetime
@@ -197,26 +223,40 @@ SITES_TO_SCRAPE = [
 ]
 
 
-"""
-This function is a shared HTTP GET with a User-Agent header to blend 
-in with normal traffic and avoid getting blocked by the website.
-"""
-
-
 def _get_page(url):
+    """
+    Fetches the content of a webpage using an HTTP GET request.
+
+    Parameters:
+        url (str): The URL of the webpage to fetch.
+
+    Returns:
+        requests.Response: The response object containing the webpage content.
+
+    Raises:
+        requests.exceptions.RequestException: If the request failed or the server returned a bad status code.
+    """
     resp = requests.get(url, timeout=15, headers=HEADERS)
     resp.raise_for_status()
     return resp
 
 
-"""
-This function parses a full XML/RSS feed and retuns a list of normalised articles.
-A normalized article is {"title": title, "link": link, "body": body, "date": date}
-This runs once and grabs all articles from the single page. 
-"""
-
-
 def fetch_rss_page(site_config, page_url):
+    """
+    Fetches and parses the RSS feed for a given page URL based on the provided site configuration.
+    Runs once and grabs all articles from the single page.
+
+    Arguments:
+        site_config (dict): A dictionary containing the mapping configuration for the RSS feed. The configuration should specify how to extract title, link, body, and optionally the published date from the RSS feed.
+        page_url (str): The URL of the page whose RSS feed is to be fetched and parsed.
+
+    Returns:
+        list: A list of dictionaries where each dictionary represents an article or item extracted from the RSS feed. Each dictionary contains the following keys:
+            - "title": The title of the article.
+            - "link": The URL of the article.
+            - "body": The plain text representation of the article content.
+            - "date": The published date of the article, if available. Returns an empty string if the date is not found in the RSS feed.
+    """
     response = _get_page(page_url)
     soup = BeautifulSoup(response.content, "lxml-xml")
     items = soup.find_all(site_config["map"]["container"])
@@ -239,14 +279,29 @@ def fetch_rss_page(site_config, page_url):
     return articles
 
 
-"""
-Similar to fetch_rss_page, but for external RSS feeds. This would be for pages who have an RSS page
-that has a title and link, but the body is on a different page. This then grabs the html body from the link
-and returns a list of normalised articles. Same concept {"title": title, "link": link, "body": body, "date": date}
-"""
-
-
 def fetch_rss_external_page(site_config, page_url):
+    """
+    Fetches and processes articles from an external RSS feed.
+
+    This function retrieves an external RSS page based on the provided site configuration and page URL, parses the content,
+    and extracts articles' details such as title, link, publication date, and body text.
+    Articles with available body content are collected and returned in a structured format.
+
+    Parameters:
+        site_config (dict): A dictionary containing the site configuration, specifically the mapping information ('map') used to locate and extract elements from the RSS feed and article content.
+        page_url (str): The URL of the RSS page to fetch.
+
+    Returns:
+        list: A list of dictionaries where each dictionary represents an article extracted from the RSS feed. Each dictionary contains the following keys:
+            - "title": The title of the article.
+            - "link": The URL of the article.
+            - "body": The plain text representation of the article content, fetched from the linked page.
+            - "date": The published date of the article, if available. Returns an empty string if the date is not found in the RSS feed.
+
+    Raises:
+        Exception: May raise exceptions during network requests, parsing, or processing individual articles.
+        Certain exceptions related to article body fetching will only trigger warnings instead of halting execution.
+    """
     response = _get_page(page_url)
     soup = BeautifulSoup(response.content, "lxml-xml")
     items = soup.find_all(site_config["map"]["container"])
@@ -281,13 +336,33 @@ def fetch_rss_external_page(site_config, page_url):
     return articles
 
 
-"""
-This function scrapes a pure-HTML listing page for article links, then fetches each body.
-Same concept {"title": title, "link": link, "body": body, "date": date}
-"""
-
-
 def fetch_html_page(site_config, page_url):
+    """
+    Fetches and processes HTML pages based on the given site configuration and page URL.
+
+    This function scrapes a given web page for article links, their titles, and corresponding content.
+    It uses the specified configurations to locate and filter the required elements on the page.
+    For each identified article, it fetches the link, extracts its title, and retrieves its body content from the respective page.
+
+    Args:
+        site_config (dict): Configuration dictionary containing the mapping and site-specific selectors:
+            - "map": Dictionary with keys for "container", "link_selector", "title", and "body_selector" to specify the HTML structure.
+            - "url": Base URL of the site, used for resolving relative links.
+        page_url (str): URL of the page to scrape for article links.
+
+    Returns:
+        list: A list of dictionaries representing scraped articles, where each dictionary contains:
+            - "title" (str): The title of the article.
+            - "link" (str): The full URL of the article.
+            - "body" (str): Text content of the article's body.
+            - "date" (str): Placeholder for article publication date (currently always an empty string).
+
+    Notes:
+        - Links without 'http' are treated as relative and resolved using the base URL.
+        - If no valid links are found in the specified container, returns an empty list.
+        - Includes a delay (0.5 seconds) between fetching individual article pages to respect server load.
+        - Exceptions or errors during fetching a particular article's body are logged as warnings, and the article body is left empty.
+    """
     response = _get_page(page_url)
     soup = BeautifulSoup(response.content, "html.parser")
 
@@ -350,14 +425,19 @@ def fetch_html_page(site_config, page_url):
     return articles
 
 
-"""
-This function builds the page url for the site.
-It handles the pagination differences between types 
-eg, it might go from RSS to HTML, this handles that pagination differnce
-"""
-
-
 def build_page_url(site_config, current_page, starting_page):
+    """
+    Builds a URL for a page based on the site configuration and current pagination.
+
+    Parameters:
+        site_config (dict): A dictionary containing the site configuration.
+        Must include "url" key. Optional keys include "type" ("rss" or "rss_external"), and "map" (dict with "page_param").
+        current_page (int): The page number of the current request.
+        starting_page (int): The starting page number for the site (usually 1).
+
+    Returns:
+        str: The constructed URL for the given page based on the site configuration.
+    """
     if current_page == starting_page:
         return site_config["url"]
 
@@ -376,14 +456,29 @@ FETCHERS = {
 }
 
 
-"""
-This function reads the type field from the config, picks the right fetcher function from the FETCHERS dict, 
-then runs a page-by-page while True loop. Each iteration it builds a URL, calls the fetcher, gets back a list 
-of article dicts, and runs each one through AI validation and output.
-"""
-
-
 def run_scraper(site_config):
+    """
+    Executes the scraping process for a given site configuration.
+
+    site_config (dict): A dictionary containing the site's configuration, which includes:
+        - type: The type of the site to scrape (default is "rss").
+        - name: The name of the site.
+        - map: A dictionary with keys:
+            - starting_page: The starting page number for scraping.
+            - cap: The maximum page number to scrape, or -1 for unlimited.
+
+    The function retrieves the appropriate fetcher for the site type and validates the site's configuration file.
+    It iterates through pages starting from 'starting_page' until the 'cap' is reached or no articles are found.
+
+    For each page:
+    - Fetches articles using the provided fetcher.
+    - Processes each article by checking for potential threats using an AI model.
+    - Outputs the article details and validation results in both JSON and report formats.
+
+    If an error occurs during fetching or no articles are retrieved from the current page, the function will terminate or proceed accordingly.
+
+    Sleep is applied between each page fetch to mitigate overloading external services.
+    """
     site_type = site_config.get("type", "rss")
     fetcher = FETCHERS.get(site_type)
     if not fetcher:
@@ -438,14 +533,25 @@ def run_scraper(site_config):
         time.sleep(1)
 
 
-"""
-This function checks to see that we have 2 valid files in the data directory.
-One being [title].json under the valid data/valid and the other being [title].txt under the invalid data/invalid.
-This will automatically add the files if they are not found
-"""
-
-
 def check_valid_file(title):
+    """
+    Checks and ensures the necessary directory and file structures exist for a given title.
+    It creates JSON and CSV files for organizing and storing data if they do not already exist.
+    [title].json under the valid data/valid and [title].txt under the invalid data/invalid.
+
+    Parameters:
+        title (str): The title used to construct the names of the files to be checked and created.
+
+    Behavior:
+    - Ensures the directories `READY_FOR_RAG_DIR`, `NOISE_DIR`, and `VULNERABILITIES_DIR` exist.
+    - Checks if a JSON file with the specified title exists in `READY_FOR_RAG_DIR`. If absent, creates the file with a default structure.
+    - Checks if a CSV file with the specified title exists in each of `NOISE_DIR` and `VULNERABILITIES_DIR`. If absent, creates the files with predefined headers.
+
+    Side Effects:
+    - Creates directories if they do not exist.
+    - Creates and writes to files as necessary.
+    - Prints messages when a file is newly created.
+    """
     READY_FOR_RAG_DIR.mkdir(parents=True, exist_ok=True)
     NOISE_DIR.mkdir(parents=True, exist_ok=True)
     VULNERABILITIES_DIR.mkdir(parents=True, exist_ok=True)
@@ -478,13 +584,34 @@ def check_valid_file(title):
         print(f"Created {vulnerabilities_path}")
 
 
-"""
-This function will write to src/data/Ready_for_RAG/[site_name].json
-It will write all fields that we have found and leave a "" for all other fields not found.
-"""
-
-
 def json_output(site_name, title, url, body, subsector):
+    """
+    Generates and appends structured JSON data to a file for a given site.
+
+    This function takes in information about a source, such as its site name, title, URL, body content, and subsector, and appends it to a pre-existing JSON file.
+    The JSON data includes metadata like publication and access dates, unique identifiers, and processed subsector-related information.
+
+    Parameters:
+        site_name (str): Name of the source site as a string
+        title (str): Title of the source content as a string
+        url (str): URL of the source content as a string
+        body (str): The main content of the source as a string
+        subsector (str): Specific subsector associated with the source as a string
+
+    Intermediate actions:
+    - Parses an existing JSON file associated with the given source site.
+    - Appends a newly created dictionary with metadata and processed data fields.
+    - Handles subsector-related fields through specific processing logic.
+    - Writes back the updated JSON data to the respective file.
+
+    Notes:
+    - Each entry is appended with a unique ID generated using UUID.
+    - The access and publication dates are set to the current date and time.
+
+    Exceptional scenarios:
+    - Ensures proper handling of subsector data using pre-defined logic.
+    - Writes the updated JSON data back to the file with proper encoding and formatting.
+    """
     print(f"[VALID] {title} | {url}")  # makes easy to see, delete later
     json_path = READY_FOR_RAG_DIR / f"{site_name.lower()}.json"
     data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -512,14 +639,22 @@ def json_output(site_name, title, url, body, subsector):
     print(f"[VALID] ([{subsector}]: {title}")
 
 
-"""
-This function writes to a CSV file in src/data/[Noise OR Vulnerabilities]/[site_name].csv
-It reports everything it sees here, to make it easier for us to review and evaluate the accuracy 
-of the AI later. 
-"""
-
-
 def report_output(is_threat, site_name, title, url, body, reason):
+    """
+    Saves a report of a detected issue or non-issue to a CSV file in the appropriate directory.
+
+    Parameters:
+        is_threat (bool): Indicates if the detected issue is a threat.
+        If True, the report is saved in the VULNERABILITIES_DIR, otherwise in NOISE_DIR.
+        site_name (str): The name of the site related to the issue or non-issue.
+        title (str): The title of the issue or non-issue report.
+        url (str): The URL of the detected issue or non-issue.
+        body (str): The body content of the detected issue or non-issue. It is truncated to the first 200 characters and newlines are replaced by spaces.
+        reason (str): The reason or description explaining the detection.
+
+    The function creates or appends to a CSV file named after the site_name in the designated directory.
+    The CSV row contains a timestamp, threat indicator, reason, title, URL, and truncated body content.
+    """
     target_dir = VULNERABILITIES_DIR if is_threat else NOISE_DIR
     csv_path = target_dir / f"{site_name}.csv"
     row = [

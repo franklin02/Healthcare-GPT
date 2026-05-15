@@ -73,7 +73,7 @@ def persist_stage(directory: Path, article_id: str, stage: str, url: str, data: 
 def load_seen(seen_file: Path | None = None) -> set:
     """Load seen URLs from file. Returns empty set if file doesn't exist."""
     if seen_file is None:
-        seen_file = Path(__file__).parent.parent / "data" / "seen_urls.json"
+        seen_file = PROJECT_ROOT / "data" / "seen_urls.json"
     try:
         with open(seen_file, "r", encoding="utf-8") as sf:
             return set(json.load(sf) or [])
@@ -83,7 +83,7 @@ def load_seen(seen_file: Path | None = None) -> set:
 def save_seen(seen: set, seen_file: Path | None = None) -> None:
     """Save seen URLs to file."""
     if seen_file is None:
-        seen_file = Path(__file__).parent.parent / "data" / "seen_urls.json"
+        seen_file = PROJECT_ROOT / "data" / "seen_urls.json"
     try:
         with open(seen_file, "w", encoding="utf-8") as sf:
             json.dump(sorted(list(seen)), sf, ensure_ascii=False, indent=2)
@@ -198,7 +198,7 @@ def run(num_files: int, limit: int | None, subsectors: str, output_path: str | N
         print(f"Source: {rec['source_name']}")
         print(f"Fields: {rec['subsector_data']}")
 
-    default_out_dir = Path(__file__).parent.parent / "data" / "Ready_for_RAG"
+    default_out_dir = PROJECT_ROOT / "data" / "processed"
     if output_path:
         out_path = Path(output_path)
         out_file = out_path if out_path.suffix.lower() == ".json" else out_path / "GDELT.json"

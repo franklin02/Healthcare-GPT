@@ -110,7 +110,7 @@ def process_seed(seed: dict, seen: set) -> dict | None:
     title = url  
     excerpt = body[:BODY_CHAR_LIMIT]
 
-    is_disruption, detail = ai_check_validation(title, excerpt) # 131
+    is_disruption, detail = ai_check_validation(title, excerpt)
 
     seen.add(url)
 

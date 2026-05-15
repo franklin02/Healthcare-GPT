@@ -2,7 +2,7 @@ import pytest
 import json
 from unittest.mock import patch, MagicMock
 import requests
-import src.GDELT.helpers as helpers
+from src.GDELT import helpers
 
 
 class TestGetBody:

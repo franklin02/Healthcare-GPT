@@ -1,6 +1,7 @@
 name: Sphinx Docs
 
 on:
+  pull_request:
   push:
     branches:
       - main
@@ -35,13 +36,16 @@ jobs:
         run: sphinx-build -b html -E docs docs/_build/html
 
       - name: Configure GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/_build/html
 
       - name: Deploy to GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         id: deployment
         uses: actions/deploy-pages@v4

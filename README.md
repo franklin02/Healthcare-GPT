@@ -45,6 +45,48 @@ We are starting with a focused pilot scope (medical device disruptions + hospita
 3) Add collected events to `data/collected/` (or link to shared storage if large)
 4) Add at least two technical questions to `docs/meeting-questions.md` for the next INL meeting
 
+## Developer Tooling
+Install the development tools with:
+
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+Format Python files with Ruff before opening a pull request:
+
+```bash
+ruff format .
+```
+
+Check formatting without changing files:
+
+```bash
+ruff format --check .
+```
+
+Build the Sphinx documentation locally:
+
+```bash
+sphinx-build -b html -E docs docs/_build/html
+```
+
+## GitHub Actions
+This repository uses GitHub Actions for two automation checks:
+
+- `Ruff Format` runs on every pull request and fails if Python files are not
+  formatted with Ruff.
+- `Sphinx Docs` runs on every push to `main`, builds the docs, and publishes
+  them to GitHub Pages.
+
+The workflow files live in `.github/workflows/`. GitHub starts running them
+automatically after they are merged.
+
+Repo admins still need to finish two settings in GitHub:
+
+1) In Settings -> Branches, require the Ruff status check before merging to
+   `main`.
+2) In Settings -> Pages, set the publishing source to GitHub Actions.
+
 ## Contacts / Roles
 - Repo lead: Yang (repo admin + structure)
 - All team members: data collection + questions + documentation updates

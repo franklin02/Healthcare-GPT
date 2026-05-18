@@ -1,62 +1,49 @@
-# Healthcare GPT — Project Home (Private Repo)
+# Healthcare GPT Documentation
 
 ```{toctree}
 :maxdepth: 2
-:caption: Documentation
+:caption: Current Documentation
 
-source-framework
-source-pack-v1
-expanded-disruption-source-ecosystem
-meeting-questions
+pipeline-overview
+bert-classifier
 api
 ```
 
-## What we are building
-A proof-of-concept pipeline for INL that:
-1) collects authoritative public data on healthcare-sector disruptions, and
-2) produces:
-   - a compact dashboard JSON payload (machine-readable), and
-   - a 1-page executive summary (human-readable),
-   both with citations/provenance and confidence metadata.
+## Project Direction
 
-## Current POC focus (this month)
-We are starting with:
-- medical device disruption events (cyber + natural hazard)
-- medical device shortages (when directly tied to disruptions)
-- hospital cyberattacks (as supporting “user-side” disruptions)
+Healthcare GPT is currently focused on a healthcare disruption detection
+pipeline. The active direction is to collect candidate articles, classify
+whether they describe operational healthcare disruptions, and turn confirmed
+events into structured records for later analysis.
 
-The goal is to show a minimal working example before scaling.
+The current work emphasizes:
 
-## What “done” looks like for the POC demo
-- A populated disruption-event dataset (CSV) with evidence/provenance
-- A small KPI table (CSV) with 5–10 starter mitigation metrics
-- A dashboard JSON output that follows the fixed schema
-- A short executive summary with citations and confidence
+- GDELT-based discovery of candidate healthcare disruption news.
+- BERT-based classification for fast article triage.
+- Local LLM validation and field extraction where structured metadata is
+  needed.
+- JSON outputs that preserve source links, subsectors, article content, and
+  extracted disruption fields.
 
-## Templates and schema
-- Disruption Event CSV template: `data/templates/Disruption_Event_Master_Template.csv`
-- KPI CSV template: `data/templates/Mitigation_KPI_Table_Template.csv`
-- Dashboard JSON schema: `schemas/Sector_Risk_Dashboard_JSON_Schema_v1.json`
+## What Is Current
 
-## Weekly expectations
-Each week, we should:
-- add new disruption events with provenance
-- update a small set of KPIs for the pilot subsector
-- refine our source registry (trusted sources we can crawl reliably)
-- log questions for INL that clarify implementation requirements
+- `src/GDELT/` contains the main GDELT pipeline and BERT classifier work.
+- `src/GDELT/runner.py` coordinates seed collection, article scraping,
+  validation, extraction, intermediate saves, and final JSON output.
+- `src/GDELT/BERT_filter.py` contains the zero-shot classifier workflow used
+  to identify likely healthcare disruption articles.
+- `docs/api.rst` publishes API documentation from selected Python docstrings.
 
-## Next INL meeting prep
-Please add at least two technical questions to:
-- `docs/meeting-questions.md`
+## What Is Legacy
 
-Examples:
-- required JSON fields and expected roll-up logic (subsector → sector)
-- whether BSU needs to build front-end UI or only JSON payloads
-- whether INL will provide private GPU resources for model execution
-- approved source list and any data-sharing constraints
+Older source-pack and meeting-question documents are still in the repository
+for historical context, but they are no longer the main documentation path.
+They are intentionally not linked from this Sphinx home page.
 
-## Security note
-This is a private repo. Still, treat it as “clean”:
-- no restricted/PCII/FOUO content
-- public sources only unless INL provides explicit approval
-- keep evidence snippets short and always cite the URL + accessed date
+## Data Handling
+
+Keep the repository clean:
+
+- Use public sources only unless explicitly approved otherwise.
+- Do not commit restricted, sensitive, PCII, or FOUO information.
+- Preserve source URLs and enough provenance to trace each generated record.

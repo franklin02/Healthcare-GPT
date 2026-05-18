@@ -33,6 +33,11 @@ exclude_patterns = [
     "_build",
     "Thumbs.db",
     ".DS_Store",
+    "expanded-disruption-source-ecosystem.md",
+    "meeting-questions.md",
+    "source-framework.md",
+    "source-pack-v1.md",
+    "prompt-pack-v0/**",
 ]
 
 html_theme = "alabaster"

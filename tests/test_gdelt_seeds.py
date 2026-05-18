@@ -16,7 +16,12 @@ class TestIsUsLocated:
 
     def test_multiple_locations_with_us(self):
         """Should return True when US is among multiple locations."""
-        assert gdelt_seeds.is_us_located("1#London#GB#100#51.5#0.1;2#New York#US#200#40.7#74.0;3#Paris#FR#300#48.8#2.3") is True
+        assert (
+            gdelt_seeds.is_us_located(
+                "1#London#GB#100#51.5#0.1;2#New York#US#200#40.7#74.0;3#Paris#FR#300#48.8#2.3"
+            )
+            is True
+        )
 
     def test_non_us_location(self):
         """Should return False for non-US locations."""
@@ -25,7 +30,12 @@ class TestIsUsLocated:
 
     def test_multiple_non_us_locations(self):
         """Should return False when no US location is present."""
-        assert gdelt_seeds.is_us_located("1#London#GB#100#51.5#0.1;2#Paris#FR#200#48.8#2.3") is False
+        assert (
+            gdelt_seeds.is_us_located(
+                "1#London#GB#100#51.5#0.1;2#Paris#FR#200#48.8#2.3"
+            )
+            is False
+        )
 
     def test_empty_string(self):
         """Should return True for empty string."""
@@ -60,7 +70,10 @@ class TestMatchesAnyTheme:
     def test_multiple_themes_with_match(self):
         """Should match when one of multiple themes matches."""
         themes = {"CYBER_ATTACK", "RANSOMWARE"}
-        assert gdelt_seeds._matches_any_theme("PHISHING;CYBER_ATTACK;MALWARE", themes) is True
+        assert (
+            gdelt_seeds._matches_any_theme("PHISHING;CYBER_ATTACK;MALWARE", themes)
+            is True
+        )
 
     def test_no_match(self):
         """Should return False when theme doesn't match."""
@@ -93,12 +106,16 @@ class TestThemesMatch:
     def test_match_all_subsectors(self):
         """Should match when theme contains both health and subsector theme."""
         # Contains HEALTH_THEMES and CYBER_THEMES
-        assert gdelt_seeds.themes_match("HEALTHCARE;CYBER_ATTACK", subsector="all") is True
+        assert (
+            gdelt_seeds.themes_match("HEALTHCARE;CYBER_ATTACK", subsector="all") is True
+        )
 
     def test_match_specific_subsector(self):
         """Should match specific subsector."""
         assert (
-            gdelt_seeds.themes_match("HEALTHCARE;CYBER_ATTACK", subsector="cyber_attack")
+            gdelt_seeds.themes_match(
+                "HEALTHCARE;CYBER_ATTACK", subsector="cyber_attack"
+            )
             is True
         )
 
@@ -108,7 +125,10 @@ class TestThemesMatch:
 
     def test_no_match_missing_subsector_theme(self):
         """Should return False if missing subsector theme."""
-        assert gdelt_seeds.themes_match("HEALTHCARE;SPORTS", subsector="cyber_attack") is False
+        assert (
+            gdelt_seeds.themes_match("HEALTHCARE;SPORTS", subsector="cyber_attack")
+            is False
+        )
 
     def test_invalid_subsector(self):
         """Should return False for invalid subsector."""
@@ -120,9 +140,7 @@ class TestThemesMatch:
     def test_drug_shortage_subsector(self):
         """Should match drug shortage subsector."""
         assert (
-            gdelt_seeds.themes_match(
-                "HEALTHCARE;SHORTAGE", subsector="drug_shortage"
-            )
+            gdelt_seeds.themes_match("HEALTHCARE;SHORTAGE", subsector="drug_shortage")
             is True
         )
 
@@ -141,17 +159,11 @@ class TestDetectSubsector:
 
     def test_detect_cyber_attack(self):
         """Should detect cyber_attack subsector."""
-        assert (
-            gdelt_seeds.detect_subsector("HEALTHCARE;CYBER_ATTACK")
-            == "cyber_attack"
-        )
+        assert gdelt_seeds.detect_subsector("HEALTHCARE;CYBER_ATTACK") == "cyber_attack"
 
     def test_detect_drug_shortage(self):
         """Should detect drug_shortage subsector."""
-        assert (
-            gdelt_seeds.detect_subsector("HEALTHCARE;SHORTAGE")
-            == "drug_shortage"
-        )
+        assert gdelt_seeds.detect_subsector("HEALTHCARE;SHORTAGE") == "drug_shortage"
 
     def test_detect_medical_device_shortage(self):
         """Should detect medical_device_shortage subsector."""
@@ -226,18 +238,14 @@ class TestUrlPassesQuality:
     def test_valid_us_hospital_url(self):
         """Should pass valid US hospital URL."""
         assert (
-            gdelt_seeds.url_passes_quality(
-                "https://hospital.com/cyber/breach-detected"
-            )
+            gdelt_seeds.url_passes_quality("https://hospital.com/cyber/breach-detected")
             is True
         )
 
     def test_valid_us_healthcare_url(self):
         """Should pass valid US healthcare URL."""
         assert (
-            gdelt_seeds.url_passes_quality(
-                "https://healthcare.org/security/ransomware"
-            )
+            gdelt_seeds.url_passes_quality("https://healthcare.org/security/ransomware")
             is True
         )
 
@@ -256,25 +264,19 @@ class TestUrlPassesQuality:
     def test_missing_required_pattern(self):
         """Should reject URL without required pattern."""
         assert (
-            gdelt_seeds.url_passes_quality("https://example.com/general/info")
-            is False
+            gdelt_seeds.url_passes_quality("https://example.com/general/info") is False
         )
 
     def test_deny_pattern_sports(self):
         """Should reject URL with sports pattern."""
         assert (
-            gdelt_seeds.url_passes_quality(
-                "https://hospital.com/sports/event"
-            )
-            is False
+            gdelt_seeds.url_passes_quality("https://hospital.com/sports/event") is False
         )
 
     def test_deny_pattern_weather(self):
         """Should reject URL with weather pattern."""
         assert (
-            gdelt_seeds.url_passes_quality(
-                "https://hospital.com/weather/forecast"
-            )
+            gdelt_seeds.url_passes_quality("https://hospital.com/weather/forecast")
             is False
         )
 
@@ -293,17 +295,14 @@ class TestUrlPassesQuality:
     def test_gov_domain(self):
         """Should accept .gov domain."""
         assert (
-            gdelt_seeds.url_passes_quality(
-                "https://hospital.gov/cyber/security"
-            )
+            gdelt_seeds.url_passes_quality("https://hospital.gov/cyber/security")
             is True
         )
 
     def test_edu_domain(self):
         """Should accept .edu domain."""
         assert (
-            gdelt_seeds.url_passes_quality("https://hospital.edu/medical/hack")
-            is True
+            gdelt_seeds.url_passes_quality("https://hospital.edu/medical/hack") is True
         )
 
 
@@ -503,4 +502,3 @@ class TestConstantDefinitions:
         assert isinstance(gdelt_seeds.BLOCKED_TLDS, set)
         assert ".ru" in gdelt_seeds.BLOCKED_TLDS
         assert ".cn" in gdelt_seeds.BLOCKED_TLDS
-

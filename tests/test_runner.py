@@ -83,7 +83,7 @@ class TestSaveJson:
             path = Path(tmpdir) / "test.json"
             data = {"key": "value", "number": 42}
             runner.save_json(path, data)
-            
+
             assert path.exists()
             with open(path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
@@ -95,7 +95,7 @@ class TestSaveJson:
             path = Path(tmpdir) / "test.json"
             data = {"nested": {"key": "value"}, "list": [1, 2, 3]}
             runner.save_json(path, data)
-            
+
             with open(path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
             assert loaded == data
@@ -106,7 +106,7 @@ class TestSaveJson:
             path = Path(tmpdir) / "test.json"
             data = {"text": "Hello 世界 🌍"}
             runner.save_json(path, data)
-            
+
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
             assert "世界" in content
@@ -119,7 +119,7 @@ class TestSaveJson:
             path = Path(tmpdir) / "test.json"
             data = {"key": "value"}
             runner.save_json(path, data)
-            
+
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
             # Check that it's indented (contains newlines and spaces)
@@ -129,8 +129,8 @@ class TestSaveJson:
 class TestPersistRawSeeds:
     """Tests for the persist_raw_seeds function."""
 
-    @patch('src.GDELT.runner.save_json')
-    @patch('src.GDELT.runner.SEEDS_DIR', Path("/mock/seeds"))
+    @patch("src.GDELT.runner.save_json")
+    @patch("src.GDELT.runner.SEEDS_DIR", Path("/mock/seeds"))
     def test_persist_raw_seeds_saves_all_seeds(self, mock_save_json):
         """persist_raw_seeds should save each seed as a separate JSON file."""
         raw_seeds = [
@@ -138,16 +138,16 @@ class TestPersistRawSeeds:
             {"url": "https://example.com/2", "source": "test2"},
         ]
         runner.persist_raw_seeds(raw_seeds)
-        
+
         assert mock_save_json.call_count == 2
 
-    @patch('src.GDELT.runner.save_json')
-    @patch('src.GDELT.runner.SEEDS_DIR', Path("/mock/seeds"))
+    @patch("src.GDELT.runner.save_json")
+    @patch("src.GDELT.runner.SEEDS_DIR", Path("/mock/seeds"))
     def test_persist_raw_seeds_uses_stable_id(self, mock_save_json):
         """persist_raw_seeds should use stable_id for file naming."""
         raw_seeds = [{"url": "https://example.com/test"}]
         runner.persist_raw_seeds(raw_seeds)
-        
+
         call_args = mock_save_json.call_args_list[0]
         path_arg = call_args[0][0]
         assert "seeds" in str(path_arg)
@@ -157,7 +157,7 @@ class TestPersistRawSeeds:
 class TestPersistStage:
     """Tests for the persist_stage function."""
 
-    @patch('src.GDELT.runner.save_json')
+    @patch("src.GDELT.runner.save_json")
     def test_persist_stage_calls_save_json(self, mock_save_json):
         """persist_stage should call save_json with correct path and data."""
         directory = Path("/mock/validated")
@@ -165,14 +165,14 @@ class TestPersistStage:
         stage = "validated"
         url = "https://example.com/test"
         data = {"subsector": "drug_shortage", "fields": {}}
-        
+
         runner.persist_stage(directory, article_id, stage, url, data)
-        
+
         mock_save_json.assert_called_once()
         call_args = mock_save_json.call_args[0]
         assert call_args[0] == Path("/mock/validated/abc123.json")
 
-    @patch('src.GDELT.runner.save_json')
+    @patch("src.GDELT.runner.save_json")
     def test_persist_stage_creates_correct_record_structure(self, mock_save_json):
         """persist_stage should create correct record structure."""
         directory = Path("/mock/validated")
@@ -180,34 +180,34 @@ class TestPersistStage:
         stage = "enriched"
         url = "https://example.com/article"
         data = {"subsector": "cyber_attack", "severity": "high"}
-        
+
         runner.persist_stage(directory, article_id, stage, url, data)
-        
+
         call_args = mock_save_json.call_args[0]
         record = call_args[1]
-        
+
         assert record["id"] == "test_id"
         assert record["stage"] == "enriched"
         assert record["url"] == url
         assert record["record"] == data
         assert "saved_at" in record
 
-    @patch('src.GDELT.runner.save_json')
+    @patch("src.GDELT.runner.save_json")
     def test_persist_stage_saves_with_different_stages(self, mock_save_json):
         """persist_stage should handle different stage names."""
         directory = Path("/mock/dir")
         article_id = "id123"
         url = "https://example.com/test"
         data = {}
-        
+
         stages = ["validated", "enriched", "processed"]
         for stage in stages:
             runner.persist_stage(directory, article_id, stage, url, data)
-            
+
             last_call_record = mock_save_json.call_args_list[-1][0][1]
             assert last_call_record["stage"] == stage
 
-    @patch('src.GDELT.runner.save_json')
+    @patch("src.GDELT.runner.save_json")
     def test_persist_stage_preserves_data_integrity(self, mock_save_json):
         """persist_stage should preserve data dict exactly as provided."""
         directory = Path("/mock/dir")
@@ -220,14 +220,14 @@ class TestPersistStage:
             "severity": "high",
             "nested": {"key": "value", "list": [1, 2, 3]},
         }
-        
+
         runner.persist_stage(directory, article_id, stage, url, data)
-        
+
         call_args = mock_save_json.call_args[0]
         record = call_args[1]
         assert record["record"] == data
 
-    @patch('src.GDELT.runner.save_json')
+    @patch("src.GDELT.runner.save_json")
     def test_persist_stage_includes_timestamp(self, mock_save_json):
         """persist_stage should include ISO format timestamp."""
         directory = Path("/mock/dir")
@@ -235,12 +235,12 @@ class TestPersistStage:
         stage = "validated"
         url = "https://example.com/test"
         data = {}
-        
+
         runner.persist_stage(directory, article_id, stage, url, data)
-        
+
         call_args = mock_save_json.call_args[0]
         record = call_args[1]
-        
+
         # Check timestamp is in ISO format
         assert "saved_at" in record
         try:
@@ -265,7 +265,7 @@ class TestLoadSeen:
             urls = ["https://example.com/1", "https://example.com/2"]
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(urls, f)
-            
+
             result = runner.load_seen(path)
             assert result == set(urls)
 
@@ -275,7 +275,7 @@ class TestLoadSeen:
             path = Path(tmpdir) / "seen.json"
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(None, f)
-            
+
             result = runner.load_seen(path)
             assert result == set()
 
@@ -287,9 +287,13 @@ class TestSaveSeen:
         """save_seen should save URLs sorted and formatted as JSON."""
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "seen.json"
-            urls = {"https://example.com/3", "https://example.com/1", "https://example.com/2"}
+            urls = {
+                "https://example.com/3",
+                "https://example.com/1",
+                "https://example.com/2",
+            }
             runner.save_seen(urls, path)
-            
+
             assert path.exists()
             with open(path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
@@ -300,7 +304,7 @@ class TestSaveSeen:
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "seen.json"
             runner.save_seen(set(), path)
-            
+
             assert path.exists()
             with open(path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
@@ -310,51 +314,53 @@ class TestSaveSeen:
 class TestProcessSeed:
     """Tests for the process_seed function."""
 
-    @patch('src.GDELT.runner.get_body')
-    @patch('src.GDELT.runner.ai_check_validation')
+    @patch("src.GDELT.runner.get_body")
+    @patch("src.GDELT.runner.ai_check_validation")
     def test_process_seed_already_seen(self, mock_ai_check, mock_get_body):
         """process_seed should return None if URL already seen."""
         seed = {"url": "https://example.com/test", "source": "test"}
         seen = {"https://example.com/test"}
-        
+
         result = runner.process_seed(seed, seen)
-        
+
         assert result is None
         mock_get_body.assert_not_called()
         mock_ai_check.assert_not_called()
 
-    @patch('src.GDELT.runner.get_body')
-    @patch('src.GDELT.runner.ai_check_validation')
+    @patch("src.GDELT.runner.get_body")
+    @patch("src.GDELT.runner.ai_check_validation")
     def test_process_seed_empty_body(self, mock_ai_check, mock_get_body):
         """process_seed should return None if body is empty."""
         seed = {"url": "https://example.com/test", "source": "test"}
         seen = set()
         mock_get_body.return_value = None
-        
+
         result = runner.process_seed(seed, seen)
-        
+
         assert result is None
         # URL should be added to seen even if body is empty
         assert "https://example.com/test" not in seen  # Not added because body is empty
 
-    @patch('src.GDELT.runner.get_body')
-    @patch('src.GDELT.runner.ai_check_validation')
+    @patch("src.GDELT.runner.get_body")
+    @patch("src.GDELT.runner.ai_check_validation")
     def test_process_seed_not_a_disruption(self, mock_ai_check, mock_get_body):
         """process_seed should return None if not validated as disruption."""
         seed = {"url": "https://example.com/test", "source": "test"}
         seen = set()
         mock_get_body.return_value = "Some content"
         mock_ai_check.return_value = (False, "not relevant")
-        
+
         result = runner.process_seed(seed, seen)
-        
+
         assert result is None
         assert "https://example.com/test" in seen
 
-    @patch('src.GDELT.runner.find_subsector_fields')
-    @patch('src.GDELT.runner.get_body')
-    @patch('src.GDELT.runner.ai_check_validation')
-    def test_process_seed_valid_disruption(self, mock_ai_check, mock_get_body, mock_find_fields):
+    @patch("src.GDELT.runner.find_subsector_fields")
+    @patch("src.GDELT.runner.get_body")
+    @patch("src.GDELT.runner.ai_check_validation")
+    def test_process_seed_valid_disruption(
+        self, mock_ai_check, mock_get_body, mock_find_fields
+    ):
         """process_seed should return record dict for valid disruption."""
         seed = {
             "url": "https://example.com/test",
@@ -365,33 +371,35 @@ class TestProcessSeed:
         mock_get_body.return_value = "Content about drug shortage"
         mock_ai_check.return_value = (True, "drug_shortage")
         mock_find_fields.return_value = {"drugs": ["aspirin"]}
-        
+
         result = runner.process_seed(seed, seen)
-        
+
         assert result is not None
         assert result["subsector"] == "drug_shortage"
         assert result["source_name"] == "TestSource"
         assert result["direct_link"] == "https://example.com/test"
         assert result["subsector_data"] == {"drugs": ["aspirin"]}
 
-    @patch('src.GDELT.runner.get_body')
-    @patch('src.GDELT.runner.ai_check_validation')
+    @patch("src.GDELT.runner.get_body")
+    @patch("src.GDELT.runner.ai_check_validation")
     def test_process_seed_invalid_subsector(self, mock_ai_check, mock_get_body):
         """process_seed should skip if subsector is invalid."""
         seed = {"url": "https://example.com/test"}
         seen = set()
         mock_get_body.return_value = "Some content"
         mock_ai_check.return_value = (True, "invalid_subsector")
-        
+
         result = runner.process_seed(seed, seen)
-        
+
         assert result is None
         assert "https://example.com/test" in seen
 
-    @patch('src.GDELT.runner.find_subsector_fields')
-    @patch('src.GDELT.runner.get_body')
-    @patch('src.GDELT.runner.ai_check_validation')
-    def test_process_seed_all_valid_subsectors(self, mock_ai_check, mock_get_body, mock_find_fields):
+    @patch("src.GDELT.runner.find_subsector_fields")
+    @patch("src.GDELT.runner.get_body")
+    @patch("src.GDELT.runner.ai_check_validation")
+    def test_process_seed_all_valid_subsectors(
+        self, mock_ai_check, mock_get_body, mock_find_fields
+    ):
         """process_seed should accept all valid subsectors."""
         valid_subsectors = {
             "drug_shortage",
@@ -402,7 +410,7 @@ class TestProcessSeed:
         }
         mock_get_body.return_value = "Content"
         mock_find_fields.return_value = {}
-        
+
         for subsector in valid_subsectors:
             seen = set()
             mock_ai_check.return_value = (True, subsector)
@@ -417,13 +425,13 @@ class TestProcessSeed:
 class TestRun:
     """Tests for the main run function."""
 
-    @patch('src.GDELT.runner.save_seen')
-    @patch('src.GDELT.runner.load_seen')
-    @patch('src.GDELT.runner.persist_raw_seeds')
-    @patch('src.GDELT.runner.backfill_cyber_seeds')
-    @patch('src.GDELT.runner.process_seed')
-    @patch('src.GDELT.runner.persist_stage')
-    @patch('src.GDELT.runner.ensure_raw_dirs')
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
     def test_run_returns_records(
         self,
         mock_ensure_dirs,
@@ -449,7 +457,7 @@ class TestRun:
             "content": "content",
             "subsector_data": {},
         }
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             result = runner.run(
                 num_files=1,
@@ -457,17 +465,17 @@ class TestRun:
                 subsectors="all",
                 output_path=tmpdir,
             )
-        
+
         assert len(result) == 1
         assert result[0]["subsector"] == "drug_shortage"
 
-    @patch('src.GDELT.runner.save_seen')
-    @patch('src.GDELT.runner.load_seen')
-    @patch('src.GDELT.runner.persist_raw_seeds')
-    @patch('src.GDELT.runner.backfill_cyber_seeds')
-    @patch('src.GDELT.runner.process_seed')
-    @patch('src.GDELT.runner.persist_stage')
-    @patch('src.GDELT.runner.ensure_raw_dirs')
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
     def test_run_with_invalid_subsector(
         self,
         mock_ensure_dirs,
@@ -484,16 +492,16 @@ class TestRun:
             limit=1,
             subsectors="invalid_subsector",
         )
-        
+
         assert result == []
 
-    @patch('src.GDELT.runner.save_seen')
-    @patch('src.GDELT.runner.load_seen')
-    @patch('src.GDELT.runner.persist_raw_seeds')
-    @patch('src.GDELT.runner.backfill_cyber_seeds')
-    @patch('src.GDELT.runner.process_seed')
-    @patch('src.GDELT.runner.persist_stage')
-    @patch('src.GDELT.runner.ensure_raw_dirs')
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
     def test_run_applies_limit(
         self,
         mock_ensure_dirs,
@@ -506,22 +514,24 @@ class TestRun:
     ):
         """run should apply limit to seeds."""
         mock_load_seen.return_value = set()
-        seeds = [{"url": f"https://example.com/{i}", "source": "test"} for i in range(5)]
+        seeds = [
+            {"url": f"https://example.com/{i}", "source": "test"} for i in range(5)
+        ]
         mock_backfill.return_value = seeds
         mock_process_seed.return_value = None
-        
+
         runner.run(num_files=1, limit=2, subsectors="all")
-        
+
         # process_seed should only be called 2 times due to limit
         assert mock_process_seed.call_count == 2
 
-    @patch('src.GDELT.runner.save_seen')
-    @patch('src.GDELT.runner.load_seen')
-    @patch('src.GDELT.runner.persist_raw_seeds')
-    @patch('src.GDELT.runner.backfill_cyber_seeds')
-    @patch('src.GDELT.runner.process_seed')
-    @patch('src.GDELT.runner.persist_stage')
-    @patch('src.GDELT.runner.ensure_raw_dirs')
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
     def test_run_outputs_to_default_location(
         self,
         mock_ensure_dirs,
@@ -536,19 +546,19 @@ class TestRun:
         mock_load_seen.return_value = set()
         mock_backfill.return_value = [{"url": "https://example.com/1"}]
         mock_process_seed.return_value = None
-        
-        with patch('builtins.open', mock_open()) as mock_file:
+
+        with patch("builtins.open", mock_open()) as mock_file:
             runner.run(num_files=1, limit=1, subsectors="all", output_path=None)
             # Verify file operations were called
             mock_file.assert_called()
 
-    @patch('src.GDELT.runner.save_seen')
-    @patch('src.GDELT.runner.load_seen')
-    @patch('src.GDELT.runner.persist_raw_seeds')
-    @patch('src.GDELT.runner.backfill_cyber_seeds')
-    @patch('src.GDELT.runner.process_seed')
-    @patch('src.GDELT.runner.persist_stage')
-    @patch('src.GDELT.runner.ensure_raw_dirs')
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
     def test_run_specific_subsector(
         self,
         mock_ensure_dirs,
@@ -563,23 +573,23 @@ class TestRun:
         mock_load_seen.return_value = set()
         mock_backfill.return_value = [{"url": "https://example.com/1"}]
         mock_process_seed.return_value = None
-        
+
         runner.run(
             num_files=1,
             limit=1,
             subsectors="drug_shortage,cyber_attack",
         )
-        
+
         # backfill_cyber_seeds should be called for each specified subsector
         assert mock_backfill.call_count == 2
 
-    @patch('src.GDELT.runner.save_seen')
-    @patch('src.GDELT.runner.load_seen')
-    @patch('src.GDELT.runner.persist_raw_seeds')
-    @patch('src.GDELT.runner.backfill_cyber_seeds')
-    @patch('src.GDELT.runner.process_seed')
-    @patch('src.GDELT.runner.persist_stage')
-    @patch('src.GDELT.runner.ensure_raw_dirs')
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
     def test_run_with_custom_seen_urls_file(
         self,
         mock_ensure_dirs,
@@ -593,7 +603,7 @@ class TestRun:
         """run should load/save seen URLs from custom file."""
         mock_load_seen.return_value = set()
         mock_backfill.return_value = []
-        
+
         with tempfile.TemporaryDirectory() as tmpdir:
             seen_file = Path(tmpdir) / "custom_seen.json"
             runner.run(
@@ -602,7 +612,7 @@ class TestRun:
                 subsectors="all",
                 seen_urls_file=str(seen_file),
             )
-        
+
         # load_seen should be called with the custom file
         mock_load_seen.assert_called()
         mock_save_seen.assert_called()
@@ -611,9 +621,9 @@ class TestRun:
 class TestEnsureRawDirs:
     """Tests for the ensure_raw_dirs function."""
 
-    @patch('src.GDELT.runner.SEEDS_DIR')
-    @patch('src.GDELT.runner.VALIDATED_DIR')
-    @patch('src.GDELT.runner.ENRICHED_DIR')
+    @patch("src.GDELT.runner.SEEDS_DIR")
+    @patch("src.GDELT.runner.VALIDATED_DIR")
+    @patch("src.GDELT.runner.ENRICHED_DIR")
     def test_ensure_raw_dirs_creates_all_directories(
         self, mock_enriched, mock_validated, mock_seeds
     ):
@@ -621,9 +631,9 @@ class TestEnsureRawDirs:
         mock_seeds.mkdir = Mock()
         mock_validated.mkdir = Mock()
         mock_enriched.mkdir = Mock()
-        
+
         runner.ensure_raw_dirs()
-        
+
         mock_seeds.mkdir.assert_called_once_with(parents=True, exist_ok=True)
         mock_validated.mkdir.assert_called_once_with(parents=True, exist_ok=True)
         mock_enriched.mkdir.assert_called_once_with(parents=True, exist_ok=True)

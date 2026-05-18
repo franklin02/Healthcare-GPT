@@ -1,4 +1,5 @@
 """Pytest configuration for Healthcare-GPT tests."""
+
 import sys
 from pathlib import Path
 

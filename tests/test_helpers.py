@@ -151,15 +151,19 @@ class TestAiCheckValidation:
         """Test valid threat identification"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "analysis": "Hospital affected by ransomware",
-                "is_operational_disruption": True,
-                "subsector": "cyber_attack"
-            })
+            "response": json.dumps(
+                {
+                    "analysis": "Hospital affected by ransomware",
+                    "is_operational_disruption": True,
+                    "subsector": "cyber_attack",
+                }
+            )
         }
         mock_post.return_value = mock_response
 
-        is_threat, detail = helpers.ai_check_validation("Ransomware hits hospital", "Body text")
+        is_threat, detail = helpers.ai_check_validation(
+            "Ransomware hits hospital", "Body text"
+        )
         assert is_threat is True
         assert detail == "cyber_attack"
 
@@ -168,11 +172,13 @@ class TestAiCheckValidation:
         """Test non-threat identification"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "analysis": "This is just policy news",
-                "is_operational_disruption": False,
-                "subsector": "none"
-            })
+            "response": json.dumps(
+                {
+                    "analysis": "This is just policy news",
+                    "is_operational_disruption": False,
+                    "subsector": "none",
+                }
+            )
         }
         mock_post.return_value = mock_response
 
@@ -185,11 +191,13 @@ class TestAiCheckValidation:
         """Test handling of string 'NO' response"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "analysis": "Not a disruption",
-                "is_operational_disruption": "NO",
-                "subsector": "none"
-            })
+            "response": json.dumps(
+                {
+                    "analysis": "Not a disruption",
+                    "is_operational_disruption": "NO",
+                    "subsector": "none",
+                }
+            )
         }
         mock_post.return_value = mock_response
 
@@ -221,11 +229,13 @@ class TestAiCheckValidation:
         """Test drug shortage subsector classification"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "analysis": "Drug shortage identified",
-                "is_operational_disruption": True,
-                "subsector": "drug_shortage"
-            })
+            "response": json.dumps(
+                {
+                    "analysis": "Drug shortage identified",
+                    "is_operational_disruption": True,
+                    "subsector": "drug_shortage",
+                }
+            )
         }
         mock_post.return_value = mock_response
 
@@ -238,11 +248,13 @@ class TestAiCheckValidation:
         """Test medical device shortage subsector"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "analysis": "Device shortage",
-                "is_operational_disruption": True,
-                "subsector": "medical_device_shortage"
-            })
+            "response": json.dumps(
+                {
+                    "analysis": "Device shortage",
+                    "is_operational_disruption": True,
+                    "subsector": "medical_device_shortage",
+                }
+            )
         }
         mock_post.return_value = mock_response
 
@@ -254,11 +266,13 @@ class TestAiCheckValidation:
         """Test natural disaster subsector"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "analysis": "Hurricane hits hospital",
-                "is_operational_disruption": True,
-                "subsector": "natural_disaster"
-            })
+            "response": json.dumps(
+                {
+                    "analysis": "Hurricane hits hospital",
+                    "is_operational_disruption": True,
+                    "subsector": "natural_disaster",
+                }
+            )
         }
         mock_post.return_value = mock_response
 
@@ -269,11 +283,15 @@ class TestAiCheckValidation:
     def test_ai_check_validation_posts_correct_url(self, mock_post):
         """Test that correct AI URL is used"""
         mock_response = MagicMock()
-        mock_response.json.return_value = {"response": json.dumps({
-            "is_operational_disruption": False,
-            "subsector": "none",
-            "analysis": "test"
-        })}
+        mock_response.json.return_value = {
+            "response": json.dumps(
+                {
+                    "is_operational_disruption": False,
+                    "subsector": "none",
+                    "analysis": "test",
+                }
+            )
+        }
         mock_post.return_value = mock_response
 
         helpers.ai_check_validation("Title", "Body")
@@ -284,11 +302,15 @@ class TestAiCheckValidation:
     def test_ai_check_validation_uses_correct_model(self, mock_post):
         """Test that correct AI model is specified"""
         mock_response = MagicMock()
-        mock_response.json.return_value = {"response": json.dumps({
-            "is_operational_disruption": False,
-            "subsector": "none",
-            "analysis": "test"
-        })}
+        mock_response.json.return_value = {
+            "response": json.dumps(
+                {
+                    "is_operational_disruption": False,
+                    "subsector": "none",
+                    "analysis": "test",
+                }
+            )
+        }
         mock_post.return_value = mock_response
 
         helpers.ai_check_validation("Title", "Body")
@@ -309,16 +331,18 @@ class TestFindSubsectorFields:
         """Test extraction of drug shortage fields"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "drug_name": "Penicillin",
-                "generic_name": "penicillin",
-                "manufacturer": "Pfizer",
-                "dosage_form": "tablet",
-                "shortage_reason": "Factory closure",
-                "estimated_resolution_date": "2026-06-01",
-                "affected_regions": ["Northeast", "Southeast"],
-                "domestic_vs_foreign_dependency": "Foreign"
-            })
+            "response": json.dumps(
+                {
+                    "drug_name": "Penicillin",
+                    "generic_name": "penicillin",
+                    "manufacturer": "Pfizer",
+                    "dosage_form": "tablet",
+                    "shortage_reason": "Factory closure",
+                    "estimated_resolution_date": "2026-06-01",
+                    "affected_regions": ["Northeast", "Southeast"],
+                    "domestic_vs_foreign_dependency": "Foreign",
+                }
+            )
         }
         mock_post.return_value = mock_response
 
@@ -331,19 +355,21 @@ class TestFindSubsectorFields:
         """Test extraction of cyber attack fields"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "attack_type": "ransomware",
-                "threat_actor": "Unknown",
-                "individuals_affected": 50000,
-                "data_types_exposed": ["patient records"],
-                "systems_affected": ["EHR"],
-                "ransom_demanded_usd": 500000,
-                "ransom_paid": 250000,
-                "downtime_days": 3,
-                "services_disrupted": ["Surgery"],
-                "law_enforcement_involved": True,
-                "hhs_breach_portal_listed": True
-            })
+            "response": json.dumps(
+                {
+                    "attack_type": "ransomware",
+                    "threat_actor": "Unknown",
+                    "individuals_affected": 50000,
+                    "data_types_exposed": ["patient records"],
+                    "systems_affected": ["EHR"],
+                    "ransom_demanded_usd": 500000,
+                    "ransom_paid": 250000,
+                    "downtime_days": 3,
+                    "services_disrupted": ["Surgery"],
+                    "law_enforcement_involved": True,
+                    "hhs_breach_portal_listed": True,
+                }
+            )
         }
         mock_post.return_value = mock_response
 
@@ -356,23 +382,27 @@ class TestFindSubsectorFields:
         """Test extraction of medical device shortage fields"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "device_name": "Ventilator",
-                "device_category": "Respiratory",
-                "manufacturer": "Philips",
-                "manufacturer_country": "Netherlands",
-                "shortage_reason": "Supply chain",
-                "fda_recall_number": "FDA12345",
-                "recall_class": "Class II",
-                "affected_specialties": ["ICU"],
-                "alternatives_available": False,
-                "estimated_resolution_date": "2026-07-01",
-                "domestic_vs_foreign_dependency": "Foreign"
-            })
+            "response": json.dumps(
+                {
+                    "device_name": "Ventilator",
+                    "device_category": "Respiratory",
+                    "manufacturer": "Philips",
+                    "manufacturer_country": "Netherlands",
+                    "shortage_reason": "Supply chain",
+                    "fda_recall_number": "FDA12345",
+                    "recall_class": "Class II",
+                    "affected_specialties": ["ICU"],
+                    "alternatives_available": False,
+                    "estimated_resolution_date": "2026-07-01",
+                    "domestic_vs_foreign_dependency": "Foreign",
+                }
+            )
         }
         mock_post.return_value = mock_response
 
-        result = helpers.find_subsector_fields("medical_device_shortage", "Device shortage", "Body")
+        result = helpers.find_subsector_fields(
+            "medical_device_shortage", "Device shortage", "Body"
+        )
         assert result["device_name"] == "Ventilator"
         assert result["recall_class"] == "Class II"
 
@@ -381,20 +411,22 @@ class TestFindSubsectorFields:
         """Test extraction of natural disaster fields"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "disaster_type": "Hurricane",
-                "disaster_name": "Hurricane Ian",
-                "fema_declaration_id": "FEMA4672",
-                "category_magnitude": "Category 4",
-                "affected_facilities_count": 15,
-                "evacuation_ordered": True,
-                "field_hospitals": 2,
-                "beds_offline": 500,
-                "facility_status": "Operational",
-                "estimated_damage_usd": 2000000,
-                "infrastructure_damage": "Roof, generators",
-                "services_disrupted": ["Surgery", "Emergency"]
-            })
+            "response": json.dumps(
+                {
+                    "disaster_type": "Hurricane",
+                    "disaster_name": "Hurricane Ian",
+                    "fema_declaration_id": "FEMA4672",
+                    "category_magnitude": "Category 4",
+                    "affected_facilities_count": 15,
+                    "evacuation_ordered": True,
+                    "field_hospitals": 2,
+                    "beds_offline": 500,
+                    "facility_status": "Operational",
+                    "estimated_damage_usd": 2000000,
+                    "infrastructure_damage": "Roof, generators",
+                    "services_disrupted": ["Surgery", "Emergency"],
+                }
+            )
         }
         mock_post.return_value = mock_response
 
@@ -407,16 +439,18 @@ class TestFindSubsectorFields:
         """Test extraction of other event fields"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "response": json.dumps({
-                "event_type": "Staff shortage",
-                "event_description": "Mass resignation",
-                "severity": "High",
-                "departments_affected": ["Emergency"],
-                "staff_type_affected": ["Nurses"],
-                "beds_offline": 100,
-                "services_disrupted": ["Emergency care"],
-                "regulatory_response": "Declared state of emergency"
-            })
+            "response": json.dumps(
+                {
+                    "event_type": "Staff shortage",
+                    "event_description": "Mass resignation",
+                    "severity": "High",
+                    "departments_affected": ["Emergency"],
+                    "staff_type_affected": ["Nurses"],
+                    "beds_offline": 100,
+                    "services_disrupted": ["Emergency care"],
+                    "regulatory_response": "Declared state of emergency",
+                }
+            )
         }
         mock_post.return_value = mock_response
 
@@ -448,9 +482,7 @@ class TestFindSubsectorFields:
     def test_find_subsector_fields_uses_json_format(self, mock_post):
         """Test that JSON format is requested"""
         mock_response = MagicMock()
-        mock_response.json.return_value = {"response": json.dumps({
-            "drug_name": None
-        })}
+        mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
         mock_post.return_value = mock_response
 
         helpers.find_subsector_fields("drug_shortage", "Title", "Body")
@@ -461,12 +493,9 @@ class TestFindSubsectorFields:
     def test_find_subsector_fields_low_temperature(self, mock_post):
         """Test that low temperature is used for deterministic extraction"""
         mock_response = MagicMock()
-        mock_response.json.return_value = {"response": json.dumps({
-            "drug_name": None
-        })}
+        mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
         mock_post.return_value = mock_response
 
         helpers.find_subsector_fields("drug_shortage", "Title", "Body")
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["options"]["temperature"] == 0.0
-

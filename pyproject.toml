@@ -1,0 +1,19 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+extend-exclude = [
+    ".venv",
+    "chroma_db",
+    "__pycache__",
+    ".ipynb_checkpoints",
+    ".jupyter",
+    "src/models",
+    "src/tests",
+    "*.ipynb",
+    "docs/_build",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

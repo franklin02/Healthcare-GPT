@@ -69,6 +69,7 @@ class _TextExtractor(HTMLParser):
     Attributes:
         _SKIP_TAGS (set): Tag names to skip when extracting text.
     """
+
     _SKIP_TAGS = {"script", "style", "noscript", "head", "nav", "footer", "aside"}
 
     def __init__(self):

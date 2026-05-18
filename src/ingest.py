@@ -28,11 +28,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 DEFAULT_CHROMA_DIR = str(Path(__file__).parent.parent / "chroma_db")
-EMBED_MODEL  = "all-MiniLM-L6-v2"
-COLLECTION   = "agentic_data"
-DEFAULT_DUP_THRESHOLD = 0.44 #this is the least aggressive threshold that detects all duplicates
+EMBED_MODEL = "all-MiniLM-L6-v2"
+COLLECTION = "agentic_data"
+DEFAULT_DUP_THRESHOLD = (
+    0.44  # this is the least aggressive threshold that detects all duplicates
+)
 DUP_LOG_FILENAME = "duplication_log.txt"
-
 
 
 def load_document(filepath: str) -> list[dict]:
@@ -72,7 +73,6 @@ def load_document(filepath: str) -> list[dict]:
     )
 
 
-
 def record_to_text(record: dict) -> str:
     """Convert a record dict to human-readable text for embedding and analysis.
 
@@ -110,8 +110,8 @@ def record_to_text(record: dict) -> str:
             lines.append(f"{label}: {val}")
             seen_keys.add(key)
 
-    #This block flattens the subsector_data to make it easier for an LLM to read.
-    #NOTE: It skips any empty fields, empty fields should either be "" or []
+    # This block flattens the subsector_data to make it easier for an LLM to read.
+    # NOTE: It skips any empty fields, empty fields should either be "" or []
     if "subsector_data" in record and isinstance(record["subsector_data"], dict):
         lines.append("\nSubsector Details:")
         for key, val in record["subsector_data"].items():
@@ -123,8 +123,8 @@ def record_to_text(record: dict) -> str:
             lines.append(f"  {label}: {val}")
         seen_keys.add("subsector_data")
 
-    #This will catch any unexpected fields that do not follow the schema. This should not happen
-    #but if it does, we will print a warning and continue rather than silently dropping the field.
+    # This will catch any unexpected fields that do not follow the schema. This should not happen
+    # but if it does, we will print a warning and continue rather than silently dropping the field.
     for key, val in record.items():
         if key in seen_keys:
             continue
@@ -136,7 +136,6 @@ def record_to_text(record: dict) -> str:
         lines.append(f"{label}: {val}")
         print(f"WARNING: Unexpected field found: {label}: {val}")
     return "\n".join(lines)
-
 
 
 def build_documents(records: list[dict]) -> list[Document]:
@@ -170,14 +169,13 @@ def build_documents(records: list[dict]) -> list[Document]:
             "title": str(record.get("title", "")),
             "source_name": str(record.get("source_name", "")),
             "subsector": str(record.get("subsector", "")),
-            "raw": json.dumps(record, ensure_ascii=False), # might be overkill
+            "raw": json.dumps(record, ensure_ascii=False),  # might be overkill
         }
 
         for chunk in text_splitter.split_text(text):
             final_docs.append(Document(page_content=chunk, metadata=metadata))
 
     return final_docs
-
 
 
 def resolve_chroma_dir(diff_dir: str | None) -> str:
@@ -206,7 +204,6 @@ def resolve_chroma_dir(diff_dir: str | None) -> str:
     return str(path.resolve())
 
 
-
 def merge_records(existing: dict, new: dict) -> dict:
     """Deep-merge two healthcare records with the same subsector.
 
@@ -227,6 +224,7 @@ def merge_records(existing: dict, new: dict) -> dict:
     Returns:
         dict: Merged record with combined data.
     """
+
     def _concat(a, b, sep="\n\n---\n\n"):
         a = (a or "").strip()
         b = (b or "").strip()
@@ -274,15 +272,25 @@ def merge_records(existing: dict, new: dict) -> dict:
         return out
 
     merged: dict = {}
-    merged["id"] = existing.get("id") #id already in the db 
+    merged["id"] = existing.get("id")  # id already in the db
     merged["title"] = _concat(existing.get("title", ""), new.get("title", ""))
-    merged["source_name"] = _join(existing.get("source_name", ""), new.get("source_name", ""))
-    merged["direct_link"] = _join(existing.get("direct_link", ""), new.get("direct_link", ""))
+    merged["source_name"] = _join(
+        existing.get("source_name", ""), new.get("source_name", "")
+    )
+    merged["direct_link"] = _join(
+        existing.get("direct_link", ""), new.get("direct_link", "")
+    )
     merged["subsector"] = existing.get("subsector", new.get("subsector", ""))
-    merged["date_accessed"] = _latest_date(existing.get("date_accessed", ""), new.get("date_accessed", ""))
-    merged["date_published"] = _latest_date(existing.get("date_published", ""), new.get("date_published", ""))
+    merged["date_accessed"] = _latest_date(
+        existing.get("date_accessed", ""), new.get("date_accessed", "")
+    )
+    merged["date_published"] = _latest_date(
+        existing.get("date_published", ""), new.get("date_published", "")
+    )
     merged["content"] = _concat(existing.get("content", ""), new.get("content", ""))
-    merged["exec_summary"] = _concat(existing.get("exec_summary", ""), new.get("exec_summary", ""))
+    merged["exec_summary"] = _concat(
+        existing.get("exec_summary", ""), new.get("exec_summary", "")
+    )
     merged["subsector_data"] = _merge_subsector_data(
         existing.get("subsector_data", {}) or {},
         new.get("subsector_data", {}) or {},
@@ -299,7 +307,6 @@ def merge_records(existing: dict, new: dict) -> dict:
                 merged[k] = merged[k] + [x for x in v if x not in merged[k]]
 
     return merged
-
 
 
 def find_duplicate(
@@ -337,11 +344,11 @@ def find_duplicate(
 
     hits = db.similarity_search_with_score(query_text, k=1)
     if not hits:
-        return None #no hits found
+        return None  # no hits found
 
     doc, distance = hits[0]
     if distance > threshold:
-        return None #closest hit is too far away
+        return None  # closest hit is too far away
 
     hit_subsector = doc.metadata.get("subsector", "")
     incoming_subsector = str(record.get("subsector", "")).strip().lower()
@@ -359,7 +366,6 @@ def find_duplicate(
         return None
 
     return existing_record, float(distance)
-
 
 
 def log_duplicate(
@@ -393,7 +399,9 @@ def log_duplicate(
     log_path = Path(chroma_dir) / DUP_LOG_FILENAME
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    subsector_match = "yes" if existing.get("subsector") == new.get("subsector") else "no"
+    subsector_match = (
+        "yes" if existing.get("subsector") == new.get("subsector") else "no"
+    )
 
     existing_json = json.dumps(existing, indent=2, ensure_ascii=False)
     new_json = json.dumps(new, indent=2, ensure_ascii=False)
@@ -411,15 +419,17 @@ def log_duplicate(
     with open(log_path, "a", encoding="utf-8") as f:
         f.write(block)
 
+
 def _is_valid_disruption(record: dict, *, use_bert: bool) -> bool:
     """Return True if the record describes an active healthcare disruption.
 
     Calls ``ai_check_validation`` from ask_llm with the ``use_bert`` flag so
     the caller controls which pipeline (LLM-only vs BERT) is used.
-    Skips classification and returns True when ask_llm is not importable 
+    Skips classification and returns True when ask_llm is not importable
     (e.g. Ollama not running), so ingestion can still proceed.
     """
     import sys
+
     scrapers_dir = str(Path(__file__).resolve().parent / "scrapers")
     if scrapers_dir not in sys.path:
         sys.path.insert(0, scrapers_dir)
@@ -429,16 +439,15 @@ def _is_valid_disruption(record: dict, *, use_bert: bool) -> bool:
     except ImportError:
         print("         [WARN] ask_llm not found — skipping classification gate")
         return True
- 
+
     title = str(record.get("title", ""))
     body = str(record.get("content", record.get("exec_summary", "")))
- 
+
     is_threat, detail = ai_check_validation(title, body, use_bert=use_bert)
- 
+
     if not is_threat:
         print(f"         [SKIP] classifier rejected: {detail}")
     return is_threat
-
 
 
 def ingest(
@@ -457,12 +466,9 @@ def ingest(
     detects and merges semantic duplicates. Per-record classification gate
     (LLM/BERT) can filter out non-disruption articles.
 
-    Pipeline steps:
-    1. Load and parse JSON records.
-    2. Load embedding model (HuggingFace).
-    3. Prepare ChromaDB vector store.
-    4. For each record: check for duplicates, classify (if not --force),
-       merge if semantically similar and subsector matches, or insert as new.
+    The pipeline loads and parses JSON records, initializes the HuggingFace
+    embedding model, prepares the ChromaDB vector store, and then checks each
+    record for duplicates before either merging or inserting it.
 
     Args:
         filepath (str): Path to input JSON file (must have 'sources' key).
@@ -475,9 +481,9 @@ def ingest(
     Returns:
         None: Prints pipeline progress and status to stdout.
     """
-    print(f"\n{'-'*55}")
+    print(f"\n{'-' * 55}")
     print("Ingestion Pipeline")
-    print(f"{'-'*55}\n")
+    print(f"{'-' * 55}\n")
 
     chroma_dir = resolve_chroma_dir(diff_dir)
 
@@ -494,7 +500,9 @@ def ingest(
 
     print(f"(3/4) Preparing vector store at: {chroma_dir}")
     if os.path.exists(chroma_dir) and new_db:
-        print("----->  --new_db flag set, are you sure you want to delete the existing database? [y/n]")
+        print(
+            "----->  --new_db flag set, are you sure you want to delete the existing database? [y/n]"
+        )
         confirm = input()
         if confirm == "y":
             shutil.rmtree(chroma_dir)
@@ -520,7 +528,9 @@ def ingest(
         before = len(docs)
         docs = [d for d in docs if d.metadata.get("id") not in existing_ids]
         skipped = before - len(docs)
-        print(f"-----> {skipped} chunks skipped by exact-id match, {len(docs)} new chunks")
+        print(
+            f"-----> {skipped} chunks skipped by exact-id match, {len(docs)} new chunks"
+        )
         if not docs:
             print("-----> Nothing new to ingest. Exiting.")
             return
@@ -565,7 +575,7 @@ def ingest(
         existing_subsector = existing_record.get("subsector", "")
         new_subsector = record.get("subsector", "")
 
-        #semantically similar but different subsector, logs this but inserts as new (users should manually check and merge if needed)
+        # semantically similar but different subsector, logs this but inserts as new (users should manually check and merge if needed)
         if existing_subsector != new_subsector:
             merged_preview = {**existing_record, **record}
             log_duplicate(
@@ -593,7 +603,9 @@ def ingest(
         try:
             db._collection.delete(where={"id": existing_id})
         except Exception as e:
-            print(f"         [WARN] failed to delete old chunks for id={existing_id}: {e}")
+            print(
+                f"         [WARN] failed to delete old chunks for id={existing_id}: {e}"
+            )
 
         merged_docs = build_documents([merged])
         if merged_docs:
@@ -633,9 +645,15 @@ if __name__ == "__main__":
     #   --force: Skip semantic duplicate checks; insert directly.
     #   --dup_threshold: Cosine distance threshold for duplicate detection.
     #   --use-bert: Enable BERT pre-screening for LLM validation.
-    parser = argparse.ArgumentParser(description="Ingest Agentic JSON file into ChromaDB")
+    parser = argparse.ArgumentParser(
+        description="Ingest Agentic JSON file into ChromaDB"
+    )
     parser.add_argument("--file", required=True, help="Path to JSON file")
-    parser.add_argument("--new_db", action="store_true", help="When on, will overwrite the existing database")
+    parser.add_argument(
+        "--new_db",
+        action="store_true",
+        help="When on, will overwrite the existing database",
+    )
     parser.add_argument(
         "--diff_dir",
         default=None,
@@ -659,9 +677,8 @@ if __name__ == "__main__":
         help=(
             "Enable BERT pre-screening before each LLM validation call. "
             "Articles rejected by BERT skip the LLM entirely, reducing ingestion time."
-        )
+        ),
     )
-
 
     args = parser.parse_args()
 

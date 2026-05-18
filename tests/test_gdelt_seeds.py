@@ -416,8 +416,9 @@ class TestProcessGkgFile:
 class TestBackfillCyberSeeds:
     """Tests for backfill_cyber_seeds function."""
 
-    @patch("gdelt_seeds.requests.get")
-    def test_successful_backfill(self, mock_get):
+    @patch("src.GDELT.gdelt_seeds.process_gkg_file")
+    @patch("src.GDELT.gdelt_seeds.requests.get")
+    def test_successful_backfill(self, mock_get, mock_process):
         """Should successfully backfill seeds."""
         # Mock master file list
         master_list = (
@@ -425,30 +426,32 @@ class TestBackfillCyberSeeds:
             "20230515000000 200 http://example.com/20230515000000.gkg.csv.zip\n"
         )
 
-        csv_content = (
-            "1\t20230515123045\t2\tBBC\thttps://hospital.com/cyber\t5\t6\t"
-            "HEALTHCARE;CYBER_ATTACK\t8\t1#New York#US#123#40.7#74.0\t10\t11\t12\t13\t14\t15\n"
-        )
+        response = Mock()
+        response.text = master_list
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
 
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w") as z:
-            z.writestr("test.csv", csv_content)
-        zip_buffer.seek(0)
+        mock_seeds = [
+            {
+                "date": "20230515",
+                "source": "BBC",
+                "url": "https://hospital.com/cyber",
+                "themes": "HEALTHCARE;CYBER_ATTACK",
+            }
+        ]
+        mock_process.return_value = (mock_seeds, 100)
 
-        def mock_get_side_effect(url, *args, **kwargs):
-            response = Mock()
-            if "masterfilelist.txt" in url:
-                response.text = master_list
-                response.raise_for_status = Mock()
-            else:
-                response.content = zip_buffer.getvalue()
-                response.raise_for_status = Mock()
-            return response
+        result = gdelt_seeds.backfill_cyber_seeds(num_files=2)
 
-        mock_get.side_effect = mock_get_side_effect
+        assert isinstance(result, list)
+        assert len(result) > 0
+        assert result[0]["url"] == "https://hospital.com/cyber"
+        mock_get.assert_called()
+        mock_process.assert_called()
 
-    @patch("gdelt_seeds.requests.get")
-    def test_date_range_filtering(self, mock_get):
+    @patch("src.GDELT.gdelt_seeds.process_gkg_file")
+    @patch("src.GDELT.gdelt_seeds.requests.get")
+    def test_date_range_filtering(self, mock_get, mock_process):
         """Should filter by date range."""
         master_list = (
             "20230510000000 100 http://example.com/20230510000000.gkg.csv.zip\n"
@@ -460,6 +463,158 @@ class TestBackfillCyberSeeds:
         response.text = master_list
         response.raise_for_status = Mock()
         mock_get.return_value = response
+
+        mock_process.return_value = ([], 0)
+
+        result = gdelt_seeds.backfill_cyber_seeds(
+            num_files=3, start_date="20230515", end_date="20230515"
+        )
+
+        assert isinstance(result, list)
+        mock_process.assert_called_once()
+
+
+class TestProcessGkgFileFilters:
+    """Tests for filter logic in process_gkg_file."""
+
+    @patch("src.GDELT.gdelt_seeds.requests.get")
+    def test_subsector_and_noise_filter(self, mock_get):
+        """Should filter by subsector themes and exclude noise."""
+        csv_content = (
+            "1\t20230515123045\t2\tBBC\thttps://hospital.com/cyber\t5\t6\t"
+            "CYBER_ATTACK;HEALTHCARE\t8\t1#New York#US#123#40.7#74.0\t10\t11\t12\t13\t14\t15\n"
+            "2\t20230515123046\t3\tCNN\thttps://example.com/news\t5\t6\t"
+            "SPORTS;ENTERTAINMENT\t8\t1#New York#US#123#40.7#74.0\t10\t11\t12\t13\t14\t15\n"
+        )
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as z:
+            z.writestr("test.csv", csv_content)
+        zip_buffer.seek(0)
+
+        response = Mock()
+        response.content = zip_buffer.getvalue()
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+
+        seeds, total = gdelt_seeds.process_gkg_file(
+            "http://example.com/test.zip", subsector="cyber_attack"
+        )
+
+        assert total == 2
+        assert len(seeds) == 1
+        assert "CYBER_ATTACK" in seeds[0]["themes"]
+
+    @patch("src.GDELT.gdelt_seeds.requests.get")
+    def test_us_location_filter(self, mock_get):
+        """Should filter by US location."""
+        csv_content = (
+            "1\t20230515123045\t2\tBBC\thttps://hospital.com/cyber\t5\t6\t"
+            "CYBER_ATTACK;HEALTHCARE\t8\t1#New York#US#123#40.7#74.0\t10\t11\t12\t13\t14\t15\n"
+            "2\t20230515123046\t3\tCNN\thttps://example.com/attack\t5\t6\t"
+            "CYBER_ATTACK;HEALTHCARE\t8\t1#London#GB#123#51.5#0.1\t10\t11\t12\t13\t14\t15\n"
+        )
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as z:
+            z.writestr("test.csv", csv_content)
+        zip_buffer.seek(0)
+
+        response = Mock()
+        response.content = zip_buffer.getvalue()
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+
+        seeds, total = gdelt_seeds.process_gkg_file(
+            "http://example.com/test.zip", subsector="cyber_attack"
+        )
+
+        assert total == 2
+        assert len(seeds) == 1
+        assert seeds[0]["source"] == "BBC"
+
+    @patch("src.GDELT.gdelt_seeds.requests.get")
+    def test_all_rows_filtered_by_theme(self, mock_get):
+        """Should return empty when all rows filtered by theme filter."""
+        csv_content = (
+            "1\t20230515123045\t2\tBBC\thttps://hospital.com/cyber\t5\t6\t"
+            "SPORTS;ENTERTAINMENT\t8\t1#New York#US#123#40.7#74.0\t10\t11\t12\t13\t14\t15\n"
+            "2\t20230515123046\t3\tCNN\thttps://example.com/attack\t5\t6\t"
+            "GAMES;TOURISM\t8\t1#New York#US#123#40.7#74.0\t10\t11\t12\t13\t14\t15\n"
+        )
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as z:
+            z.writestr("test.csv", csv_content)
+        zip_buffer.seek(0)
+
+        response = Mock()
+        response.content = zip_buffer.getvalue()
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+
+        seeds, total = gdelt_seeds.process_gkg_file(
+            "http://example.com/test.zip", subsector="cyber_attack"
+        )
+
+        assert total == 2
+        assert len(seeds) == 0
+
+    @patch("src.GDELT.gdelt_seeds.requests.get")
+    def test_all_rows_filtered_by_location(self, mock_get):
+        """Should return empty when all rows filtered by location filter."""
+        csv_content = (
+            "1\t20230515123045\t2\tBBC\thttps://hospital.com/cyber\t5\t6\t"
+            "CYBER_ATTACK;HEALTHCARE\t8\t1#London#GB#123#51.5#0.1\t10\t11\t12\t13\t14\t15\n"
+            "2\t20230515123046\t3\tCNN\thttps://example.com/attack\t5\t6\t"
+            "CYBER_ATTACK;HEALTHCARE\t8\t1#Paris#FR#123#48.8#2.3\t10\t11\t12\t13\t14\t15\n"
+        )
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as z:
+            z.writestr("test.csv", csv_content)
+        zip_buffer.seek(0)
+
+        response = Mock()
+        response.content = zip_buffer.getvalue()
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+
+        seeds, total = gdelt_seeds.process_gkg_file(
+            "http://example.com/test.zip", subsector="cyber_attack"
+        )
+
+        # Both rows should pass theme filter but be filtered out by location filter
+        assert total == 2
+        assert len(seeds) == 0
+
+    @patch("src.GDELT.gdelt_seeds.requests.get")
+    def test_all_rows_filtered_by_url_quality(self, mock_get):
+        """Should return empty when all rows filtered by URL quality filter."""
+        csv_content = (
+            "1\t20230515123045\t2\tBBC\thttp://bit.ly/short1\t5\t6\t"
+            "CYBER_ATTACK;HEALTHCARE\t8\t1#New York#US#123#40.7#74.0\t10\t11\t12\t13\t14\t15\n"
+            "2\t20230515123046\t3\tCNN\thttp://tinyurl.com/short2\t5\t6\t"
+            "CYBER_ATTACK;HEALTHCARE\t8\t1#New York#US#123#40.7#74.0\t10\t11\t12\t13\t14\t15\n"
+        )
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as z:
+            z.writestr("test.csv", csv_content)
+        zip_buffer.seek(0)
+
+        response = Mock()
+        response.content = zip_buffer.getvalue()
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+
+        seeds, total = gdelt_seeds.process_gkg_file(
+            "http://example.com/test.zip", subsector="cyber_attack"
+        )
+
+        # Both rows pass theme and location filters but fail URL quality (shorteners and non-US TLD)
+        assert total == 2
+        assert len(seeds) == 0
 
 
 class TestConstantDefinitions:

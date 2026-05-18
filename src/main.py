@@ -134,6 +134,7 @@ class ChatRequest(BaseModel):
     Attributes:
         question (str): The user's question about healthcare disruptions.
     """
+
     question: str
 
 
@@ -146,6 +147,7 @@ class SourceDoc(BaseModel):
         source_name (str): Source news outlet or publication.
         direct_link (str): URL to the original article.
     """
+
     id: str
     title: str
     source_name: str
@@ -161,6 +163,7 @@ class ChatResponse(BaseModel):
         model (str): Name of the LLM used (e.g., "llama3.2").
         chunks_retrieved (int): Number of document chunks returned by the retriever.
     """
+
     answer: str
     sources: list[SourceDoc]
     model: str

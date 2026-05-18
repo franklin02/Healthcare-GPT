@@ -95,8 +95,17 @@ HEADERS = {
 }
 
 _NOISE_PATTERNS = (
-    "ad", "advert", "promo", "sidebar", "related", "newsletter",
-    "subscribe", "comment", "social", "share", "cookie",
+    "ad",
+    "advert",
+    "promo",
+    "sidebar",
+    "related",
+    "newsletter",
+    "subscribe",
+    "comment",
+    "social",
+    "share",
+    "cookie",
 )
 _NOISE_RE = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 _NOISE_SELECTOR = ",".join(f'[class*="{p}"]' for p in _NOISE_PATTERNS)
@@ -140,8 +149,19 @@ def get_body(url: str) -> str:
     soup = BeautifulSoup(resp.text, "html.parser")
 
     # Strip non-content tags
-    for tag in soup(["script", "style", "noscript", "iframe", "form",
-                     "header", "footer", "nav", "aside"]):
+    for tag in soup(
+        [
+            "script",
+            "style",
+            "noscript",
+            "iframe",
+            "form",
+            "header",
+            "footer",
+            "nav",
+            "aside",
+        ]
+    ):
         tag.decompose()
 
     # Strip noise by class
@@ -271,9 +291,9 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
         return False, "Parsing Error"
 
 
-
 # Once we KNOW a source classifies as a vulnerability, we need to find all the
 # subsector specific fields (found in src/data/schema.json) and return them in a dictionary.
+
 
 def find_subsector_fields(subsector, title, body) -> dict:
     """Extract subsector-specific fields from article text via the AI service.

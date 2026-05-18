@@ -1,5 +1,16 @@
 # Healthcare GPT — Project Home (Private Repo)
 
+```{toctree}
+:maxdepth: 2
+:caption: Documentation
+
+source-framework
+source-pack-v1
+expanded-disruption-source-ecosystem
+meeting-questions
+api
+```
+
 ## What we are building
 A proof-of-concept pipeline for INL that:
 1) collects authoritative public data on healthcare-sector disruptions, and

@@ -1,3 +1,20 @@
+"""Ingest and deduplicate healthcare disruption articles into ChromaDB.
+
+This module loads JSON documents containing healthcare article metadata,
+converts them to text chunks with embeddings, and stores them in a vector
+database (ChromaDB) for semantic search. It includes duplicate detection
+using cosine similarity and optional deep merging of near-duplicate records.
+
+Key features:
+- Semantic duplicate detection with configurable threshold.
+- Deep merging of similar records with matching subsectors.
+- Detailed logging of duplicate events.
+- Optional classification gate via LLM/BERT validation.
+- Chunking with configurable overlap for better context preservation.
+
+Main entry point: ingest(filepath, ...)
+"""
+
 import json
 import argparse
 import os
@@ -18,12 +35,24 @@ DUP_LOG_FILENAME = "duplication_log.txt"
 
 
 
-'''
-This function opens and loads the JSON file into a dictionary with its corresponding key value pair. 
-This will only work if the JSON file has a 'sources' key with a list of records. Anything else will 
-raise an error. 
-'''
 def load_document(filepath: str) -> list[dict]:
+    """Load and parse a JSON file containing healthcare article records.
+
+    The JSON file must contain a top-level object with a 'sources' key
+    that maps to a list of record objects. Each record typically contains
+    fields like title, content, source_name, subsector, etc.
+
+    Args:
+        filepath (str): Path to the JSON file.
+
+    Returns:
+        list[dict]: List of record dictionaries from the 'sources' key.
+
+    Raises:
+        ValueError: If the file is not a JSON object or lacks a 'sources' key.
+        FileNotFoundError: If the file does not exist.
+        json.JSONDecodeError: If the file is not valid JSON.
+    """
     with open(filepath, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
@@ -44,14 +73,21 @@ def load_document(filepath: str) -> list[dict]:
 
 
 
-'''
-This function turns a single JSON object into a readable text chunck that our LLM can use to reason about.
-Each known field is appended and added to a list of lines. The list also scans for unknonw fields and grabs
-then rather than silently dropping them (This was used in the old schema, but I just kept it for now). At the 
-end all lines are joined and returned.
-
-'''
 def record_to_text(record: dict) -> str:
+    """Convert a record dict to human-readable text for embedding and analysis.
+
+    Formats known fields (title, source, link, subsector, dates, body, summary)
+    into labeled lines. Flattens subsector_data into readable key-value pairs.
+    Also captures and warns about any unexpected fields not in the schema.
+
+    Args:
+        record (dict): Article record with fields like title, content,
+            subsector_data, etc.
+
+    Returns:
+        str: Formatted text with labeled fields, suitable for embeddings or
+            LLM processing. Empty string if the record has no useful content.
+    """
     lines = []
     known_fields = [
         ("id", "ID"),
@@ -103,13 +139,20 @@ def record_to_text(record: dict) -> str:
 
 
 
-'''
-This functions creates a single document for each JSON object in the file. This uses record_to_text 
-to create the text chunk and then adds the metadata to the document. If the record_to_text returns an 
-empty string, the document is skipped. We also stash the full source record JSON under the 'raw' metadata
-key so we can reconstruct the original object when logging or merging near-duplicates later.
-'''
 def build_documents(records: list[dict]) -> list[Document]:
+    """Convert records to LangChain Document objects with chunking and metadata.
+
+    Each record is converted to text via `record_to_text`, then split into
+    chunks (800 chars, 160 char overlap) for better embedding performance.
+    Metadata (id, title, source, subsector, raw JSON) is attached to each chunk.
+
+    Args:
+        records (list[dict]): List of article records.
+
+    Returns:
+        list[Document]: LangChain Document objects, one per chunk. Records that
+            yield no text are skipped.
+    """
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=800,
         chunk_overlap=160,
@@ -137,12 +180,22 @@ def build_documents(records: list[dict]) -> list[Document]:
 
 
 
-'''
-Resolves which directory to use for the Chroma DB. If --diff_dir was passed, it must exist and be
-a directory; otherwise we exit with a clean error. When --diff_dir is not passed we use DEFAULT_CHROMA_DIR
-(which Chroma will create on first write).
-'''
 def resolve_chroma_dir(diff_dir: str | None) -> str:
+    """Resolve the ChromaDB directory path.
+
+    If `diff_dir` is provided, validates that it exists and is a directory,
+    then returns the absolute path. If `diff_dir` is None, returns
+    DEFAULT_CHROMA_DIR (which Chroma will create on first write).
+
+    Args:
+        diff_dir (str | None): Override directory path, or None to use default.
+
+    Returns:
+        str: Absolute path to the ChromaDB directory.
+
+    Raises:
+        SystemExit: If `diff_dir` is provided but doesn't exist or isn't a directory.
+    """
     if diff_dir is None:
         return DEFAULT_CHROMA_DIR
 
@@ -154,18 +207,26 @@ def resolve_chroma_dir(diff_dir: str | None) -> str:
 
 
 
-'''
-Deep-merges two source records into a single record. This is only called when 
-the two records already passed the subsector-match check. Merge rules:
-  - id: keep the existing record's id (merged record replaces it in the DB).
-  - title / content / exec_summary: concatenate with a separator (skip empties / duplicates).
-  - source_name / direct_link: join with " | " when distinct.
-  - date_published / date_accessed: keep the latest (ISO strings sort lexically).
-  - subsector: kept as-is from existing (precondition: equal to new's).
-  - subsector_data: deep-merge. list values -> extend + dedupe; scalars -> existing wins unless empty.
-  - Unknown fields: same policy as subsector_data scalars.
-'''
 def merge_records(existing: dict, new: dict) -> dict:
+    """Deep-merge two healthcare records with the same subsector.
+
+    Combines data from an existing record (already in DB) with a new incoming
+    record. Merge strategy:
+    - id: kept from existing (merged record replaces it).
+    - title/content/exec_summary: concatenated with separator.
+    - source_name/direct_link: joined with " | " when distinct.
+    - dates: latest value (ISO strings sort lexically).
+    - subsector: kept from existing (precondition: must match new).
+    - subsector_data: deep-merged (lists extended + deduped, scalars favor existing).
+    - Unknown fields: same policy as subsector_data scalars.
+
+    Args:
+        existing (dict): Record already in the database.
+        new (dict): Incoming record to merge.
+
+    Returns:
+        dict: Merged record with combined data.
+    """
     def _concat(a, b, sep="\n\n---\n\n"):
         a = (a or "").strip()
         b = (b or "").strip()
@@ -241,16 +302,28 @@ def merge_records(existing: dict, new: dict) -> dict:
 
 
 
-'''
-Looks up the most similar record already in the DB. Returns (existing_record_dict, distance) if a hit
-scores at/under the threshold and is a DIFFERENT record (by id), else None. Returns None when the DB
-is empty as well. Uses cosine distance (Chroma default) so lower == closer.
-'''
 def find_duplicate(
     db: Chroma,
     record: dict,
     threshold: float,
 ) -> tuple[dict, float] | None:
+    """Find the most semantically similar record in the database.
+
+    Uses cosine distance (Chroma default, lower = closer) to find the best
+    match. Returns a hit only if:
+    - Distance is at or below the threshold.
+    - The hit has the same subsector as the incoming record (subsector match).
+    - The hit is a different record (different id).
+
+    Args:
+        db (Chroma): Vector database instance.
+        record (dict): Incoming record to search for duplicates against.
+        threshold (float): Maximum cosine distance to consider a match.
+
+    Returns:
+        tuple[dict, float] | None: (existing_record, distance) if a match is found,
+            None otherwise (including when the DB is empty).
+    """
     try:
         existing_count = db._collection.count()
     except Exception:
@@ -289,12 +362,6 @@ def find_duplicate(
 
 
 
-'''
-Appends a human-readable block to <chroma_dir>/duplication_log.txt describing a near-duplicate event.
-The log entry contains the existing record, the incoming record and the merged/proposed record so that
-a reviewer can copy/paste either side back into a {"sources": [...]} file and re-ingest with --force
-if the merge turns out to be wrong.
-'''
 def log_duplicate(
     chroma_dir: str,
     existing: dict,
@@ -304,6 +371,24 @@ def log_duplicate(
     threshold: float,
     action: str,
 ) -> None:
+    """Log a duplicate detection event to <chroma_dir>/duplication_log.txt.
+
+    Appends a human-readable JSON block containing the existing record,
+    incoming record, merged/proposed record, distance, threshold, and action.
+    This log allows reviewers to inspect merges and re-ingest corrected data.
+
+    Args:
+        chroma_dir (str): Path to the ChromaDB directory.
+        existing (dict): The existing record found in the database.
+        new (dict): The incoming record being ingested.
+        merged (dict): The merged/proposed record.
+        distance (float): Cosine distance between the records.
+        threshold (float): The threshold used for duplicate detection.
+        action (str): Action taken (e.g., "merged", "logged_only_subsector_mismatch").
+
+    Returns:
+        None: Writes to the log file as a side effect.
+    """
     Path(chroma_dir).mkdir(parents=True, exist_ok=True)
     log_path = Path(chroma_dir) / DUP_LOG_FILENAME
 
@@ -356,13 +441,6 @@ def _is_valid_disruption(record: dict, *, use_bert: bool) -> bool:
 
 
 
-'''
-Main ingestion pipeline. Loads records, optionally resets the DB, then for each record either inserts
-it directly (--force) or first checks the DB for a semantically similar record. When a duplicate is
-found and the subsectors match, the existing record's chunks are deleted and the merged record is
-inserted in its place. When a duplicate is found but subsectors disagree, we log the near-duplicate
-and ingest the new record as a separate entry.
-'''
 def ingest(
     filepath: str,
     *,
@@ -372,6 +450,31 @@ def ingest(
     dup_threshold: float = DEFAULT_DUP_THRESHOLD,
     use_bert: bool = False,
 ) -> None:
+    """Main ingestion pipeline: load, chunk, deduplicate, and index documents.
+
+    Loads healthcare article records from a JSON file, converts them to
+    chunked LangChain documents, and indexes them in ChromaDB. Optionally
+    detects and merges semantic duplicates. Per-record classification gate
+    (LLM/BERT) can filter out non-disruption articles.
+
+    Pipeline steps:
+    1. Load and parse JSON records.
+    2. Load embedding model (HuggingFace).
+    3. Prepare ChromaDB vector store.
+    4. For each record: check for duplicates, classify (if not --force),
+       merge if semantically similar and subsector matches, or insert as new.
+
+    Args:
+        filepath (str): Path to input JSON file (must have 'sources' key).
+        new_db (bool): If True, delete existing ChromaDB before starting.
+        diff_dir (str | None): Override default ChromaDB directory.
+        force (bool): Skip semantic duplicate checks; insert all records directly.
+        dup_threshold (float): Cosine distance threshold for duplicate detection.
+        use_bert (bool): Enable BERT pre-screening before LLM validation.
+
+    Returns:
+        None: Prints pipeline progress and status to stdout.
+    """
     print(f"\n{'-'*55}")
     print("Ingestion Pipeline")
     print(f"{'-'*55}\n")
@@ -521,15 +624,15 @@ def ingest(
     print("----->  You can now start the server: uvicorn main:app --reload\n")
 
 
-'''
-This is the main function for the script. It parses the arguments and calls the ingest function to begin.
-    --file: Path to the JSON file (required)
-    --new_db: When on, will overwrite the existing database
-    --diff_dir: Override the default chroma_db directory (must exist). Useful for testing.
-    --force: Skip the semantic duplicate check and behave like the original pipeline.
-    --dup_threshold: Cosine distance upper bound for duplicate detection (default: 0.44).
-'''
 if __name__ == "__main__":
+    # CLI entry point: parse arguments and run the ingestion pipeline.
+    # Arguments:
+    #   --file (required): Path to the JSON file containing healthcare articles.
+    #   --new_db: Delete existing ChromaDB before starting.
+    #   --diff_dir: Override the default chroma_db directory (must exist).
+    #   --force: Skip semantic duplicate checks; insert directly.
+    #   --dup_threshold: Cosine distance threshold for duplicate detection.
+    #   --use-bert: Enable BERT pre-screening for LLM validation.
     parser = argparse.ArgumentParser(description="Ingest Agentic JSON file into ChromaDB")
     parser.add_argument("--file", required=True, help="Path to JSON file")
     parser.add_argument("--new_db", action="store_true", help="When on, will overwrite the existing database")

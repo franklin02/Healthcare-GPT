@@ -184,6 +184,170 @@ class TestFetchHtmlPage:
 
         assert len(result) == 0
 
+    @patch("src.scrapers.html_engine.get_page")
+    def test_fetch_html_page_link_selector_found_no_anchor(self, mock_get_page):
+        """When a link_selector is provided but no anchor is found, it should skip (covers lines 128-132)."""
+        index_html = """
+        <html>
+            <li class="item"><span>No anchor here</span></li>
+        </html>
+        """
+        mock_response_index = Mock()
+        mock_response_index.content = index_html.encode()
+        mock_get_page.return_value = mock_response_index
+
+        site_config = {
+            "name": "TestSite",
+            "url": "https://example.com",
+            "map": {
+                "container": "li",
+                "link_selector": "a.post-item__title-link",
+                "body_selector": "div.content",
+                "date_selector": "time",
+            },
+        }
+
+        result = html_engine.fetch_html_page(site_config, site_config["url"])
+        assert result == []
+
+    @patch("src.scrapers.html_engine.get_page")
+    def test_fetch_html_page_container_is_anchor_without_link_selector(self, mock_get_page):
+        """When container items are anchors and no link_selector provided, use el itself (covers line 125)."""
+        index_html = """
+        <html>
+            <a class="post-item__title-link" href="https://example.com/article1">Article 1</a>
+        </html>
+        """
+        article_html = "<html><div class=\"single-article__content\">Body</div></html>"
+
+        mock_response_index = Mock()
+        mock_response_index.content = index_html.encode()
+        mock_response_article = Mock()
+        mock_response_article.content = article_html.encode()
+
+        mock_get_page.side_effect = [mock_response_index, mock_response_article]
+
+        site_config = {
+            "name": "TestSite",
+            "url": "https://example.com",
+            "map": {
+                "container": "a",
+                "title": None,
+                # no link_selector here
+                "body_selector": "div.single-article__content",
+                "date_selector": "time",
+            },
+        }
+
+        result = html_engine.fetch_html_page(site_config, site_config["url"])
+        assert len(result) == 1
+        assert result[0]["link"] == "https://example.com/article1"
+
+    @patch("src.scrapers.html_engine.get_page")
+    def test_fetch_html_page_anchor_missing_href(self, mock_get_page):
+        """If the anchor has no href attribute it should be skipped (covers line 135)."""
+        index_html = """
+        <html>
+            <li class="search-results__item">
+                <a class="post-item__title-link">No href</a>
+            </li>
+        </html>
+        """
+        mock_response_index = Mock()
+        mock_response_index.content = index_html.encode()
+        mock_get_page.return_value = mock_response_index
+
+        site_config = html_engine.HTML_SITES[0]
+        # reuse a standard site_config but the anchor lacks href so should skip
+        result = html_engine.fetch_html_page(site_config, site_config["url"]) 
+        assert result == []
+
+    @patch("src.scrapers.html_engine.get_page")
+    def test_fetch_html_page_uses_title_selector_when_present(self, mock_get_page):
+        """If a title selector is configured, it should be used to set title_text (covers lines 148-149)."""
+        index_html = """
+        <html>
+            <li class="item">
+                <a href="https://example.com/article1">Link text</a>
+                <h2 class="headline">Explicit Title</h2>
+            </li>
+        </html>
+        """
+        article_html = "<html><div class=\"single-article__content\">Body</div></html>"
+
+        mock_response_index = Mock()
+        mock_response_index.content = index_html.encode()
+        mock_response_article = Mock()
+        mock_response_article.content = article_html.encode()
+        mock_get_page.side_effect = [mock_response_index, mock_response_article]
+
+        site_config = {
+            "name": "TestSite",
+            "url": "https://example.com",
+            "map": {
+                "container": "li",
+                "title": "h2.headline",
+                "link_selector": "a",
+                "body_selector": "div.single-article__content",
+                "date_selector": "time",
+            },
+        }
+
+        result = html_engine.fetch_html_page(site_config, site_config["url"])
+        assert len(result) == 1
+        assert result[0]["title"] == "Explicit Title"
+
+    @patch("src.scrapers.html_engine.fetch_html_page")
+    @patch("src.scrapers.html_engine.check_valid_file")
+    @patch("src.scrapers.html_engine.ai_check_validation")
+    @patch("src.scrapers.html_engine.find_subsector_fields")
+    @patch("src.scrapers.html_engine.json_output")
+    @patch("src.scrapers.html_engine.vuln_output")
+    @patch("src.scrapers.html_engine.noise_output")
+    def test_run_html_scraper_pagination_fallback_builds_page_url(
+        self,
+        mock_noise_output,
+        mock_vuln_output,
+        mock_json_output,
+        mock_find_fields,
+        mock_ai_check,
+        mock_check_valid,
+        mock_fetch,
+    ):
+        """When pagination_url is missing the fallback constructs page_url (covers lines 219-221)."""
+        articles = [
+            {
+                "title": "Article",
+                "link": "https://example.com/article1",
+                "body": "Content",
+                "date": "2024-01-01",
+            }
+        ]
+        # first call returns articles, second call returns empty to stop loop
+        mock_fetch.side_effect = [articles, []]
+        mock_ai_check.return_value = (False, "not_threat")
+
+        site_config = {
+            "name": "TestSite",
+            # include a '?' so sep becomes '&' to exercise that logic
+            "url": "https://example.com/search?q=health",
+            "map": {
+                "container": "li",
+                "link_selector": "a",
+                "body_selector": "div",
+                "date_selector": "time",
+                "starting_page": 1,
+                "cap": -1,
+            },
+        }
+
+        html_engine.run_html_scraper(site_config)
+
+        # Ensure fetch called twice and the second call used constructed page URL with '&page=2'
+        assert mock_fetch.call_count == 2
+        second_call_page = mock_fetch.call_args_list[1][0][1]
+        assert second_call_page == "https://example.com/search?q=health&page=2"
+
 
 class TestRunHtmlScraper:
     """Tests for the run_html_scraper function"""

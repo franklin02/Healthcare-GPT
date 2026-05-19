@@ -18,6 +18,7 @@ release = "0.1.0"
 
 extensions = [
     "myst_parser",
+    "sphinx_wagtail_theme",
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
@@ -40,14 +41,6 @@ exclude_patterns = [
     "prompt-pack-v0/**",
 ]
 
-# html_theme = "alabaster"
-# html_theme = 'shibuya'
-# html_theme = 'furo'
-# html_theme = 'conestack'
-# html_theme = 'pydata_sphinx_theme'
-# html_theme = 'cloud'
-
-extensions.append("sphinx_wagtail_theme")
 html_theme = "sphinx_wagtail_theme"
 
 autodoc_member_order = "bysource"

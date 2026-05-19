@@ -18,33 +18,10 @@ Data Models
    :members:
    :undoc-members:
 
-.. automodule:: src.fda_apis.models.drug_snapshot
-   :members:
-   :undoc-members:
-
-.. automodule:: src.fda_apis.models.ndc_snapshot
-   :members:
-   :undoc-members:
-
-FDA APIs
---------
-
-.. automodule:: src.fda_apis.shortage_service
-   :members:
-   :undoc-members:
-
-.. automodule:: src.fda_apis.spl_service
-   :members:
-   :undoc-members:
-
 GDELT Pipeline
 --------------
 
 .. automodule:: src.GDELT.BERT_filter
-   :members:
-   :undoc-members:
-
-.. automodule:: src.GDELT.freeze_data
    :members:
    :undoc-members:
 
@@ -57,10 +34,6 @@ GDELT Pipeline
    :undoc-members:
 
 .. automodule:: src.GDELT.ollama_filter
-   :members:
-   :undoc-members:
-
-.. automodule:: src.GDELT.prep_for_vis
    :members:
    :undoc-members:
 

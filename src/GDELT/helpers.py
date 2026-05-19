@@ -198,6 +198,7 @@ def get_body(url: str) -> str:
         return "\n\n".join(paragraphs)
     return main.get_text(" ", strip=True)
 
+
 def _run_bert(title: str, body: str) -> str:
     import sys
     from pathlib import Path
@@ -209,14 +210,12 @@ def _run_bert(title: str, body: str) -> str:
     try:
         from BERT_filter import run_bert_inference
     except ImportError as exc:
-        raise RuntimeError(
-            f"bert_filter.py not found at {gdelt_dir}"
-        ) from exc
+        raise RuntimeError(f"bert_filter.py not found at {gdelt_dir}") from exc
 
     return run_bert_inference({"title": title, "body": body})
 
 
-def ai_check_validation(title, body, use_bert = False) -> tuple[bool, str]:
+def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     """Call the local AI endpoint to validate whether an article describes
     an active operational disruption.
 

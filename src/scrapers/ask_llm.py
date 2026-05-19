@@ -5,10 +5,10 @@ Attributes
     - `AI_MODEL`: The specific model that the AI will use for processing.
     - `SUBSECTOR_FIELDS`: A dictionary that maps subsectors to their specific fields.
 
-Function:
+Functions:
     - `ai_check_validation`: Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach
        at a named healthcare entity based on strict, predefined criteria.
-    - `find_subsector_fields`: Extracts specific fields for a given healthcare subsector by utilizing an AI-based metadata extraction process from the provided article title and body.
+    - `extract_fields`: Extracts sector and subsector fields for a confirmed healthcare disruption using the provided article title and body.
 
 Possible subsectors:
         - "drug_shortage": A confirmed shortage of a named drug patients need now.
@@ -97,13 +97,31 @@ SUBSECTOR_FIELDS = {
 }
 
 
-def ai_check_validation(title, body) -> tuple[bool, str]:
+def _run_bert(title: str, body: str) -> str:
+    import sys
+    from pathlib import Path
+
+    gdelt_dir = Path(__file__).resolve().parent.parent / "GDELT"
+    if str(gdelt_dir) not in sys.path:
+        sys.path.append(str(gdelt_dir))
+
+    try:
+        from BERT_filter import run_bert_inference
+    except ImportError as exc:
+        raise RuntimeError(f"BERT_filter.py not found at {gdelt_dir}") from exc
+
+    return run_bert_inference({"title": title, "body": body})
+
+
+def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     """
     Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach at a named healthcare entity based on strict, predefined criteria.
 
     Parameters:
         title (str): The title of the article being analyzed.
         body (str): The main content or excerpt of the article.
+        use_bert (bool): If true, run BERT first as a lightweight rejection
+            filter before sending the article to the LLM.
 
     Returns: A tuple:
         - A boolean indicating whether the article is flagged as a threat (True if operational disruption or confirmed breach).
@@ -114,6 +132,13 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
     Exceptions:
     If an error occurs during the request or response parsing, the function catches the error, logs it, and returns False with "Parsing Error".
     """
+    if use_bert:
+        bert_subsector = _run_bert(title, body)
+        if bert_subsector == "none":
+            print("[BERT] rejected skipping LLM")
+            return False, "BERT: unrelated news"
+        print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
+
     prompt = f"""
         [INST] <<SYS>>
         You are a strict Healthcare Operations Auditor. Your ONLY job is to flag articles that describe a REAL, ALREADY-OCCURRING healthcare disruption or a CONFIRMED breach at a named healthcare entity.

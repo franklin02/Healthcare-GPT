@@ -78,7 +78,7 @@ pip install requests pandas beautifulsoup4 lxml
 
 This is fast and avoids C++ build issues on Windows (see below).
 
-### 4b. Full install (anyone touching ingest, main, scrapers, fda_apis, RAG)
+### 4b. Full install (anyone touching ingest, main, scrapers, or RAG)
 
 ```bash
 pip install -r requirements.txt
@@ -162,39 +162,37 @@ If both work, your stack is fully functional. `exit()` to leave.
 
 If you did the full install (§4b), you can run the RAG chat app end-to-end.
 
-### Optional: FDA API keys
+### Generate or choose processed JSON
 
-Only needed if you'll run scripts in `src/fda_apis/`. The keys are free.
+Use an existing file under `data/processed/`, or generate a new GDELT file with:
 
-1. Get them:
-   - `FDA_SHORTAGE_API_KEY` → https://open.fda.gov/apis/drug/drugshortages/
-   - `FDA_SPL_API_KEY` → https://open.fda.gov/apis/drug/label/
-2. Create `.env` at the repo root:
-   ```
-   FDA_SHORTAGE_API_KEY=your_key_here
-   FDA_SPL_API_KEY=your_key_here
-   ```
-   `.env` is git-ignored.
+```bash
+python src/GDELT/runner.py --num-files 2 --limit 3
+```
+
+The runner writes final records to `data/processed/GDELT.json` by default.
 
 ### Quick start
 
 ```bash
+python src/ingest.py --file data/processed/AHA.json --force
 cd src
-python ingest.py --file ../data/processed/CyberScoop.json --new_db
 uvicorn main:app --reload
 ```
-
-If asked 'are you sure you want to delete the existing database?', type 'y' and press enter.
 
 Open http://127.0.0.1:8000 and ask a question.
 
 ### Ingestion pipeline (`ingest.py`)
 
-- Input JSON should follow `src/data/schema.json`. Fallback: any object with a top-level `sources: [...]` list.
+- Input JSON should follow the record shape represented by `src/config/schema.json`.
+  The loader expects a top-level `sources: [...]` list.
 - Flags:
   - `--file <path>` (required) — JSON file to ingest.
   - `--new_db` (optional) — wipes the existing ChromaDB and starts fresh.
-- Default behavior is additive — re-ingesting the same file deduplicates by `id`.
+  - `--force` (optional) — skips LLM validation and semantic duplicate checks.
+  - `--dup_threshold <float>` (optional) — adjusts semantic duplicate matching.
+  - `--use-bert` (optional) — runs BERT before ingestion-time LLM validation.
+- Default behavior is additive and checks exact IDs plus semantic duplicates.
 
 ### API reference (`src/main.py`)
 
@@ -235,18 +233,16 @@ Healthcare-GPT/
 │   ├── main.py              # FastAPI backend + RAG chain
 │   ├── ingest.py            # JSON → embeddings → ChromaDB
 │   ├── index.html           # Chat UI
-│   ├── GDELT/               # GDELT pipeline (cyber_security.py, helpers.py, ollama_filter.py)
-│   ├── scrapers/            # Per-source scrapers (CNN, AHA, FDA congress reports, etc.)
-│   ├── fda_apis/            # FDA API clients (require .env keys — see §8)
-│   ├── data/                # Processed JSON for ingestion (Ready_for_RAG/, Noise/, Vulnerabilities/)
-│   └── raw_data/            # Raw scraped/downloaded data
-├── docs/                    # Project docs, prompts, agent specs
+│   ├── GDELT/               # GDELT seeds, validation, extraction, runner
+│   ├── scrapers/            # Shared scraper and LLM helper utilities
+│   ├── classes/             # Dataclass models for disruption records
+│   └── config/              # JSON schema reference
+├── data/processed/          # Processed JSON files for ingestion
+├── docs/                    # Sphinx docs plus historical prompt/source docs
 ├── chroma_db/               # Auto-generated vector store (git-ignored)
 ├── requirements.txt
 └── CONTRIBUTING.md          # This file
 ```
-
-> The `README.md` describes a templates/KPI/dashboard-JSON deliverable that isn't reflected in the current code. Treat `CONTRIBUTING.md` as authoritative for setup; treat the live code under `src/` as authoritative for what the project actually does today.
 
 ---
 

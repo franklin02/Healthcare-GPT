@@ -1,4 +1,4 @@
-# Expanded Expanded disruption-source ecosystem (URLs Only) 
+# Expanded Disruption Source Ecosystem (URLs Only)
 
 ## 1. Government / official sources
 - FDA — https://www.fda.gov

@@ -1,5 +1,7 @@
 import pytest
 import json
+import sys
+import types
 from unittest.mock import patch, MagicMock
 import requests
 from src.GDELT import helpers
@@ -544,3 +546,60 @@ class TestFindSubsectorFields:
         helpers.find_subsector_fields("drug_shortage", "Title", "Body")
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["options"]["temperature"] == 0.0
+
+
+class TestRunBertAndUseBert:
+    """Test suite for _run_bert and ai_check_validation(use_bert=True)."""
+
+    def test_run_bert_delegates_to_run_bert_inference(self, monkeypatch):
+        """Test that _run_bert imports and calls run_bert_inference with mock data."""
+        fake_module = types.ModuleType("BERT_filter")
+        mock_run_bert_inference = MagicMock(return_value="cyber_attack")
+        fake_module.run_bert_inference = mock_run_bert_inference
+        monkeypatch.setitem(sys.modules, "BERT_filter", fake_module)
+
+        result = helpers._run_bert("Ransomware hits hospital", "Body text")
+
+        assert result == "cyber_attack"
+        mock_run_bert_inference.assert_called_once_with(
+            {"title": "Ransomware hits hospital", "body": "Body text"}
+        )
+
+    @patch("src.GDELT.helpers.requests.post")
+    def test_ai_check_validation_use_bert_rejects_none_without_llm(self, mock_post, monkeypatch):
+        """Test that use_bert returns early when BERT rejects the article."""
+        monkeypatch.setattr(helpers, "_run_bert", MagicMock(return_value="none"))
+
+        is_threat, detail = helpers.ai_check_validation(
+            "Policy news", "Body text", use_bert=True
+        )
+
+        assert is_threat is False
+        assert detail == "BERT: unrelated news"
+        mock_post.assert_not_called()
+
+    @patch("src.GDELT.helpers.requests.post")
+    def test_ai_check_validation_use_bert_forwards_to_llm_when_flagged(
+        self, mock_post, monkeypatch
+    ):
+        """Test that use_bert still calls the LLM when BERT flags the article."""
+        monkeypatch.setattr(helpers, "_run_bert", MagicMock(return_value="cyber_attack"))
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "response": json.dumps(
+                {
+                    "analysis": "Hospital affected by ransomware",
+                    "is_operational_disruption": True,
+                    "subsector": "cyber_attack",
+                }
+            )
+        }
+        mock_post.return_value = mock_response
+
+        is_threat, detail = helpers.ai_check_validation(
+            "Ransomware hits hospital", "Body text", use_bert=True
+        )
+
+        assert is_threat is True
+        assert detail == "cyber_attack"
+        mock_post.assert_called_once()

@@ -12,3 +12,4 @@ docs/_build/
 docs/_autosummary/
 CLAUDE.md
 *.coverage
+data/raw/gdelt/

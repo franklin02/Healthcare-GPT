@@ -15,6 +15,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 import os
+import shutil
 
 from gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES
 from helpers import ai_check_validation, find_subsector_fields, get_body
@@ -54,6 +55,20 @@ def ensure_raw_dirs() -> None:
 def save_json(path: Path, data: dict) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+
+
+def clear_directory(directory: Path) -> None:
+    """Delete all files and subdirectories inside a directory."""
+    if not directory.exists():
+        return
+    for item in directory.iterdir():
+        try:
+            if item.is_file() or item.is_symlink():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+        except Exception as exc:
+            print(f"Warning: failed to remove {item}: {exc}")
 
 
 def persist_raw_seeds(raw_seeds: list[dict]) -> None:
@@ -305,6 +320,10 @@ def run(
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump({"sources": combined}, f, ensure_ascii=False, indent=2)
     print(f"Appended {len(out_recs)} records to {out_file} (total: {len(combined)})")
+
+    # Clear the seed files after a successful pipeline run
+    clear_directory(SEEDS_DIR)
+    print(f"Cleared seed staging directory: {SEEDS_DIR}")
 
     return records
 

@@ -224,7 +224,6 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
         return False, "Parsing Error"
 
 
-
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
 
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)

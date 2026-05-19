@@ -75,7 +75,7 @@ HTML_SITES = [
     {
         "name": "MedicalNewsToday",
         "url": "https://www.medicalnewstoday.com/news",
-        "pagination_url": "https://www.medicalnewstoday.com/news", # this cite doesnt have pagination
+        "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
         "map": {
             "container": "ol li",
             "title": None,
@@ -86,7 +86,6 @@ HTML_SITES = [
             "cap": 1,
         },
     },
-
     {
         "name": "AHA",
         "url": "https://www.aha.org/news",
@@ -229,11 +228,11 @@ def run_html_scraper(site_config):
     cap = site_config["map"]["cap"]
     current_page = starting_page
 
-    '''
+    """
     Buffer this run's new vulns + CSV rows so we can prepend them in one shot
     at the end. Order in these lists is newest-first because pagination
     progresses oldest-page-last and each page lists articles newest-first.
-    '''
+    """
     new_vulns: list[Vulnerability] = []
     new_rows: list[list[str]] = []
     new_noise_rows: list[list[str]] = []
@@ -276,7 +275,9 @@ def run_html_scraper(site_config):
                         f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
                     )
                     continue
-                sector_data, ss_data = extract_fields(detail, article["title"], article["body"])
+                sector_data, ss_data = extract_fields(
+                    detail, article["title"], article["body"]
+                )
 
                 # Wrap the raw dict from the LLM in the matching SubsectorData
                 # subclass so Vulnerability.to_dict() can call .to_dict() on it.
@@ -298,33 +299,39 @@ def run_html_scraper(site_config):
                     geography_scope=sector_data.get("geography_scope"),
                     start_date=sector_data.get("start_date"),
                     end_date=sector_data.get("end_date"),
-                    resilience_or_mitigation_observed=sector_data.get("resilience_or_mitigation_observed"),
+                    resilience_or_mitigation_observed=sector_data.get(
+                        "resilience_or_mitigation_observed"
+                    ),
                     subsector_data=subsector_data,
                 )
 
                 content_preview = (vuln.content or "")[:250].replace("\n", " ")
-                new_rows.append([
-                    vuln.date_accessed,
-                    vuln.date_published,
-                    vuln.source_name,
-                    vuln.subsector,
-                    vuln.title,
-                    vuln.direct_link,
-                    vuln.exec_summary,
-                    content_preview,
-                ])
+                new_rows.append(
+                    [
+                        vuln.date_accessed,
+                        vuln.date_published,
+                        vuln.source_name,
+                        vuln.subsector,
+                        vuln.title,
+                        vuln.direct_link,
+                        vuln.exec_summary,
+                        content_preview,
+                    ]
+                )
                 new_vulns.append(vuln)
                 print(f"[VALID] ({vuln.subsector}): {vuln.title}")
             else:
                 body_preview = (article["body"] or "")[:250].replace("\n", " ")
-                new_noise_rows.append([
-                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    site_config["name"],
-                    article["title"],
-                    article["link"],
-                    detail,
-                    body_preview,
-                ])
+                new_noise_rows.append(
+                    [
+                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        site_config["name"],
+                        article["title"],
+                        article["link"],
+                        detail,
+                        body_preview,
+                    ]
+                )
 
         if stop:
             break

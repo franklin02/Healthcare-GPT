@@ -180,19 +180,15 @@ def _top_row_matches(
     return True
 
 
-
 def is_known_article(site_name: str, title: str, body_snippet: str) -> bool:
     site = _site_filename(site_name)
     if _top_row_matches(
         VULNERABILITIES_DIR / f"{site}.csv", title, body_snippet, "content_preview"
     ):
         return True
-    if _top_row_matches(
-        NOISE_DIR / f"{site}.csv", title, body_snippet, "body_preview"
-    ):
+    if _top_row_matches(NOISE_DIR / f"{site}.csv", title, body_snippet, "body_preview"):
         return True
     return False
-
 
 
 def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
@@ -228,7 +224,6 @@ def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
         raise
 
 
-
 def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
     if not new_rows:
         return
@@ -262,7 +257,6 @@ def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
         raise
 
 
-
 def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None:
     if not new_vulns:
         return
@@ -289,5 +283,3 @@ def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
-
-

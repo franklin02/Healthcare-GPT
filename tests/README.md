@@ -42,3 +42,11 @@ pytest tests/test_gdelt_seeds.py::TestIsUsLocated
 pytest tests/test_gdelt_seeds.py::TestIsUsLocated::test_us_location_present
 ```
 
+### Run Coverage Report
+```bash
+pytest --cov --cov-report html
+pytest --cov --cov-report html tests/test_gdelt_seeds.py
+```
+
+### View Coverage Report
+http://127.0.0.1:3000/tests/htmlcov

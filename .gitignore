@@ -11,4 +11,5 @@ src/tests/train-bert/*.csv
 docs/_build/
 docs/_autosummary/
 CLAUDE.md
+*.coverage
 data/

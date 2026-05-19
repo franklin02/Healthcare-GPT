@@ -14,3 +14,4 @@ CLAUDE.md
 data/raw/gdelt/
 data/noise/*.csv
 data/vulnerabilities/*.csv
+data/processed/*.json

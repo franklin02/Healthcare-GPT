@@ -1,10 +1,10 @@
 API Reference
 =============
 
-Core Application
-----------------
+RAG Server
+----------
 
-.. automodule:: src.main
+.. automodule:: src.RAG.server
    :members:
 
 .. automodule:: src.ingest

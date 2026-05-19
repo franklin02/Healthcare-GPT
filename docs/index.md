@@ -6,24 +6,26 @@
 
 pipeline-overview
 bert-classifier
+developer-workflow
 api
 ```
 
 ## Project Direction
 
-Healthcare GPT is currently focused on a healthcare disruption detection
-pipeline. The active direction is to collect candidate articles, classify
-whether they describe operational healthcare disruptions, and turn confirmed
-events into structured records for later analysis.
+Healthcare GPT is currently focused on an AI-assisted healthcare disruption
+detection workflow. The active path collects candidate public articles, filters
+for operational healthcare disruptions, extracts structured event fields, and
+optionally indexes the resulting records for local retrieval.
 
 The current work emphasizes:
 
 - GDELT-based discovery of candidate healthcare disruption news.
-- BERT-based classification for fast article triage.
-- Local LLM validation and field extraction where structured metadata is
-  needed.
-- JSON outputs that preserve source links, subsectors, article content, and
-  extracted disruption fields.
+- Local Ollama validation for active operational disruptions.
+- Structured JSON records wrapped in a top-level `sources` list.
+- Optional BERT pre-screening for faster triage when the classifier model is
+  available.
+- ChromaDB ingestion and a FastAPI chat interface for retrieval over processed
+  records.
 
 ## What Is Current
 
@@ -31,14 +33,18 @@ The current work emphasizes:
 - `src/GDELT/runner.py` coordinates seed collection, article scraping,
   validation, extraction, intermediate saves, and final JSON output.
 - `src/GDELT/BERT_filter.py` contains the zero-shot classifier workflow used
-  to identify likely healthcare disruption articles.
+  to identify likely healthcare disruption articles when BERT screening is
+  enabled.
+- `src/ingest.py` loads processed JSON records, chunks them, detects
+  duplicates, and writes them to ChromaDB.
+- `src/main.py` serves the local FastAPI chat app over the vector store.
 - `docs/api.rst` publishes API documentation from selected Python docstrings.
 
 ## What Is Legacy
 
-Older source-pack and meeting-question documents are still in the repository
-for historical context, but they are no longer the main documentation path.
-They are intentionally not linked from this Sphinx home page.
+Older source-pack, prompt-pack, and meeting-question documents are still in the
+repository for historical context. They are intentionally not linked from this
+Sphinx home page because they do not describe the active implementation path.
 
 ## Data Handling
 

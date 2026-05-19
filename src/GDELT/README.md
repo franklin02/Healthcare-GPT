@@ -1,6 +1,8 @@
 # GDELT Healthcare Disruption Pipeline
 
-This pipeline ingests GDELT Global Knowledge Graph (GKG) data, filters for US-based healthcare  disruptions, and uses a local LLM to extract structured metadata.
+This pipeline ingests GDELT Global Knowledge Graph (GKG) data, filters for
+U.S.-based healthcare disruption candidates, and uses a local LLM to validate
+events and extract structured metadata.
 
 
 ## Stage Overview
@@ -20,15 +22,16 @@ This pipeline ingests GDELT Global Knowledge Graph (GKG) data, filters for US-ba
 
 ## End-to-End Run Command
 
-Run the pipeline from the root directory using `runner.py`. You must have Ollama running locally with the llama3.2 model (ollama serve).
+Run the pipeline from the repository root. You must have Ollama running locally
+with the `llama3.2` model.
 
 Basic run (to process 2 recent GDELT files, test with 3 URLs):
 
-`python runner.py --num-files 2 --limit 3`
+`python src/GDELT/runner.py --num-files 2 --limit 3`
 
 Targeted historical run (Jan 01 - 31, cyberattacks and drug shortages):
 
-`python runner.py --start-date 20260101 --end-date 20260131 --subsectors cyber_attack,drug_shortage`
+`python src/GDELT/runner.py --start-date 20260101 --end-date 20260131 --subsectors cyber_attack,drug_shortage`
 
 Command arguments:
 
@@ -50,13 +53,17 @@ Command arguments:
 If you need to isolate stages for testing / benchmarking without running the full end-to-end pipeline:
 
 Check GDELT seed filtering without scraping:
-- Run `python gdelt_seeds.py` to test the regex and theme filters. It will print the matched URLs to the console without scraping their content or triggering the LLM.
+- Run `python src/GDELT/gdelt_seeds.py` from the repository root to test the
+  regex and theme filters. It prints matched URLs without scraping their
+  content or triggering the LLM validation step.
 
 Test URL scraping and AI validation without GDELT:
-- Use `ollama_filter.py` by passing a hardcoded list of URLs to `filter_with_ollama()`.
+- Import `filter_with_ollama()` from `src/GDELT/ollama_filter.py` and pass a
+  small list of URLs from a Python shell or scratch script.
 
-Compare Ollama vs BERT validation:
-- Run `python freeze_data.py` to benchmark the two models' accuracy and speed using an existing .csv of URLs (`frozen_race_data.csv`).
+Test BERT classification directly:
+- Import `run_bert_inference()` from `src/GDELT/BERT_filter.py` and pass a
+  dictionary with `title` and `body` keys.
 
 
 ## Output File Locations

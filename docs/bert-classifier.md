@@ -11,27 +11,44 @@ more expensive validation and extraction steps run.
 
 ## Implementation
 
-`src/GDELT/BERT_filter.py` uses Hugging Face Transformers with the model:
+`src/GDELT/BERT_filter.py` uses Hugging Face Transformers for zero-shot
+classification. It first looks for a local fine-tuned model at:
+
+```text
+models/healthcare_bert_v2
+```
+
+When that model exists, the classifier returns one of the supported pipeline
+subsectors:
+
+- `drug_shortage`
+- `medical_device_shortage`
+- `cyber_attack`
+- `natural_disaster`
+- `other`
+- `none`
+
+When the fine-tuned model is not present, the classifier falls back to:
 
 ```text
 typeform/distilbert-base-uncased-mnli
 ```
 
-The classifier runs zero-shot classification over a short article prompt built
-from the title and first part of the article body.
-
-Current candidate labels are:
+The fallback model uses these candidate labels:
 
 - `cyber attack or data breach`
 - `hospital system failure`
 - `medical supply shortage`
 - `unrelated news`
 
-The classifier returns:
+Fallback inference returns:
 
 - `potential_hit` when a disruption label clears the threshold and beats the
   unrelated-news score.
 - `none` when the article does not look like a disruption candidate.
+
+The module selects CUDA, Apple Silicon MPS, or CPU depending on the available
+runtime.
 
 ## Article Scraping
 
@@ -46,35 +63,17 @@ The scraper returns a dictionary with:
 
 This keeps BERT inputs small and consistent across news sites.
 
-## Offline Evaluation
+## Current Entry Points
 
-The classifier can be run against a CSV of article examples:
-
-```bash
-python src/GDELT/BERT_filter.py path/to/articles.csv
-```
-
-Expected CSV columns:
-
-- `url`
-- `title`
-- `body`
-- optional `llama_hit`
-
-When `llama_hit` is present, the script prints agreement statistics comparing
-BERT-flagged URLs against LLM-confirmed hits.
-
-## Benchmarking Helpers
-
-Two helper scripts support classifier evaluation:
-
-- `src/GDELT/freeze_data.py` re-runs BERT and LLM checks on historical URLs,
-  compares decisions, records timing, and writes `race_results_<n>.csv`.
-- `src/GDELT/prep_for_vis.py` benchmarks BERT inference on frozen samples and
-  writes `bert_benchmark_results.csv` for visualization or further analysis.
+- `run_bert_inference({"title": "...", "body": "..."})` classifies one article.
+- `src/GDELT/helpers.py` can call BERT before LLM validation when
+  `ai_check_validation(..., use_bert=True)` is used.
+- `src/ingest.py --use-bert` enables the same pre-screen before ingestion-time
+  LLM validation.
 
 ## Where It Fits
 
 BERT is intended to be the lightweight classifier stage in the broader
-pipeline. Local LLM calls can still be used for validation and structured field
-extraction when the pipeline needs richer reasoning or JSON metadata.
+pipeline. It can reject obvious non-disruption articles before an LLM call, but
+local LLM validation remains the source of truth for accepted records and
+structured field extraction.

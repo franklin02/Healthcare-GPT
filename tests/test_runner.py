@@ -126,6 +126,33 @@ class TestSaveJson:
             assert "\n" in content
 
 
+class TestClearDirectory:
+    """Tests for the clear_directory function."""
+
+    def test_clear_directory_returns_without_error_for_missing_directory(self):
+        """clear_directory should do nothing when the directory does not exist."""
+        missing_directory = Path("/nonexistent/directory/for/testing")
+
+        runner.clear_directory(missing_directory)
+
+    def test_clear_directory_removes_files_and_subdirectories(self):
+        """clear_directory should remove files and nested directories inside a directory."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            file_path = directory / "seed.json"
+            file_path.write_text("{}", encoding="utf-8")
+
+            nested_directory = directory / "nested"
+            nested_directory.mkdir()
+            nested_file = nested_directory / "child.json"
+            nested_file.write_text("{}", encoding="utf-8")
+
+            runner.clear_directory(directory)
+
+            assert directory.exists()
+            assert list(directory.iterdir()) == []
+
+
 class TestPersistRawSeeds:
     """Tests for the persist_raw_seeds function."""
 

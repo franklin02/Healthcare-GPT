@@ -142,6 +142,47 @@ class TestGetBody:
         assert "Paragraph 1" in result
         assert "Paragraph 2" in result
 
+    @patch("src.GDELT.helpers.requests.get")
+    def test_get_body_strips_noise_by_id(self, mock_get):
+        """Ensure elements matched by id regex are removed (covers line 173)."""
+        mock_response = MagicMock()
+        mock_response.text = """
+            <body>
+                <article>
+                    <p>Real content</p>
+                    <div id="ad-banner">Buy now</div>
+                </article>
+            </body>
+        """
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        result = helpers.get_body("https://example.com")
+        assert "Real content" in result
+        assert "Buy now" not in result
+
+    @patch("src.GDELT.helpers.requests.get")
+    def test_get_body_no_body_found_prints_and_returns_empty(self, mock_get, capsys=None):
+        """Trigger the main is None branch and return empty string (covers lines 189-190)."""
+        mock_response = MagicMock()
+        mock_response.text = "<html><body></body></html>"
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        result = helpers.get_body("https://example.com")
+        assert result == ""
+
+    @patch("src.GDELT.helpers.requests.get")
+    def test_get_body_falls_back_to_main_text_when_no_paragraphs(self, mock_get):
+        """Return raw main text when no <p> tags exist (covers line 199)."""
+        mock_response = MagicMock()
+        mock_response.text = "<body><article>Some plain text without p tags</article></body>"
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        result = helpers.get_body("https://example.com")
+        assert "Some plain text without p tags" in result
+
 
 class TestAiCheckValidation:
     """Test suite for ai_check_validation function"""

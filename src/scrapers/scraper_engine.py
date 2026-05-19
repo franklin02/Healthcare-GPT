@@ -122,7 +122,7 @@ SITES_TO_SCRAPE = [
     #     },
     # },
     # {
-    #     "type": "rss", #pagination doesnt work 
+    #     "type": "rss", #pagination doesnt work
     #     "name": "EndPoints_News",
     #     "url": "https://endpoints.news/feed/", #html https://endpoints.news/news/
     #     "map": {
@@ -163,7 +163,6 @@ SITES_TO_SCRAPE = [
     #         "cap": -1,
     #     },
     # },
-    
     {
         "type": "rss",
         "name": "CyberScoop",
@@ -219,7 +218,6 @@ SITES_TO_SCRAPE = [
             "cap": 1,
         },
     },
-
 ]
 
 

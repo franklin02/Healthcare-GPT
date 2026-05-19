@@ -1,4 +1,4 @@
-""" Facilitates interactions with a large language model (LLM).
+"""Facilitates interactions with a large language model (LLM).
 
 Attributes
     - `AI_URL`: The base URL for the AI service.

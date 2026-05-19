@@ -95,8 +95,17 @@ HEADERS = {
 }
 
 _NOISE_PATTERNS = (
-    "ad", "advert", "promo", "sidebar", "related", "newsletter",
-    "subscribe", "comment", "social", "share", "cookie",
+    "ad",
+    "advert",
+    "promo",
+    "sidebar",
+    "related",
+    "newsletter",
+    "subscribe",
+    "comment",
+    "social",
+    "share",
+    "cookie",
 )
 _NOISE_RE = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 _NOISE_SELECTOR = ",".join(f'[class*="{p}"]' for p in _NOISE_PATTERNS)
@@ -140,8 +149,19 @@ def get_body(url: str) -> str:
     soup = BeautifulSoup(resp.text, "html.parser")
 
     # Strip non-content tags
-    for tag in soup(["script", "style", "noscript", "iframe", "form",
-                     "header", "footer", "nav", "aside"]):
+    for tag in soup(
+        [
+            "script",
+            "style",
+            "noscript",
+            "iframe",
+            "form",
+            "header",
+            "footer",
+            "nav",
+            "aside",
+        ]
+    ):
         tag.decompose()
 
     # Strip noise by class
@@ -179,7 +199,23 @@ def get_body(url: str) -> str:
     return main.get_text(" ", strip=True)
 
 
-def ai_check_validation(title, body) -> tuple[bool, str]:
+def _run_bert(title: str, body: str) -> str:
+    import sys
+    from pathlib import Path
+
+    gdelt_dir = Path(__file__).resolve().parent.parent / "GDELT"
+    if str(gdelt_dir) not in sys.path:
+        sys.path.append(str(gdelt_dir))
+
+    try:
+        from BERT_filter import run_bert_inference
+    except ImportError as exc:
+        raise RuntimeError(f"bert_filter.py not found at {gdelt_dir}") from exc
+
+    return run_bert_inference({"title": title, "body": body})
+
+
+def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     """Call the local AI endpoint to validate whether an article describes
     an active operational disruption.
 
@@ -201,7 +237,15 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
     exception to stdout.
 
     Note: this will be subbed out for BERT later on.
+    :param use_bert:
     """
+    if use_bert:
+        bert_subsector = _run_bert(title, body)
+        if bert_subsector == "none":
+            print("[BERT] rejected skipping LLM")
+            return False, "BERT: unrelated news"
+        print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
+
     prompt = f"""
         [INST] <<SYS>>
         You are a Healthcare Crisis Auditor. Your task is to identify ACTIVE OPERATIONAL DISRUPTIONS in healthcare. 
@@ -271,9 +315,9 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
         return False, "Parsing Error"
 
 
-
 # Once we KNOW a source classifies as a vulnerability, we need to find all the
 # subsector specific fields (found in src/data/schema.json) and return them in a dictionary.
+
 
 def find_subsector_fields(subsector, title, body) -> dict:
     """Extract subsector-specific fields from article text via the AI service.

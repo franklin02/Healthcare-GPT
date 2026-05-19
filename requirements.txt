@@ -14,4 +14,3 @@ pdfplumber
 beautifulsoup4
 lxml
 torch
-transformers

@@ -225,7 +225,6 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
 
 
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
-
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)
     if not subsector_fields:
         print(f"No fields found for subsector: {subsector}")

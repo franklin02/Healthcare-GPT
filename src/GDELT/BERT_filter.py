@@ -32,12 +32,12 @@ _FINETUNED_CANDIDATES = [
     "no significant healthcare threat",
 ]
 _CANDIDATE_TO_SUBSECTOR = {
-    "a drug or pharmaceutical shortage":       "drug_shortage",
-    "a medical device shortage":               "medical_device_shortage",
-    "a cyber attack or data breach":           "cyber_attack",
+    "a drug or pharmaceutical shortage": "drug_shortage",
+    "a medical device shortage": "medical_device_shortage",
+    "a cyber attack or data breach": "cyber_attack",
     "a natural disaster affecting healthcare": "natural_disaster",
-    "another healthcare disruption":           "other",
-    "no significant healthcare threat":        "none",
+    "another healthcare disruption": "other",
+    "no significant healthcare threat": "none",
 }
 _FALLBACK_CANDIDATES = [
     "cyber attack or data breach",
@@ -50,6 +50,7 @@ _FALLBACK_THREAT_LABELS = [
     "hospital system failure",
     "medical supply shortage",
 ]
+
 
 def get_device():
     """Detect the best available device for model inference.
@@ -82,6 +83,7 @@ def load_model():
         MODEL_ID = FALLBACK_MODEL_ID
     return pipeline("zero-shot-classification", model=MODEL_ID, device=device)
 
+
 def run_bert_inference(data: dict, classifier=None) -> str:
     """Classify a single article as a potential healthcare-related hit.
 
@@ -107,7 +109,7 @@ def run_bert_inference(data: dict, classifier=None) -> str:
     """
     if classifier is None:
         classifier = load_model()
-    
+
     title = str(data.get("title") or "").strip()
     body = str(data.get("body") or "").strip()
     text = f"Headline: {title}. Details: {body[:500]}".replace("\n", " ")

@@ -48,7 +48,7 @@ exclude_patterns = [
 # html_theme = 'cloud'
 
 extensions.append("sphinx_wagtail_theme")
-html_theme = 'sphinx_wagtail_theme'
+html_theme = "sphinx_wagtail_theme"
 
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"

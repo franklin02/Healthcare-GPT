@@ -566,7 +566,9 @@ class TestRunBertAndUseBert:
         )
 
     @patch("src.GDELT.helpers.requests.post")
-    def test_ai_check_validation_use_bert_rejects_none_without_llm(self, mock_post, monkeypatch):
+    def test_ai_check_validation_use_bert_rejects_none_without_llm(
+        self, mock_post, monkeypatch
+    ):
         """Test that use_bert returns early when BERT rejects the article."""
         monkeypatch.setattr(helpers, "_run_bert", MagicMock(return_value="none"))
 
@@ -583,7 +585,9 @@ class TestRunBertAndUseBert:
         self, mock_post, monkeypatch
     ):
         """Test that use_bert still calls the LLM when BERT flags the article."""
-        monkeypatch.setattr(helpers, "_run_bert", MagicMock(return_value="cyber_attack"))
+        monkeypatch.setattr(
+            helpers, "_run_bert", MagicMock(return_value="cyber_attack")
+        )
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "response": json.dumps(

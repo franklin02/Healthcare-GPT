@@ -42,6 +42,10 @@ exclude_patterns = [
 ]
 
 html_theme = "sphinx_wagtail_theme"
+html_theme_options = {
+    "project_name": "Healthcare GPT",
+}
+
 
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"

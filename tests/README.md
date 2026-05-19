@@ -49,4 +49,4 @@ pytest --cov --cov-report html tests/test_gdelt_seeds.py
 ```
 
 ### View Coverage Report
-http://127.0.0.1:3000/tests/htmlcov
+http://127.0.0.1:3000/htmlcov

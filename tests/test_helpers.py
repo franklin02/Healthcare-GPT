@@ -162,7 +162,9 @@ class TestGetBody:
         assert "Buy now" not in result
 
     @patch("src.GDELT.helpers.requests.get")
-    def test_get_body_no_body_found_prints_and_returns_empty(self, mock_get, capsys=None):
+    def test_get_body_no_body_found_prints_and_returns_empty(
+        self, mock_get, capsys=None
+    ):
         """Trigger the main is None branch and return empty string (covers lines 189-190)."""
         mock_response = MagicMock()
         mock_response.text = "<html><body></body></html>"
@@ -176,7 +178,9 @@ class TestGetBody:
     def test_get_body_falls_back_to_main_text_when_no_paragraphs(self, mock_get):
         """Return raw main text when no <p> tags exist (covers line 199)."""
         mock_response = MagicMock()
-        mock_response.text = "<body><article>Some plain text without p tags</article></body>"
+        mock_response.text = (
+            "<body><article>Some plain text without p tags</article></body>"
+        )
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 

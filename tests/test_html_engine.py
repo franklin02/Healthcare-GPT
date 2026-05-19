@@ -211,14 +211,16 @@ class TestFetchHtmlPage:
         assert result == []
 
     @patch("src.scrapers.html_engine.get_page")
-    def test_fetch_html_page_container_is_anchor_without_link_selector(self, mock_get_page):
+    def test_fetch_html_page_container_is_anchor_without_link_selector(
+        self, mock_get_page
+    ):
         """When container items are anchors and no link_selector provided, use el itself (covers line 125)."""
         index_html = """
         <html>
             <a class="post-item__title-link" href="https://example.com/article1">Article 1</a>
         </html>
         """
-        article_html = "<html><div class=\"single-article__content\">Body</div></html>"
+        article_html = '<html><div class="single-article__content">Body</div></html>'
 
         mock_response_index = Mock()
         mock_response_index.content = index_html.encode()
@@ -259,7 +261,7 @@ class TestFetchHtmlPage:
 
         site_config = html_engine.HTML_SITES[0]
         # reuse a standard site_config but the anchor lacks href so should skip
-        result = html_engine.fetch_html_page(site_config, site_config["url"]) 
+        result = html_engine.fetch_html_page(site_config, site_config["url"])
         assert result == []
 
     @patch("src.scrapers.html_engine.get_page")
@@ -273,7 +275,7 @@ class TestFetchHtmlPage:
             </li>
         </html>
         """
-        article_html = "<html><div class=\"single-article__content\">Body</div></html>"
+        article_html = '<html><div class="single-article__content">Body</div></html>'
 
         mock_response_index = Mock()
         mock_response_index.content = index_html.encode()

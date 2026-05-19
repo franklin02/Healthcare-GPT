@@ -608,7 +608,6 @@ class TestRun:
         mock_load_seen.assert_called()
         mock_save_seen.assert_called()
 
-
     @patch("src.GDELT.runner.save_seen")
     @patch("src.GDELT.runner.load_seen")
     @patch("src.GDELT.runner.persist_raw_seeds")
@@ -816,25 +815,27 @@ class TestRun:
         """run should handle directory path for seen_urls_file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             seen_dir = Path(tmpdir)
-            
-            with patch("src.GDELT.runner.backfill_cyber_seeds") as mock_backfill, \
-                 patch("src.GDELT.runner.ensure_raw_dirs") as mock_ensure, \
-                 patch("src.GDELT.runner.load_seen") as mock_load, \
-                 patch("src.GDELT.runner.save_seen") as mock_save:
-                
+
+            with (
+                patch("src.GDELT.runner.backfill_cyber_seeds") as mock_backfill,
+                patch("src.GDELT.runner.ensure_raw_dirs") as mock_ensure,
+                patch("src.GDELT.runner.load_seen") as mock_load,
+                patch("src.GDELT.runner.save_seen") as mock_save,
+            ):
                 mock_load.return_value = set()
                 mock_backfill.return_value = []
-                
+
                 runner.run(
                     num_files=1,
                     limit=1,
                     subsectors="all",
                     seen_urls_file=str(seen_dir),
                 )
-                
+
                 mock_load.assert_called()
                 call_path = mock_load.call_args[0][0]
                 assert call_path == seen_dir / "seen_urls.json"
+
 
 class TestEnsureRawDirs:
     """Tests for the ensure_raw_dirs function."""

@@ -28,7 +28,8 @@ Functions:
 
 import json
 import csv
-import datetime
+import os
+import tempfile
 import requests
 from pathlib import Path
 import sys as _sys
@@ -53,8 +54,7 @@ HEADERS = {
     )
 }
 
-# CSV column orders. Vulnerabilities = "real" disruptions; Noise = everything
-# the AI rejected. Kept intentionally small so we can scan them easier
+
 VULN_CSV_HEADER = [
     "date_accessed",
     "date_published",
@@ -148,98 +148,138 @@ def check_valid_file(site_name):
         print(f"Created {vulnerabilities_path}")
 
 
-def json_output(vuln: Vulnerability) -> None:
-    """
-    Writes a new vulnerability entry to a JSON file and logs the processed vulnerability.
-
-    Parameters:
-        vuln (Vulnerability): The vulnerability object to be added, containing required metadata.
-
-    Functionality:
-        - Computes the target JSON file path based on the source name of the vulnerability.
-        - Reads the existing data from the JSON file.
-        - Converts the vulnerability object into a dictionary format and appends it to the "sources" list in the JSON data.
-        - Writes the updated JSON data back to the file with proper indentation for readability.
-        - Prints a log message containing the validity, subsector, and title of the vulnerability.
-
-    Dependencies:
-        - Assumes the directory READY_FOR_RAG_DIR and its file path exists for reading and writing.
-        - Requires the Vulnerability object to implement a "to_dict" method.
-    """
-    json_path = READY_FOR_RAG_DIR / f"{_site_filename(vuln.source_name)}.json"
-    data = json.loads(json_path.read_text(encoding="utf-8"))
-    data["sources"].append(vuln.to_dict())
-    json_path.write_text(json.dumps(data, indent=4), encoding="utf-8")
-    print(f"[VALID] ({vuln.subsector}): {vuln.title}")
+def _content_preview(body: str | None) -> str:
+    return (body or "")[:250].replace("\n", " ")
 
 
-def vuln_output(vuln: Vulnerability) -> None:
-    """
-    Writes vulnerability data to a CSV file. Each row in the file represents a single vulnerability entry.
+def _top_row_matches(
+    csv_path: Path,
+    title: str,
+    body_snippet: str,
+    preview_column: str,
+) -> bool:
+    if not csv_path.exists():
+        return False
 
-    Args:
-        vuln: A Vulnerability object containing details such as date accessed, date published, source name, subsector, title, direct link, executive summary, and content.
+    with open(csv_path, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        try:
+            first_row = next(reader)
+        except StopIteration:
+            return False
 
-    The function determines the output file path based on the vulnerability's source name. It creates or appends the vulnerability data as a row in a CSV file. A preview of the content is included in the CSV file, limited to 250 characters with newlines removed.
-    """
-    csv_path = VULNERABILITIES_DIR / f"{_site_filename(vuln.source_name)}.csv"
-    content_preview = (vuln.content or "")[:250].replace("\n", " ")
-    row = [
-        vuln.date_accessed,
-        vuln.date_published,
-        vuln.source_name,
-        vuln.subsector,
-        vuln.title,
-        vuln.direct_link,
-        vuln.exec_summary,
-        content_preview,
-    ]
-    with open(csv_path, "a", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(row)
+    if first_row.get("title", "") != title:
+        return False
+
+    incoming_preview = _content_preview(body_snippet)
+    if first_row.get(preview_column, "") != incoming_preview:
+        print(
+            f"[WARN] Title matched but body preview differs for {title!r} "
+            f"— stopping anyway"
+        )
+    return True
 
 
-def noise_output(site_name: str, title: str, url: str, body: str, reason: str) -> None:
-    """
-    Logs details about a site and its associated noise to a CSV file.
+def is_known_article(site_name: str, title: str, body_snippet: str) -> bool:
+    site = _site_filename(site_name)
+    if _top_row_matches(
+        VULNERABILITIES_DIR / f"{site}.csv", title, body_snippet, "content_preview"
+    ):
+        return True
+    if _top_row_matches(NOISE_DIR / f"{site}.csv", title, body_snippet, "body_preview"):
+        return True
+    return False
 
-    Parameters:
-        site_name (str): Name of the site being logged.
-        title (str): Title of the content or issue being noted.
-        url (str): URL associated with the site or issue.
-        body (str): Content body or description, truncated to 250 characters.
-        reason (str): Reason for categorizing the content or issue as noise.
 
-    Writes a row in a CSV file specific to the site, containing the current timestamp, site name, title, URL, reason, and a preview of the content body.
-    """
+def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
+    if not new_rows:
+        return
+
+    csv_path = VULNERABILITIES_DIR / f"{_site_filename(site_name)}.csv"
+    existing_data_rows: list[list[str]] = []
+    if csv_path.exists():
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            try:
+                next(reader)  # drop the existing header
+            except StopIteration:
+                pass
+            existing_data_rows = list(reader)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{_site_filename(site_name)}.",
+        suffix=".csv.tmp",
+        dir=str(VULNERABILITIES_DIR),
+    )
+    try:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(VULN_CSV_HEADER)
+            writer.writerows(new_rows)
+            writer.writerows(existing_data_rows)
+        os.replace(tmp_path, csv_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+
+def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
+    if not new_rows:
+        return
+
     csv_path = NOISE_DIR / f"{_site_filename(site_name)}.csv"
-    body_preview = (body or "")[:250].replace("\n", " ")
-    row = [
-        datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-        site_name,
-        title,
-        url,
-        reason,
-        body_preview,
-    ]
-    with open(csv_path, "a", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(row)
+    existing_data_rows: list[list[str]] = []
+    if csv_path.exists():
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            try:
+                next(reader)  # drop the existing header
+            except StopIteration:
+                pass
+            existing_data_rows = list(reader)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{_site_filename(site_name)}.",
+        suffix=".csv.tmp",
+        dir=str(NOISE_DIR),
+    )
+    try:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(NOISE_CSV_HEADER)
+            writer.writerows(new_rows)
+            writer.writerows(existing_data_rows)
+        os.replace(tmp_path, csv_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
 
-def build_page_url(site_config, current_page, starting_page, default_page_param):
-    """
-    Builds a complete page URL based on the site configuration, current page, starting page, and default page parameter.
+def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None:
+    if not new_vulns:
+        return
 
-    Parameters:
-        site_config: A dictionary containing site-specific configurations including the base URL and parameter mappings.
-        current_page: An integer representing the current page number.
-        starting_page: An integer representing the starting page number.
-        default_page_param: A string representing the default parameter name for the page value if not specified in site_config.
+    json_path = READY_FOR_RAG_DIR / f"{_site_filename(site_name)}.json"
+    if json_path.exists():
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+    else:
+        data = {"sources": []}
 
-    Returns:
-        A string containing the full URL for the current page. If the current page is the same as the starting page, returns the base URL without any page parameter.
-    """
-    if current_page == starting_page:
-        return site_config["url"]
+    new_dicts = [v.to_dict() for v in new_vulns]
+    data["sources"] = new_dicts + data.get("sources", [])
 
-    page_param = site_config["map"].get("page_param", default_page_param)
-    return f"{site_config['url']}?{page_param}={current_page}"
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{_site_filename(site_name)}.",
+        suffix=".json.tmp",
+        dir=str(READY_FOR_RAG_DIR),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        os.replace(tmp_path, json_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise

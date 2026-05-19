@@ -269,14 +269,10 @@ class TestLoadSeen:
             result = runner.load_seen(path)
             assert result == set(urls)
 
-    def test_load_seen_handles_none(self):
-        """load_seen should handle None JSON content."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "seen.json"
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(None, f)
-
-            result = runner.load_seen(path)
+    def test_load_seen_with_none_uses_default_path(self):
+        """load_seen should use default path when None is passed."""
+        with patch("builtins.open", side_effect=FileNotFoundError):
+            result = runner.load_seen(None)
             assert result == set()
 
 
@@ -299,16 +295,11 @@ class TestSaveSeen:
                 loaded = json.load(f)
             assert loaded == sorted(list(urls))
 
-    def test_save_seen_handles_empty_set(self):
-        """save_seen should handle empty set."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "seen.json"
-            runner.save_seen(set(), path)
-
-            assert path.exists()
-            with open(path, "r", encoding="utf-8") as f:
-                loaded = json.load(f)
-            assert loaded == []
+    def test_save_seen_with_none_uses_default_path(self):
+        """save_seen should use default path when None is passed."""
+        urls = {"https://example.com/1"}
+        with patch("builtins.open", mock_open()):
+            runner.save_seen(urls, None)
 
 
 class TestProcessSeed:
@@ -617,6 +608,233 @@ class TestRun:
         mock_load_seen.assert_called()
         mock_save_seen.assert_called()
 
+
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
+    def test_run_merges_existing_dict_output(
+        self,
+        mock_ensure_dirs,
+        mock_persist_stage,
+        mock_process_seed,
+        mock_backfill,
+        mock_persist_raw,
+        mock_load_seen,
+        mock_save_seen,
+    ):
+        """run should merge with existing output file containing dict with sources list."""
+        mock_load_seen.return_value = set()
+        mock_backfill.return_value = [{"url": "https://example.com/new"}]
+        mock_process_seed.return_value = {
+            "id": "new_id",
+            "title": "New",
+            "subsector": "cyber_attack",
+            "direct_link": "https://example.com/new",
+            "source_name": "test",
+            "date_published": "2023-05-15",
+            "content": "content",
+            "subsector_data": {},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / "output.json"
+            existing_data = {
+                "sources": [
+                    {
+                        "id": "existing_id",
+                        "title": "Existing",
+                        "subsector": "drug_shortage",
+                    }
+                ]
+            }
+            with open(output_file, "w") as f:
+                json.dump(existing_data, f)
+
+            runner.run(
+                num_files=1,
+                limit=1,
+                subsectors="all",
+                output_path=str(output_file),
+            )
+
+            with open(output_file, "r") as f:
+                result = json.load(f)
+            assert len(result["sources"]) == 2
+
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
+    def test_run_merges_existing_list_output(
+        self,
+        mock_ensure_dirs,
+        mock_persist_stage,
+        mock_process_seed,
+        mock_backfill,
+        mock_persist_raw,
+        mock_load_seen,
+        mock_save_seen,
+    ):
+        """run should merge with existing output file that is a list."""
+        mock_load_seen.return_value = set()
+        mock_backfill.return_value = [{"url": "https://example.com/new"}]
+        mock_process_seed.return_value = {
+            "id": "new_id",
+            "title": "New",
+            "subsector": "cyber_attack",
+            "direct_link": "https://example.com/new",
+            "source_name": "test",
+            "date_published": "2023-05-15",
+            "content": "content",
+            "subsector_data": {},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / "output.json"
+            existing_data = [{"id": "existing_id", "title": "Existing"}]
+            with open(output_file, "w") as f:
+                json.dump(existing_data, f)
+
+            runner.run(
+                num_files=1,
+                limit=1,
+                subsectors="all",
+                output_path=str(output_file),
+            )
+
+            with open(output_file, "r") as f:
+                result = json.load(f)
+            assert "sources" in result
+            assert len(result["sources"]) == 2
+
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
+    def test_run_replaces_unexpected_existing_output(
+        self,
+        mock_ensure_dirs,
+        mock_persist_stage,
+        mock_process_seed,
+        mock_backfill,
+        mock_persist_raw,
+        mock_load_seen,
+        mock_save_seen,
+    ):
+        """run should replace unexpected existing output content with fresh records."""
+        mock_load_seen.return_value = set()
+        mock_backfill.return_value = [{"url": "https://example.com/new"}]
+        mock_process_seed.return_value = {
+            "id": "new_id",
+            "title": "New",
+            "subsector": "cyber_attack",
+            "direct_link": "https://example.com/new",
+            "source_name": "test",
+            "date_published": "2023-05-15",
+            "content": "content",
+            "subsector_data": {},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / "output.json"
+            existing_data = {"unexpected": "shape"}
+            with open(output_file, "w") as f:
+                json.dump(existing_data, f)
+
+            runner.run(
+                num_files=1,
+                limit=1,
+                subsectors="all",
+                output_path=str(output_file),
+            )
+
+            with open(output_file, "r") as f:
+                result = json.load(f)
+
+            assert len(result["sources"]) == 1
+            assert result["sources"][0]["id"] == "new_id"
+
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
+    def test_run_creates_new_output_file(
+        self,
+        mock_ensure_dirs,
+        mock_persist_stage,
+        mock_process_seed,
+        mock_backfill,
+        mock_persist_raw,
+        mock_load_seen,
+        mock_save_seen,
+    ):
+        """run should create new output file."""
+        mock_load_seen.return_value = set()
+        mock_backfill.return_value = [{"url": "https://example.com/new"}]
+        mock_process_seed.return_value = {
+            "id": "new_id",
+            "title": "New",
+            "subsector": "cyber_attack",
+            "direct_link": "https://example.com/new",
+            "source_name": "test",
+            "date_published": "2023-05-15",
+            "content": "content",
+            "subsector_data": {},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / "output.json"
+            assert not output_file.exists()
+
+            runner.run(
+                num_files=1,
+                limit=1,
+                subsectors="all",
+                output_path=str(output_file),
+            )
+
+            assert output_file.exists()
+            with open(output_file, "r") as f:
+                result = json.load(f)
+            assert "sources" in result
+            assert len(result["sources"]) == 1
+
+    def test_run_with_directory_path_as_seen_urls_file(self):
+        """run should handle directory path for seen_urls_file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            seen_dir = Path(tmpdir)
+            
+            with patch("src.GDELT.runner.backfill_cyber_seeds") as mock_backfill, \
+                 patch("src.GDELT.runner.ensure_raw_dirs") as mock_ensure, \
+                 patch("src.GDELT.runner.load_seen") as mock_load, \
+                 patch("src.GDELT.runner.save_seen") as mock_save:
+                
+                mock_load.return_value = set()
+                mock_backfill.return_value = []
+                
+                runner.run(
+                    num_files=1,
+                    limit=1,
+                    subsectors="all",
+                    seen_urls_file=str(seen_dir),
+                )
+                
+                mock_load.assert_called()
+                call_path = mock_load.call_args[0][0]
+                assert call_path == seen_dir / "seen_urls.json"
 
 class TestEnsureRawDirs:
     """Tests for the ensure_raw_dirs function."""

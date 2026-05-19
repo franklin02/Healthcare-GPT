@@ -1,3 +1,20 @@
+"""Re-run the BERT vs LLM 'race' on previously scraped URLs.
+
+This module loads a CSV of historical URLs, re-scrapes each URL using the
+local `bert_scraper`, classifies the page with `run_bert_inference`, and
+queries the LLM via `ask_ai` to compare decisions and timings.
+
+Dependencies:
+- pandas
+- asyncio
+- `src/GDELT/BERT_filter.py` (`run_bert_inference`)
+- `src/GDELT/ollama_filter.py` (`ask_ai`)
+- `src/scrapers/bert_scraper.py` (`bert_scraper`)
+
+Typical usage:
+    python src/GDELT/freeze_data.py
+"""
+
 import pandas as pd
 import time
 import asyncio
@@ -13,7 +30,7 @@ if str(scraper_dir) not in sys.path:
 from BERT_filter import run_bert_inference
 from ollama_filter import ask_ai
 
-""" This try block is not a good practice but it was just the way I could confirm I was getting the BERT scraper specifically"""
+# This try block is not a good practice but it was just the way I could confirm I was getting the BERT scraper specifically
 try:
     from bert_scraper import bert_scraper
 except ImportError:
@@ -22,6 +39,27 @@ except ImportError:
 
 
 async def run_race_from_existing_data(csv_input="frozen_race_data.csv"):
+    """Re-run the BERT vs LLM 'race' on historical URLs from a CSV file.
+
+    The function reads a CSV containing historical URLs, re-scrapes each URL
+    with `bert_scraper`, runs `run_bert_inference` to get a BERT label, and
+    calls `ask_ai` to get the LLM/ollama decision. It times each operation
+    (in milliseconds), records whether each method flagged the URL as a hit,
+    and writes a results CSV named `race_results_N.csv`.
+
+    Args:
+        csv_input (str): Path to the input CSV file. The CSV must include a
+            `url` column. Defaults to "frozen_race_data.csv".
+
+    Returns:
+        None: The results are written to disk and a summary is printed to stdout.
+
+    Side effects:
+        - Reads the CSV at `csv_input`.
+        - Performs network-bound scraping via `bert_scraper`.
+        - Calls `run_bert_inference` and `ask_ai` for each URL.
+        - Writes a CSV `race_results_<n>.csv` containing timing and hit data.
+    """
     print(f"Loading URLs from {csv_input}...")
     try:
         input_df = pd.read_csv(csv_input).fillna("")

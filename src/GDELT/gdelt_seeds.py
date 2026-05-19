@@ -43,7 +43,7 @@ HEALTH_THEMES = {
 
 
 DRUG_SHORAGE_THEMES = {
-    "SHORTAGE", 
+    "SHORTAGE",
     "PHARMACEUTICAL_SUPPLY_CHAIN",
     "ESSENTIAL_MEDICINES",
     "MANUFACTURING_OF_DRUGS",
@@ -54,19 +54,17 @@ DRUG_SHORAGE_THEMES = {
     "PHARMACEUTICAL_REGULATION",
     "QUALITY_ASSURANCE_FOR_PHARMACEUTICALS",
     "FINANCING_OF_DRUGS",
-    "RATIONAL_SELECTION_AND_USE_OF_DRUGS"
+    "RATIONAL_SELECTION_AND_USE_OF_DRUGS",
 }
 
 DEVICE_SHORTAGE_THEMES = {
     "MEDICAL_EQUIPMENT",
     "HEALTH_TECHNOLOGIES",
     "PROCUREMENT_OF_HEALTH_TECHNOLOGIES",
-    "MEDICAL_SUPPLIES_FINANCE"
+    "MEDICAL_SUPPLIES_FINANCE",
 }
 
-NATURAL_DISASTER_THEMES = {
-    "NATURAL_DISASTER"
-}
+NATURAL_DISASTER_THEMES = {"NATURAL_DISASTER"}
 
 NOISE_THEMES = {"SPORTS", "GAMES_ESPORTS", "ENV_", "TOURISM", "EDUCATION_UNIVERSITY"}
 
@@ -146,11 +144,16 @@ def themes_match(theme_str, subsector="all"):
     """
     if subsector == "all":
         return any(
-            _matches_any_theme(theme_str, HEALTH_THEMES) and _matches_any_theme(theme_str, theme_set)
+            _matches_any_theme(theme_str, HEALTH_THEMES)
+            and _matches_any_theme(theme_str, theme_set)
             for theme_set in SUBSECTOR_THEMES.values()
         )
 
-    return subsector in SUBSECTOR_THEMES and _matches_any_theme(theme_str, HEALTH_THEMES) and _matches_any_theme(theme_str, SUBSECTOR_THEMES[subsector])
+    return (
+        subsector in SUBSECTOR_THEMES
+        and _matches_any_theme(theme_str, HEALTH_THEMES)
+        and _matches_any_theme(theme_str, SUBSECTOR_THEMES[subsector])
+    )
 
 
 def detect_subsector(theme_str):
@@ -197,14 +200,24 @@ def _normalize_date_bound(value, end=False):
     if not value:
         return None
     if value.isdigit() and len(value) in (8, 14):
-        return (value + ("235959" if end else "000000"))[:14] if len(value) == 8 else value
-    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S"):
+        return (
+            (value + ("235959" if end else "000000"))[:14] if len(value) == 8 else value
+        )
+    for fmt in (
+        "%Y-%m-%d",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M",
+        "%Y-%m-%dT%H:%M:%S",
+    ):
         try:
             return datetime.strptime(value, fmt).strftime("%Y%m%d%H%M%S")
         except ValueError:
             pass
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime("%Y%m%d%H%M%S")
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime(
+            "%Y%m%d%H%M%S"
+        )
     except ValueError:
         return value
 
@@ -273,7 +286,9 @@ def process_gkg_file(link, subsector="all"):
                 "url": row["url"],
                 "source": row["source"],
                 "themes": row["themes"],
-                "subsector": subsector if subsector != "all" else (detect_subsector(row["themes"]) or "other"),
+                "subsector": subsector
+                if subsector != "all"
+                else (detect_subsector(row["themes"]) or "other"),
                 "date": row["date"],
                 "file": fname,
             }
@@ -303,7 +318,9 @@ def backfill_cyber_seeds(num_files=20, subsector="all", start_date=None, end_dat
         links = [link for link in links if link.split("/")[-1][:14] <= end_date]
     recent = links if (start_date or end_date) else links[-num_files:]
     scope_label = "all subsectors" if subsector == "all" else subsector
-    print(f"Scanning {len(recent)} files for {scope_label} (~{len(recent) * 15 / 60:.1f} hours)...\n")
+    print(
+        f"Scanning {len(recent)} files for {scope_label} (~{len(recent) * 15 / 60:.1f} hours)...\n"
+    )
 
     all_seeds = []
     total_rows = 0

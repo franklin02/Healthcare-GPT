@@ -1,3 +1,19 @@
+"""FastAPI RAG server for querying healthcare disruption incident reports.
+
+This module provides a REST API that answers questions about healthcare
+crises (cyberattacks, supply shortages, natural disasters, staffing issues)
+using a retrieval-augmented generation (RAG) pipeline backed by ChromaDB
+and Ollama LLM.
+
+Endpoints:
+    GET / : Serve the web UI (index.html).
+    POST /chat : Ask a question and get an answer with source citations.
+    GET /status : Check system readiness and database statistics.
+
+The RAG chain uses HuggingFace embeddings for semantic search and Ollama
+for generating answers from retrieved incident reports.
+"""
+
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -24,6 +40,20 @@ _retriever = None
 
 
 def get_chain():
+    """Initialize and return the RAG chain and retriever (singleton pattern).
+
+    Lazily initializes the embedding model, ChromaDB connection, and LLM
+    on first call, then caches them as module globals to avoid re-creation.
+    Subsequent calls return the cached instances.
+
+    Returns:
+        tuple: (chain, retriever) where chain is a LangChain runnable that
+            takes a question and returns an answer, and retriever is a
+            LangChain retriever that fetches the top-K similar documents.
+
+    Raises:
+        RuntimeError: If ChromaDB has not been initialized (run ingest.py first).
+    """
 
     # set up a singleton to avoid re-creating the chain and retriever every time
     global _chain, _retriever
@@ -99,10 +129,25 @@ def get_chain():
 
 # req/res models for the chat endpoint
 class ChatRequest(BaseModel):
+    """Request model for the /chat endpoint.
+
+    Attributes:
+        question (str): The user's question about healthcare disruptions.
+    """
+
     question: str
 
 
 class SourceDoc(BaseModel):
+    """Metadata for a source document retrieved by the RAG pipeline.
+
+    Attributes:
+        id (str): Unique identifier for the document.
+        title (str): Article title.
+        source_name (str): Source news outlet or publication.
+        direct_link (str): URL to the original article.
+    """
+
     id: str
     title: str
     source_name: str
@@ -110,6 +155,15 @@ class SourceDoc(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    """Response model for the /chat endpoint.
+
+    Attributes:
+        answer (str): The LLM's generated answer to the question.
+        sources (list[SourceDoc]): Metadata for retrieved source documents.
+        model (str): Name of the LLM used (e.g., "llama3.2").
+        chunks_retrieved (int): Number of document chunks returned by the retriever.
+    """
+
     answer: str
     sources: list[SourceDoc]
     model: str
@@ -119,19 +173,38 @@ class ChatResponse(BaseModel):
 # API endpoints
 @app.get("/", response_class=HTMLResponse)
 def serve_ui():
+    """Serve the web UI (index.html) at the root path.
+
+    Returns:
+        HTMLResponse: The contents of index.html.
+
+    Raises:
+        HTTPException: 404 if index.html is not found.
+    """
     html_path = Path(__file__).parent / "index.html"
     if not html_path.exists():
         raise HTTPException(status_code=404, detail="index.html not found")
     return HTMLResponse(content=html_path.read_text())
 
 
-"""
-Posts the question to the RAG chain and returns the answer and sources
-"""
-
-
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
+    """Retrieve relevant incident reports and generate an answer via RAG.
+
+    Uses the RAG chain to retrieve the top-K most relevant documents from
+    ChromaDB and feed them to the LLM with a specialized healthcare
+    disruption prompt. Returns the LLM's answer and source metadata.
+
+    Args:
+        req (ChatRequest): Request containing a `question` string.
+
+    Returns:
+        ChatResponse: The answer, retrieved sources, model name, and chunk count.
+
+    Raises:
+        HTTPException: 400 if question is empty; 503 if ChromaDB not initialized;
+            500 for other RAG errors.
+    """
 
     # check the question is not empty
     question = req.question.strip()
@@ -172,13 +245,22 @@ def chat(req: ChatRequest):
     )
 
 
-"""
-This a JSON object with the current state of the system. 
-"""
-
-
 @app.get("/status")
 def status():
+    """Return system readiness status and database statistics.
+
+    Checks if ChromaDB has been initialized and counts the number of
+    indexed documents. Returns configuration and availability information.
+
+    Returns:
+        JSONResponse: A JSON object with keys:
+            - status (str): "ok" if DB is ready, "no_db" otherwise.
+            - db_ready (bool): Whether ChromaDB exists.
+            - records_indexed (int): Number of documents in the collection.
+            - llm_model (str): Name of the LLM in use.
+            - embed_model (str): Name of the embedding model in use.
+            - message (str): Human-readable status message.
+    """
     db_ready = Path(CHROMA_DIR).exists()
     count = 0
     if db_ready:

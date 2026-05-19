@@ -1,3 +1,31 @@
+"""Provide shared utility functions for file validation, data processing, and URL handling in the application.
+
+This module provides utility functions and constants that assist in processing and managing data for the application.
+It includes functions for fetching news articles, extracting key information, and classifying them into different categories.
+Including page fetching, validation of files, JSON and CSV outputs, and URL construction.
+The shared utilities aim to simplify and streamline repetitive tasks or operations across the project.
+
+Attributes:
+    - `_sys`: System-related functionality or constant.
+    - `_PROJECT_ROOT`: Specifies the project's root directory.
+    - `READY_FOR_RAG_DIR`: Directory designated for resources ready for retrieval-augmented generation (RAG).
+    - `NOISE_DIR`: Directory for storing noise data.
+    - `VULNERABILITIES_DIR`: Directory for storing vulnerabilities data.
+    - `HEADERS`: Headers for HTTP-related tasks.
+    - `VULN_CSV_HEADER`: Header for the vulnerabilities CSV file.
+    - `NOISE_CSV_HEADER`: Header for the noise CSV file.
+
+
+Functions:
+    - `get_page`: Retrieves web page content for a given URL, handling HTTP requests.
+    - `_site_filename`: Generates or retrieves specific filename associated with a site.
+    - `check_valid_file`: Validates files against specific criteria.
+    - `json_output`: Outputs data in JSON format.
+    - `vuln_output`: Processes and generates output related to vulnerabilities.
+    - `noise_output`: Processes and generates output related to noise.
+    - `build_page_url`: Constructs URLs for web pages based on given parameters.
+"""
+
 import json
 import csv
 import os
@@ -49,16 +77,53 @@ NOISE_CSV_HEADER = [
 
 
 def get_page(url):
+    """
+    Fetches the content of a web page for the given URL.
+
+    Parameters:
+        url (str): The URL of the web page to fetch.
+
+    Returns:
+        requests.Response: The response object containing the web page content.
+
+    Raises:
+        requests.exceptions.HTTPError: If the HTTP request returned an unsuccessful status code.
+        requests.exceptions.RequestException: For any issues during the HTTP request such as timeouts or connection errors.
+    """
     resp = requests.get(url, timeout=15, headers=HEADERS)
     resp.raise_for_status()
     return resp
 
 
 def _site_filename(site_name: str) -> str:
+    """
+    Generates a sanitized site filename by trimming leading and trailing whitespace from the given site name.
+
+    Parameters:
+        site_name (str): The name of the site as a string.
+
+    Returns:
+        str: The trimmed site name with whitespace removed.
+    """
     return site_name.strip()
 
 
 def check_valid_file(site_name):
+    """
+    Checks for the existence of required files and directories for the given site name. If the required files do not exist, creates them with appropriate initial content.
+
+    Parameters:
+        site_name (str): The name of the site used to generate file names and structure.
+
+    Function Logic:
+        - Ensures the directories READY_FOR_RAG_DIR, NOISE_DIR, and VULNERABILITIES_DIR exist by creating them if necessary.
+        - Constructs a file stem using the supplied site_name with the help of the `_site_filename` function.
+        - Checks if a .json file for the site exists in READY_FOR_RAG_DIR. If not, creates the file with a default JSON structure.
+        - Checks if a .csv file for the site exists in NOISE_DIR. If not, creates an empty file with a header row defined by NOISE_CSV_HEADER.
+        - Checks if a .csv file for the site exists in VULNERABILITIES_DIR. If not, creates an empty file with a header row defined by VULN_CSV_HEADER.
+        - Prints messages to indicate the creation of new files when applicable.
+
+    """
     READY_FOR_RAG_DIR.mkdir(parents=True, exist_ok=True)
     NOISE_DIR.mkdir(parents=True, exist_ok=True)
     VULNERABILITIES_DIR.mkdir(parents=True, exist_ok=True)

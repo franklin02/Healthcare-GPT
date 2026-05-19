@@ -1,3 +1,21 @@
+"""Helpers for scraping, AI validation, and subsector field extraction.
+
+This module provides utilities used by the GDELT pipeline:
+
+- `get_body(url)`: fetch and clean article body text from a URL.
+- `ai_check_validation(title, body)`: call a local AI service to check if
+    an article describes an active operational disruption.
+- `find_subsector_fields(subsector, title, body)`: extract subsector-specific
+    metadata fields via the AI service.
+
+Constants:
+- `AI_URL`, `AI_MODEL`: local AI endpoint configuration.
+- `SUBSECTOR_FIELDS`: mapping of subsector -> required extraction fields.
+
+The AI calls expect a local Ollama-like API at `AI_URL` that returns a JSON
+`response` string containing the model output as JSON.
+"""
+
 import json
 import re
 import requests
@@ -77,18 +95,42 @@ HEADERS = {
 }
 
 _NOISE_PATTERNS = (
-    "ad", "advert", "promo", "sidebar", "related", "newsletter",
-    "subscribe", "comment", "social", "share", "cookie",
+    "ad",
+    "advert",
+    "promo",
+    "sidebar",
+    "related",
+    "newsletter",
+    "subscribe",
+    "comment",
+    "social",
+    "share",
+    "cookie",
 )
 _NOISE_RE = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 _NOISE_SELECTOR = ",".join(f'[class*="{p}"]' for p in _NOISE_PATTERNS)
 
-'''
-This function takes a url (string) as an argument and returns the ENTIRE
-body. This works on most cites. The body may be needed to be truncated depending
-on your use case.
-'''
+
 def get_body(url: str) -> str:
+    """Fetch and return the main article text for a URL.
+
+    The function performs a simple HTML scrape using `requests` and
+    `BeautifulSoup`, removes common non-content tags and noisy selectors
+    (ads, sidebars, footers), and returns the concatenated paragraph text
+    when available. Network errors or missing content return an empty string.
+
+    Args:
+        url (str): The URL to fetch. If the scheme is missing, `https://` is
+            prepended.
+
+    Returns:
+        str: Cleaned article text, or an empty string on error or if no body
+            content is found.
+
+    Notes:
+        - This is a heuristic extractor and may not work for all sites.
+        - The returned body may be long; callers should truncate if needed.
+    """
     if not url:
         return ""
 
@@ -98,7 +140,7 @@ def get_body(url: str) -> str:
 
     # Fetch
     try:
-        resp = requests.get(url, timeout = 30, headers = HEADERS)
+        resp = requests.get(url, timeout=30, headers=HEADERS)
         resp.raise_for_status()
     except requests.RequestException as e:
         print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
@@ -107,8 +149,19 @@ def get_body(url: str) -> str:
     soup = BeautifulSoup(resp.text, "html.parser")
 
     # Strip non-content tags
-    for tag in soup(["script", "style", "noscript", "iframe", "form",
-                     "header", "footer", "nav", "aside"]):
+    for tag in soup(
+        [
+            "script",
+            "style",
+            "noscript",
+            "iframe",
+            "form",
+            "header",
+            "footer",
+            "nav",
+            "aside",
+        ]
+    ):
         tag.decompose()
 
     # Strip noise by class
@@ -145,17 +198,54 @@ def get_body(url: str) -> str:
         return "\n\n".join(paragraphs)
     return main.get_text(" ", strip=True)
 
-"""
-This function is used to call an AI model (currently Ollama) to check
-if the article we parsed presents a risk to the healthcare industry.
-It expects 2 arguments: the title and the body of the article which 
-at this point should be already parsed and cleaned.
-Returns a tuple: (is_threat, detail)
-    - is_threat (bool): True if an active disruption is identified.
-    - detail (str): The subsector name (if True) OR the reason for exclusion/analysis (if False).
-NOTE: this will be subbed out for BERT later one
-"""
-def ai_check_validation(title, body) -> tuple[bool, str]:
+
+def _run_bert(title: str, body: str) -> str:
+    import sys
+    from pathlib import Path
+
+    gdelt_dir = Path(__file__).resolve().parent.parent / "GDELT"
+    if str(gdelt_dir) not in sys.path:
+        sys.path.append(str(gdelt_dir))
+
+    try:
+        from BERT_filter import run_bert_inference
+    except ImportError as exc:
+        raise RuntimeError(f"bert_filter.py not found at {gdelt_dir}") from exc
+
+    return run_bert_inference({"title": title, "body": body})
+
+
+def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
+    """Call the local AI endpoint to validate whether an article describes
+    an active operational disruption.
+
+    The function formats a safety-focused prompt and posts it to the local
+    AI service defined by `AI_URL`. The AI is expected to return JSON with
+    at least `is_operational_disruption` and `subsector` / `analysis` fields.
+
+    Args:
+        title (str): Article title.
+        body (str): Article body/excerpt (cleaned text).
+
+    Returns:
+        tuple[bool, str]: `(is_threat, detail)` where `is_threat` is True if
+            the AI indicates an active operational disruption, and `detail`
+            is either the subsector name (for threats) or a short analysis
+            string explaining why the article was excluded.
+
+    On error the function returns `(False, "Parsing Error")` and prints the
+    exception to stdout.
+
+    Note: this will be subbed out for BERT later on.
+    :param use_bert:
+    """
+    if use_bert:
+        bert_subsector = _run_bert(title, body)
+        if bert_subsector == "none":
+            print("[BERT] rejected skipping LLM")
+            return False, "BERT: unrelated news"
+        print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
+
     prompt = f"""
         [INST] <<SYS>>
         You are a Healthcare Crisis Auditor. Your task is to identify ACTIVE OPERATIONAL DISRUPTIONS in healthcare. 
@@ -225,13 +315,32 @@ def ai_check_validation(title, body) -> tuple[bool, str]:
         return False, "Parsing Error"
 
 
-"""
-Once we KNOW a source classifies as a vulnerability, we need to find all the
-subsector specific fields (found in src/data/schema.json) and return them in a dictionary.
-"""
-def find_subsector_fields(subsector, title, body) -> dict:
+# Once we KNOW a source classifies as a vulnerability, we need to find all the
+# subsector specific fields (found in src/data/schema.json) and return them in a dictionary.
 
-    # Get the specific fields for this subsector or exist if none found
+
+def find_subsector_fields(subsector, title, body) -> dict:
+    """Extract subsector-specific fields from article text via the AI service.
+
+    The function looks up the expected fields for `subsector` in
+    `SUBSECTOR_FIELDS`, builds a prompt asking the AI to return a JSON
+    object containing those fields (or null for missing values), and
+    returns the parsed JSON as a Python dict.
+
+    Args:
+        subsector (str): One of the keys in `SUBSECTOR_FIELDS` (e.g.
+            "drug_shortage", "cyber_attack").
+        title (str): Article title.
+        body (str): Article body/excerpt (cleaned text).
+
+    Returns:
+        dict: Parsed JSON from the AI containing the requested fields. If the
+            subsector is unknown an empty dict is returned. On AI or parsing
+            errors the function returns a dict mapping each requested field to
+            `None`.
+    """
+
+    # Get the specific fields for this subsector or exit if none found
     fields_to_extract = SUBSECTOR_FIELDS.get(subsector)
     if not fields_to_extract:
         print(f"Error: No fields found for subsector: {subsector}")

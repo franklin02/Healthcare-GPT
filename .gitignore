@@ -8,4 +8,9 @@ src/tests/train-bert/.ipynb_checkpoints
 src/tests/train-bert/.jupyter
 src/models/
 src/tests/train-bert/*.csv
+docs/_build/
+docs/_autosummary/
 CLAUDE.md
+data/raw/gdelt/
+data/noise/*.csv
+data/vulnerabilities/*.csv

@@ -118,7 +118,6 @@ HTML_SITES = [
 ]
 
 
-
 def fetch_html_page(site_config, page_url):
     response = get_page(page_url)
     soup = BeautifulSoup(response.content, "html.parser")
@@ -132,7 +131,7 @@ def fetch_html_page(site_config, page_url):
         )
         return [], False
 
-    #Creates a set of valid articles with their respective links 
+    # Creates a set of valid articles with their respective links
     seen_urls = set()
     raw_links = []
     for el in link_elements:
@@ -170,9 +169,10 @@ def fetch_html_page(site_config, page_url):
         if title_text:
             raw_links.append({"title": title_text, "link": href})
 
-    body_selector = m["body_selector"]  #NOTE:  this may need to be moved up to the for loop
+    body_selector = m[
+        "body_selector"
+    ]  # NOTE:  this may need to be moved up to the for loop
     date_selector = m.get("date_selector", "")
-
 
     # For each article found, we go to that specific link and grab the body and date (if applicable)
     articles = []
@@ -257,25 +257,33 @@ def run_html_scraper(site_config):
         try:
             articles, stop = fetch_html_page(site_config, page_url)
         except Exception as e:
-            print(f"[ERROR] Fetching {site_config['name']} page {current_page} ({page_url}): {e}")
-            break
+            print(
+                f"[ERROR] Fetching {site_config['name']} page {current_page} ({page_url}): {e}"
+            )
+            return
 
-        if not articles and not stop:
-            print(f"[WARNING] No articles found on page {current_page} — stopping pagination")
+        if not articles:
+            print(
+                f"[WARNING] No articles found on page {current_page} — stopping pagination"
+            )
             break
 
         for article in articles:
             is_threat, detail = ai_check_validation(article["title"], article["body"])
             if is_threat:
                 if detail not in SUBSECTOR_FIELDS:
-                    print(f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}")
+                    print(
+                        f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
+                    )
                     continue
                 sector_data, ss_data = extract_fields(detail, article["title"], article["body"])
 
                 # Wrap the raw dict from the LLM in the matching SubsectorData
                 # subclass so Vulnerability.to_dict() can call .to_dict() on it.
                 subsector_cls = SUBSECTOR_DATA_CLASSES.get(detail)
-                subsector_data = subsector_cls.from_dict(ss_data) if subsector_cls else None
+                subsector_data = (
+                    subsector_cls.from_dict(ss_data) if subsector_cls else None
+                )
 
                 vuln = Vulnerability(
                     id=str(uuid.uuid4()),

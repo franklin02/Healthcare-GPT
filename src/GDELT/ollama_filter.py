@@ -1,3 +1,20 @@
+"""Filter healthcare-related articles using a local LLM (Ollama).
+
+This module provides utilities to fetch article text from URLs and use
+a local Ollama instance to classify whether articles describe cyberattacks
+targeting US healthcare organizations.
+
+Constants:
+    OLLAMA_URL (str): Local Ollama API endpoint.
+    OLLAMA_MODEL (str): Model name (e.g. llama3.2).
+    MAX_CHARS (int): Maximum characters per article text.
+    FETCH_DELAY (float): Delay in seconds between URL fetches.
+    PROMPT_TEMPLATE (str): Healthcare cybersecurity classification prompt.
+
+Main entry point:
+    filter_with_ollama(urls): Filter a list of URLs and return confirmed hits.
+"""
+
 import time
 import requests
 from html.parser import HTMLParser
@@ -47,6 +64,12 @@ Answer (YES or NO only):"""
 
 
 class _TextExtractor(HTMLParser):
+    """Extract plain text from HTML, skipping script/style/nav/footer tags.
+
+    Attributes:
+        _SKIP_TAGS (set): Tag names to skip when extracting text.
+    """
+
     _SKIP_TAGS = {"script", "style", "noscript", "head", "nav", "footer", "aside"}
 
     def __init__(self):
@@ -72,14 +95,19 @@ class _TextExtractor(HTMLParser):
         return " ".join(self._parts)
 
 
-"""
-Fetch a URL and return plain text, truncated to MAX_CHARS.
-Returns None on any network or HTTP error.
-"""
-
-
 def fetch_article_text(url: str) -> str | None:
+    """Fetch article text from a URL and return the cleaned plain text.
 
+    The function makes an HTTP GET request, extracts plain text by stripping
+    HTML and skipping navigation/style tags, and truncates the result to
+    MAX_CHARS. Returns None on any network, HTTP, or parsing error.
+
+    Args:
+        url (str): The URL to fetch.
+
+    Returns:
+        str | None: Cleaned article text (max MAX_CHARS), or None on error.
+    """
     try:
         resp = requests.get(url, timeout=10, headers=HEADERS, allow_redirects=True)
         if resp.status_code != 200:
@@ -95,15 +123,23 @@ def fetch_article_text(url: str) -> str | None:
         return None
 
 
-"""
-Ask Ollama (change to chat l8er) whether the article is about a US hospital cyberattack.
-Returns True if AI answers YES, False otherwise.
-Raises ConnectionError if AI is not running.
-"""
-
-
 def ask_ai(url: str, text: str) -> bool:
+    """Ask Ollama whether article text describes a US hospital cyberattack.
 
+    Sends the article text and URL to the local Ollama API with the
+    healthcare cybersecurity classification prompt. Returns True if the
+    model answers "YES", False otherwise.
+
+    Args:
+        url (str): The article URL (included in the prompt for context).
+        text (str): The article text to classify.
+
+    Returns:
+        bool: True if Ollama answers YES, False otherwise.
+
+    Raises:
+        ConnectionError: If Ollama is not running at OLLAMA_URL.
+    """
     prompt = PROMPT_TEMPLATE.format(url=url, text=text)
     try:
         resp = requests.post(
@@ -121,21 +157,23 @@ def ask_ai(url: str, text: str) -> bool:
     return answer.startswith("YES")
 
 
-"""
-Filter a list of candidate URLs using Ollama.
-
-For each URL:
-    1. Fetch the article text.
-    2. Ask Ollama if it is about a US hospital cyberattack.
-    3. Keep only the URLs where Ollama answers YES.
-
-Prints progress for every URL processed.
-Returns the confirmed list.
-"""
-
-
 def filter_with_ollama(urls: list[str]) -> list[str]:
+    """Filter a list of URLs using Ollama to find healthcare cyberattack articles.
 
+    For each URL, the function:
+        1. Fetches the article text.
+        2. Asks Ollama if it describes a US hospital cyberattack.
+        3. Keeps URLs where Ollama answers YES.
+
+    Progress is printed for every URL processed. If Ollama becomes unavailable,
+    processing stops with an error message.
+
+    Args:
+        urls (list[str]): List of URLs to filter.
+
+    Returns:
+        list[str]: Confirmed URLs where Ollama indicated a healthcare cyberattack.
+    """
     if not urls:
         return []
 

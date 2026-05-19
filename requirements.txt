@@ -13,4 +13,3 @@ pandas
 pdfplumber
 beautifulsoup4
 lxml
-pytest

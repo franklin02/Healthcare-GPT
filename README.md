@@ -2,11 +2,12 @@
 
 ## Overview
 Healthcare GPT is a proof-of-concept project for an AI-assisted workflow that
-collects authoritative public data on healthcare-sector disruptions and
-produces structured incident outputs, citations, and confidence metadata.
+collects public healthcare-disruption signals, validates operational impact,
+and produces structured incident records for analysis and retrieval.
 
-The current project direction emphasizes using BERT as a classifier within a
-larger pipeline for identifying and organizing healthcare disruption events.
+The current implementation centers on a GDELT discovery pipeline, local Ollama
+validation/extraction, optional BERT pre-screening, ChromaDB ingestion, and a
+FastAPI chat interface over processed records.
 
 ## Pilot Scope
 **Primary focus**
@@ -21,21 +22,24 @@ larger pipeline for identifying and organizing healthcare disruption events.
 - Public and authoritative sources
 
 ## Key Outputs
-1. **Disruption Event Dataset (CSV)**  
-   Structured event records with provenance, evidence snippets, and confidence.
-2. **Mitigation KPI Dataset (CSV)**  
-   KPI tracking table used to populate dashboard mitigation metrics.
-3. **Compact Dashboard JSON**  
-   Deterministic schema-based JSON output for dashboard rendering.
-4. **Executive Summary**  
-   One-page summary derived from retrieved evidence with citations and confidence.
+1. **Processed disruption JSON**
+   Structured records in `data/processed/*.json`, wrapped in a top-level
+   `sources` list with provenance and subsector metadata.
+2. **Raw GDELT staging files**
+   Seed, validated, and enriched records under `data/raw/gdelt/` for pipeline
+   inspection.
+3. **Local retrieval index**
+   A ChromaDB vector store created by `src/ingest.py`.
+4. **FastAPI chat app**
+   A local UI and `/chat` API served from `src/main.py`.
 
 ## Repository Structure
 - `docs/` - project documentation and API reference sources
-- `data/templates/` - CSV templates for structured data collection
-- `data/collected/` - collected data files
-- `schemas/` - JSON schemas for structured outputs
-- `src/` - application, classifier, scraper, and pipeline code
+- `data/processed/` - processed JSON records ready for ingestion
+- `src/GDELT/` - GDELT seed discovery, validation, extraction, and runner code
+- `src/scrapers/` - shared scraper and LLM helper utilities
+- `src/config/schema.json` - structured output schema reference
+- `src/` - FastAPI app, ingestion pipeline, classifier, scraper, and data models
 
 ## Documentation
 The published Sphinx documentation is available at:
@@ -45,7 +49,7 @@ https://franklin02.github.io/Healthcare-GPT/index.html
 ## Getting Started
 1. Review the published documentation or `docs/index.md`.
 2. Install the development tools listed below.
-3. Run the local smoke checks before opening a pull request.
+3. Run a small GDELT smoke test or docs build before opening a pull request.
 
 ## Developer Tooling
 Install the development tools with:
@@ -77,8 +81,8 @@ This repository uses GitHub Actions for two automation checks:
 
 - `Ruff Format` runs on every pull request and fails if Python files are not
   formatted with Ruff.
-- `Sphinx Docs` runs on every push to `main`, builds the docs, and publishes
-  them to GitHub Pages.
+- `Sphinx Docs` runs on pull requests and pushes to `main`. Pushes to `main`
+  also publish the built docs to GitHub Pages.
 
 The workflow files live in `.github/workflows/`. GitHub starts running them
 automatically after they are merged.

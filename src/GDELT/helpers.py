@@ -210,7 +210,7 @@ def _run_bert(title: str, body: str) -> str:
     try:
         from BERT_filter import run_bert_inference
     except ImportError as exc:
-        raise RuntimeError(f"bert_filter.py not found at {gdelt_dir}") from exc
+        raise RuntimeError(f"BERT_filter.py not found at {gdelt_dir}") from exc
 
     return run_bert_inference({"title": title, "body": body})
 
@@ -236,8 +236,8 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     On error the function returns `(False, "Parsing Error")` and prints the
     exception to stdout.
 
-    Note: this will be subbed out for BERT later on.
-    :param use_bert:
+    When ``use_bert`` is True, BERT runs first as a lightweight rejection
+    filter. Articles that pass BERT are still sent to the LLM for confirmation.
     """
     if use_bert:
         bert_subsector = _run_bert(title, body)
@@ -315,8 +315,8 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
         return False, "Parsing Error"
 
 
-# Once we KNOW a source classifies as a vulnerability, we need to find all the
-# subsector specific fields (found in src/data/schema.json) and return them in a dictionary.
+# Once a source is confirmed as a disruption, extract the subsector-specific
+# fields mirrored by src/classes/vulnerability.py and src/config/schema.json.
 
 
 def find_subsector_fields(subsector, title, body) -> dict:

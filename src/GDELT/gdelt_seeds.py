@@ -41,8 +41,7 @@ HEALTH_THEMES = {
     "HEALTHCARE",
 }
 
-
-DRUG_SHORAGE_THEMES = {
+DRUG_SHORTAGE_THEMES = {
     "SHORTAGE",
     "PHARMACEUTICAL_SUPPLY_CHAIN",
     "ESSENTIAL_MEDICINES",
@@ -70,7 +69,7 @@ NOISE_THEMES = {"SPORTS", "GAMES_ESPORTS", "ENV_", "TOURISM", "EDUCATION_UNIVERS
 
 # Mapping of subsectors to their required theme sets
 SUBSECTOR_THEMES = {
-    "drug_shortage": DRUG_SHORAGE_THEMES,
+    "drug_shortage": DRUG_SHORTAGE_THEMES,
     "medical_device_shortage": DEVICE_SHORTAGE_THEMES,
     "cyber_attack": CYBER_THEMES,
     "natural_disaster": NATURAL_DISASTER_THEMES,
@@ -356,9 +355,9 @@ def backfill_cyber_seeds(num_files=20, subsector="all", start_date=None, end_dat
 if __name__ == "__main__":
     seeds = backfill_cyber_seeds(num_files=150)
     urls = [s["url"] for s in seeds]
-    from ollama_filter import filter_with_ollama
+    from gemma import filter_with_gemma
 
-    confirmed = filter_with_ollama(urls)
-    print(f"Confirmed: {len(confirmed)} / {len(urls)} URLs passed Ollama filter")
+    confirmed = filter_with_gemma(urls)
+    print(f"Confirmed: {len(confirmed)} / {len(urls)} URLs passed Gemma filter")
     for url in confirmed:
         print(url)

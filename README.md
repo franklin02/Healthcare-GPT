@@ -5,9 +5,9 @@ Healthcare GPT is a proof-of-concept project for an AI-assisted workflow that
 collects public healthcare-disruption signals, validates operational impact,
 and produces structured incident records for analysis and retrieval.
 
-The current implementation centers on a GDELT discovery pipeline, local Ollama
-validation/extraction, optional BERT pre-screening, ChromaDB ingestion, and a
-FastAPI chat interface over processed records.
+The current implementation centers on a GDELT discovery pipeline, local
+Ollama-backed Gemma validation/extraction, optional BERT pre-screening, ChromaDB
+ingestion, and a FastAPI chat interface over processed records.
 
 ## Pilot Scope
 **Primary focus**

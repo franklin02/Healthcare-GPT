@@ -26,7 +26,7 @@ Install runtime dependencies based on what you are changing:
 Ollama is required for LLM validation and extraction paths:
 
 ```bash
-ollama pull llama3.2
+ollama pull gemma4:e4b
 ```
 
 Keep the Ollama app or `ollama serve` running before commands that validate or

@@ -37,6 +37,10 @@ GDELT Pipeline
    :members:
    :undoc-members:
 
+.. automodule:: src.GDELT.gemma
+   :members:
+   :undoc-members:
+
 .. automodule:: src.GDELT.runner
    :members:
    :undoc-members:

@@ -29,7 +29,7 @@ from langchain_core.runnables import RunnablePassthrough
 CHROMA_DIR = str(Path(__file__).parent.parent / "chroma_db")
 COLLECTION = "agentic_data"
 EMBED_MODEL = "all-MiniLM-L6-v2"
-OLLAMA_MODEL = "llama3.2"  # "deepseek-r1:8b"
+LLM_MODEL = "gemma4:e4b"
 TOP_K = 6
 # NOTE: may need to tweak TOP_K in the future
 
@@ -83,8 +83,8 @@ def get_chain():
     )
 
     # connecting to the LLM
-    print(f"Connecting to LLM ({OLLAMA_MODEL})…")
-    llm = OllamaLLM(model=OLLAMA_MODEL, temperature=0.1)
+    print(f"Connecting to LLM ({LLM_MODEL})…")
+    llm = OllamaLLM(model=LLM_MODEL, temperature=0.1)
     # NOTE: temperature needs to be tweaked in the future
 
     # NOTE: swap out eventually
@@ -160,7 +160,7 @@ class ChatResponse(BaseModel):
     Attributes:
         answer (str): The LLM's generated answer to the question.
         sources (list[SourceDoc]): Metadata for retrieved source documents.
-        model (str): Name of the LLM used (e.g., "llama3.2").
+        model (str): Name of the LLM used (e.g., "gemma4:e4b").
         chunks_retrieved (int): Number of document chunks returned by the retriever.
     """
 
@@ -240,7 +240,7 @@ def chat(req: ChatRequest):
     return ChatResponse(
         answer=answer,
         sources=sources,
-        model=OLLAMA_MODEL,
+        model=LLM_MODEL,
         chunks_retrieved=len(source_docs),
     )
 
@@ -284,7 +284,7 @@ def status():
             "status": "ok" if db_ready else "no_db",
             "db_ready": db_ready,
             "records_indexed": count,
-            "llm_model": OLLAMA_MODEL,
+            "llm_model": LLM_MODEL,
             "embed_model": EMBED_MODEL,
             "message": (
                 "Ready to answer questions."

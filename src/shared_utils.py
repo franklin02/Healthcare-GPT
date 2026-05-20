@@ -55,13 +55,13 @@ AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
 
 # Anchor to the project root so this works both as `scrapers.shared_utils`
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 if str(_PROJECT_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PROJECT_ROOT))
 from src.classes import Vulnerability
 
-
+# temporary for now, to be removed later
 READY_FOR_RAG_DIR = _PROJECT_ROOT / "data" / "processed"
 NOISE_DIR = _PROJECT_ROOT / "data" / "noise"
 VULNERABILITIES_DIR = _PROJECT_ROOT / "data" / "vulnerabilities"
@@ -503,17 +503,13 @@ def get_body(url: str) -> str:
 
 
 def _run_bert(title: str, body: str) -> str:
-    import sys
-    from pathlib import Path
-
-    gdelt_dir = Path(__file__).resolve().parent.parent / "GDELT"
-    if str(gdelt_dir) not in sys.path:
-        sys.path.append(str(gdelt_dir))
-
+    """
+    Run BERT inference on an article. Returns the predicted subsector string or "none".
+    """
     try:
-        from BERT_filter import run_bert_inference
+        from src.GDELT.BERT_filter import run_bert_inference
     except ImportError as exc:
-        raise RuntimeError(f"bert_filter.py not found at {gdelt_dir}") from exc
+        raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
 
     return run_bert_inference({"title": title, "body": body})
 
@@ -525,6 +521,7 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     Parameters:
         title (str): The title of the article being analyzed.
         body (str): The main content or excerpt of the article.
+        use_bert (bool): False by default, calls bert before calling the llm to save time
 
     Returns: A tuple:
         - A boolean indicating whether the article is flagged as a threat (True if operational disruption or confirmed breach).
@@ -659,6 +656,25 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
 
 
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
+    '''
+    This function is called once we know an article classifies as a true vulnerability. We pass in the artile information 
+    to AI (currently Ollama) to get all of the sector and subsector fields to build the 'Vulnerability' shape, this will
+    later be used to make a JSON structure to be ingested. 
+
+    Args: 
+        subsector (string): this is obtained by ai_check_validation
+        title (string): title of the current article
+        body (string): full body of the current article
+
+    Returns: A tuple with 2 dicts
+        - First dict: contains all the universal LLM_SECTOR_FIELDS applicable (decided by AI)
+        - Second dict: contains all the SUBSECTOR_FIELDS applicable (also decided by AI)
+
+    Note:
+        - We should find an alternative to this function, currently the AI decided which fields can be grabbed given the current article,
+        this is not ideal for the long term.
+
+    '''
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)
     if not subsector_fields:
         print(f"No fields found for subsector: {subsector}")

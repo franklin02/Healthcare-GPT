@@ -2,23 +2,29 @@
 GDELT end-to-end runner.
 
 Pipeline:
-  gdelt_seeds.backfill_cyber_seeds  -- collect candidate seeds from GDELT GKG
-  helpers.get_body                  -- scrape page body
-  helpers.ai_check_validation       -- validate active disruption with Ollama
-  helpers.find_subsector_fields     -- extract schema-specific fields
+  gdelt_seeds.backfill_cyber_seeds     -- collect candidate seeds from GDELT GKG
+  src.shared_utils.get_body            -- scrape page body
+  src.shared_utils.ai_check_validation -- LLM validates as active disruption
+  src.shared_utils.extract_fields      -- LLM extracts schema-specific fields
 
 """
 
 import argparse
 import hashlib
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 import os
 import shutil
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 from gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES
-from helpers import ai_check_validation, find_subsector_fields, get_body
+from src.shared_utils import ai_check_validation, extract_fields, get_body
+from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
 
 BODY_CHAR_LIMIT = 4000
 
@@ -127,10 +133,10 @@ def save_seen(seen: set, seen_file: Path | None = None) -> None:
         pass
 
 
-def process_seed(seed: dict, seen: set) -> dict | None:
+def process_seed(seed: dict, seen: set) -> Vulnerability | None:
     """
     Run a single seed through validation + extraction.
-    Returns a record dict if validated as a disruption, else None.
+    Returns a Vulnerability if validated as a disruption, else None.
     """
     url = seed["url"]
 
@@ -171,18 +177,25 @@ def process_seed(seed: dict, seen: set) -> dict | None:
 
     print(f"     OK  disruption confirmed: {subsector}")
 
-    fields = find_subsector_fields(subsector, title, excerpt)
+    sector_data, subsector_data_dict = extract_fields(subsector, title, excerpt)
+    subsector_cls = SUBSECTOR_DATA_CLASSES[subsector]
 
-    return {
-        "id": stable_id(url),
-        "title": title,
-        "source_name": seed.get("source", ""),
-        "direct_link": url,
-        "subsector": subsector,
-        "date_published": seed.get("date", ""),
-        "content": body,
-        "subsector_data": fields,
-    }
+    return Vulnerability(
+        id=stable_id(url),
+        title=title,
+        source_name=seed.get("source", ""),
+        direct_link=url,
+        subsector=subsector,
+        date_accessed=datetime.now().strftime("%Y-%m-%d %H:%M"),
+        date_published=seed.get("date", ""),
+        content=body,
+        exec_summary=sector_data.get("exec_summary") or "",
+        geography_scope=sector_data.get("geography_scope"),
+        start_date=sector_data.get("start_date"),
+        end_date=sector_data.get("end_date"),
+        resilience_or_mitigation_observed=sector_data.get("resilience_or_mitigation_observed"),
+        subsector_data=subsector_cls.from_dict(subsector_data_dict),
+    )
 
 
 def run(
@@ -245,8 +258,8 @@ def run(
         article_id = stable_id(url)
         rec = process_seed(seed, seen)
         if rec:
-            persist_stage(VALIDATED_DIR, article_id, "validated", url, rec)
-            persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec)
+            persist_stage(VALIDATED_DIR, article_id, "validated", url, rec.to_dict())
+            persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
             records.append(rec)
 
     # Save seen URLs once at the end
@@ -259,10 +272,10 @@ def run(
     print("=" * 60)
 
     for rec in records:
-        print(f"\n--- {rec['id']} ({rec['subsector']}) ---")
-        print(f"URL: {rec['direct_link']}")
-        print(f"Source: {rec['source_name']}")
-        print(f"Fields: {rec['subsector_data']}")
+        print(f"\n--- {rec.id} ({rec.subsector}) ---")
+        print(f"URL: {rec.direct_link}")
+        print(f"Source: {rec.source_name}")
+        print(f"Fields: {rec.subsector_data}")
 
     default_out_dir = PROJECT_ROOT / "data" / "processed"
     if output_path:
@@ -276,26 +289,9 @@ def run(
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_recs = []
     for r in records:
-        out_recs.append(
-            {
-                "id": r.get("id", ""),
-                "title": r.get("title", ""),
-                "source_name": r.get("source_name", ""),
-                "direct_link": r.get("direct_link", ""),
-                "subsector": r.get("subsector", ""),
-                "date_accessed": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "date_published": fmt_dt(r.get("date_published", "")),
-                "content": r.get("content", ""),
-                "exec_summary": "",
-                "confidence_level": "",
-                "risk level": "",
-                "geography_scope": "",
-                "start_date": "",
-                "end_date": "",
-                "resilience_or_mitigation_observed": "",
-                "subsector_data": r.get("subsector_data", {}),
-            }
-        )
+        d = r.to_dict()
+        d["date_published"] = fmt_dt(d.get("date_published", ""))
+        out_recs.append(d)
 
     try:
         if out_file.exists():

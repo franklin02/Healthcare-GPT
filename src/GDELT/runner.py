@@ -52,6 +52,7 @@ SEEDS_DIR = RAW_GDELT_DIR / "seeds"
 VALIDATED_DIR = RAW_GDELT_DIR / "validated"
 ENRICHED_DIR = RAW_GDELT_DIR / "enriched"
 
+
 def ensure_raw_dirs() -> None:
     for directory in (SEEDS_DIR, VALIDATED_DIR, ENRICHED_DIR):
         directory.mkdir(parents=True, exist_ok=True)
@@ -193,7 +194,9 @@ def process_seed(seed: dict, seen: set) -> Vulnerability | None:
         geography_scope=sector_data.get("geography_scope"),
         start_date=sector_data.get("start_date"),
         end_date=sector_data.get("end_date"),
-        resilience_or_mitigation_observed=sector_data.get("resilience_or_mitigation_observed"),
+        resilience_or_mitigation_observed=sector_data.get(
+            "resilience_or_mitigation_observed"
+        ),
         subsector_data=subsector_cls.from_dict(subsector_data_dict),
     )
 

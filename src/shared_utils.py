@@ -255,13 +255,13 @@ def check_valid_file(site_name):
 
 
 def _content_preview(body: str | None) -> str:
-    ''' 
+    """
     Parameter:
         body (str): the entire body of an article
-        
+
     Returns:
         First 250 characters of the article (success)
-    '''
+    """
     return (body or "")[:250].replace("\n", " ")
 
 
@@ -271,9 +271,9 @@ def _top_row_matches(
     body_snippet: str,
     preview_column: str,
 ) -> bool:
-    ''' 
+    """
     Not documenting on purpose, this function will likely be deleted in the near future
-    '''
+    """
 
     if not csv_path.exists():
         return False
@@ -298,9 +298,9 @@ def _top_row_matches(
 
 
 def is_known_article(site_name: str, title: str, body_snippet: str) -> bool:
-    '''
+    """
     Not documenting on purpose, this function will likely be deleted in the near future
-    '''
+    """
     site = _site_filename(site_name)
     if _top_row_matches(
         VULNERABILITIES_DIR / f"{site}.csv", title, body_snippet, "content_preview"
@@ -312,9 +312,9 @@ def is_known_article(site_name: str, title: str, body_snippet: str) -> bool:
 
 
 def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
-    ''' 
+    """
     Not documenting on purpose, this function will likely be deleted in the near future
-    '''
+    """
     if not new_rows:
         return
 
@@ -348,9 +348,9 @@ def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
 
 
 def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
-    ''' 
+    """
     Not documenting on purpose, this function will likely be deleted in the near future
-    '''
+    """
     if not new_rows:
         return
 
@@ -384,9 +384,9 @@ def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
 
 
 def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None:
-    ''' 
+    """
     Not documenting on purpose, this function will likely be deleted in the near future
-    '''
+    """
     if not new_vulns:
         return
 
@@ -641,7 +641,7 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
             is_threat = is_threat.upper() != "NO"
         else:
             is_threat = bool(is_threat)
-        
+
         detail = (
             data.get("subsector", "none")
             if is_threat
@@ -656,12 +656,12 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
 
 
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
-    '''
-    This function is called once we know an article classifies as a true vulnerability. We pass in the artile information 
+    """
+    This function is called once we know an article classifies as a true vulnerability. We pass in the artile information
     to AI (currently Ollama) to get all of the sector and subsector fields to build the 'Vulnerability' shape, this will
-    later be used to make a JSON structure to be ingested. 
+    later be used to make a JSON structure to be ingested.
 
-    Args: 
+    Args:
         subsector (string): this is obtained by ai_check_validation
         title (string): title of the current article
         body (string): full body of the current article
@@ -674,7 +674,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         - We should find an alternative to this function, currently the AI decided which fields can be grabbed given the current article,
         this is not ideal for the long term.
 
-    '''
+    """
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)
     if not subsector_fields:
         print(f"No fields found for subsector: {subsector}")

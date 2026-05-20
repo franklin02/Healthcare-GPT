@@ -27,18 +27,18 @@ DATE_PATTERNS = (
 
 
 def _has_letter(value: Any) -> bool:
-    """ Check if the value is a string that contains at least one letter.
-    This ensures that fields like title and source_name are not just numbers or empty."""
+	"""Check if the value is a string that contains at least one letter.
+	This ensures that fields like title and source_name are not just numbers or empty."""
 	return isinstance(value, str) and any(character.isalpha() for character in value)
 
 
 def _is_valid_date(value: Any) -> bool:
-    """ Check if the value is a string that matches one of the allowed date formats. """
+	"""Check if the value is a string that matches one of the allowed date formats."""
 	return isinstance(value, str) and any(pattern.fullmatch(value) for pattern in DATE_PATTERNS)
 
 
 def validate_source(source: dict[str, Any], index: int) -> list[str]:
-    """ Validate a single source object and return a list of error messages. """
+	"""Validate a single source object and return a list of error messages."""
 	errors: list[str] = []
 	source_id = source.get("id", f"index {index}")
 	prefix = f"Source {index} (id={source_id})"
@@ -59,7 +59,7 @@ def validate_source(source: dict[str, Any], index: int) -> list[str]:
 	if not isinstance(direct_link, str) or not direct_link.startswith("https://"):
 		errors.append(f"{prefix}: direct_link must start with https://")
 
-    # Validate date fields
+	# Validate date fields
 	for field_name in ("date_accessed", "date_published"):
 		if not _is_valid_date(source.get(field_name)):
 			errors.append(
@@ -75,7 +75,7 @@ def validate_source(source: dict[str, Any], index: int) -> list[str]:
 
 
 def validate_json_file(file_path: Path) -> list[str]:
-    """ Validate the JSON file at the given path and return a list of error messages. """
+	"""Validate the JSON file at the given path and return a list of error messages."""
 	try:
 		with file_path.open("r", encoding="utf-8") as handle:
 			data = json.load(handle)
@@ -92,7 +92,7 @@ def validate_json_file(file_path: Path) -> list[str]:
 		return ["Top-level JSON must contain a sources array"]
 
 	errors: list[str] = []
-    # Validate each source in the sources array
+	# Validate each source in the sources array
 	for index, source in enumerate(sources, start=1):
 		if not isinstance(source, dict):
 			errors.append(f"Source {index}: each item in sources must be an object")
@@ -103,7 +103,7 @@ def validate_json_file(file_path: Path) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """ Main function to parse arguments and validate the JSON file. """
+	"""Main function to parse arguments and validate the JSON file."""
 	parser = argparse.ArgumentParser(
 		description="Validate a Healthcare-GPT JSON file against the expected schema checks."
 	)

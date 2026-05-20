@@ -343,7 +343,7 @@ if __name__ == "__main__":
         "--output-path",
         "-o",
         default=None,
-        help="Output JSON file or directory. If a directory is provided, GDELT.json is written inside it. (default: src/data/Ready_for_RAG/GDELT.json)",
+        help="Output JSON file or directory. If a directory is provided, GDELT.json is written inside it. (default: data/processed/GDELT.json)",
     )
     parser.add_argument(
         "--start-date",
@@ -358,7 +358,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--seen-urls-file",
         default=None,
-        help="Path to store/load seen URLs JSON file (default: src/data/seen_urls.json)",
+        help="Path to store/load seen URLs JSON file (default: data/seen_urls.json)",
     )
     parser.add_argument(
         "--subsectors",

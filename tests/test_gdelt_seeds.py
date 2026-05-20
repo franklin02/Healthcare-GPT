@@ -631,9 +631,9 @@ class TestConstantDefinitions:
         assert "HOSPITAL" in gdelt_seeds.HEALTH_THEMES
 
     def test_drug_shortage_themes_exist(self):
-        """Should have DRUG_SHORAGE_THEMES defined."""
-        assert isinstance(gdelt_seeds.DRUG_SHORAGE_THEMES, set)
-        assert "SHORTAGE" in gdelt_seeds.DRUG_SHORAGE_THEMES
+        """Should have DRUG_SHORTAGE_THEMES defined."""
+        assert isinstance(gdelt_seeds.DRUG_SHORTAGE_THEMES, set)
+        assert "SHORTAGE" in gdelt_seeds.DRUG_SHORTAGE_THEMES
 
     def test_device_shortage_themes_exist(self):
         """Should have DEVICE_SHORTAGE_THEMES defined."""

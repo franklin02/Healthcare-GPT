@@ -82,7 +82,7 @@ uvicorn main:app --reload
   detection, date bounds, and URL quality filtering.
 - `src/GDELT/helpers.py`: article body extraction, LLM validation, and
   subsector field extraction.
-- `src/GDELT/ollama_filter.py`: focused URL filter for healthcare cyberattack
+- `src/GDELT/gemma.py`: focused Gemma URL filter for healthcare cyberattack
   article experiments.
 - `src/scrapers/bert_scraper.py`: compact article scraper used by the BERT
   classifier.

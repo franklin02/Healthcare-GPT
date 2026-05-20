@@ -23,7 +23,7 @@ import json
 import requests
 
 AI_URL = "http://localhost:11434/api/generate"
-AI_MODEL = "llama3.2"
+AI_MODEL = "gemma4:e4b"
 
 
 LLM_SECTOR_FIELDS = [

@@ -23,7 +23,7 @@ events and extract structured metadata.
 ## End-to-End Run Command
 
 Run the pipeline from the repository root. You must have Ollama running locally
-with the `llama3.2` model.
+with the `gemma4:e4b` model.
 
 Basic run (to process 2 recent GDELT files, test with 3 URLs):
 
@@ -58,7 +58,7 @@ Check GDELT seed filtering without scraping:
   content or triggering the LLM validation step.
 
 Test URL scraping and AI validation without GDELT:
-- Import `filter_with_ollama()` from `src/GDELT/ollama_filter.py` and pass a
+- Import `filter_with_gemma()` from `src/GDELT/gemma.py` and pass a
   small list of URLs from a Python shell or scratch script.
 
 Test BERT classification directly:

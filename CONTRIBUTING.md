@@ -111,7 +111,7 @@ After installing Ollama from ollama.com (or the Linux script above), start it:
 Pull the model the project uses:
 
 ```bash
-ollama pull llama3.2
+ollama pull gemma4:e4b
 ```
 
 This downloads ~2 GB. One-time.
@@ -124,7 +124,7 @@ If `ollama --version` says "command not found" even though the app is installed 
 
 **Quick fix — call the full path:**
 ```bash
-"/c/Users/<you>/AppData/Local/Programs/Ollama/ollama.exe" pull llama3.2
+"/c/Users/<you>/AppData/Local/Programs/Ollama/ollama.exe" pull gemma4:e4b
 ```
 
 **Permanent fix — add to PATH:**

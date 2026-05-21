@@ -1,4 +1,5 @@
 """Unified runner for GDELT and configured HTML/Scooper scrapers."""
+
 from __future__ import annotations
 
 import runpy

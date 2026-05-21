@@ -170,6 +170,12 @@ Use an existing file under `data/processed/`, or generate a new GDELT file with:
 python src/GDELT/runner.py --num-files 2 --limit 3
 ```
 
+With the orchestrator:
+
+```bash
+python -m src.orchestrator --num-files 2 --limit 3
+```
+
 The runner writes final records to `data/processed/GDELT.json` by default.
 
 ### Quick start

@@ -4,7 +4,7 @@ import sys
 import types
 from unittest.mock import patch, MagicMock
 import requests
-from src.GDELT import helpers
+import src.shared_utils as helpers
 
 
 class TestGetBody:
@@ -18,7 +18,7 @@ class TestGetBody:
         """Test with None URL returns empty string"""
         assert helpers.get_body(None) == ""
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_url_normalization(self, mock_get):
         """Test that URLs without protocol get https:// prepended"""
         mock_response = MagicMock()
@@ -31,7 +31,7 @@ class TestGetBody:
         args, kwargs = mock_get.call_args
         assert args[0] == "https://example.com"
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_http_protocol_preserved(self, mock_get):
         """Test that explicit http:// protocol is preserved"""
         mock_response = MagicMock()
@@ -43,7 +43,7 @@ class TestGetBody:
         args, kwargs = mock_get.call_args
         assert args[0] == "http://example.com"
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_successful_extraction(self, mock_get):
         """Test successful extraction of article body"""
         mock_response = MagicMock()
@@ -55,7 +55,7 @@ class TestGetBody:
         assert "Paragraph 1" in result
         assert "Paragraph 2" in result
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_removes_script_tags(self, mock_get):
         """Test that script tags are removed"""
         mock_response = MagicMock()
@@ -74,7 +74,7 @@ class TestGetBody:
         assert "alert" not in result
         assert "Real content" in result
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_removes_noise_classes(self, mock_get):
         """Test that noise elements by class are removed"""
         mock_response = MagicMock()
@@ -95,7 +95,7 @@ class TestGetBody:
         assert "Related articles" not in result
         assert "Real content" in result
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_request_exception(self, mock_get):
         """Test handling of network errors"""
         mock_get.side_effect = requests.RequestException("Connection failed")
@@ -103,7 +103,7 @@ class TestGetBody:
         result = helpers.get_body("https://example.com")
         assert result == ""
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_timeout(self, mock_get):
         """Test handling of timeout"""
         mock_get.side_effect = requests.Timeout("Request timeout")
@@ -111,7 +111,7 @@ class TestGetBody:
         result = helpers.get_body("https://example.com")
         assert result == ""
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_uses_headers(self, mock_get):
         """Test that proper User-Agent header is used"""
         mock_response = MagicMock()
@@ -124,7 +124,7 @@ class TestGetBody:
         assert "headers" in call_kwargs
         assert "User-Agent" in call_kwargs["headers"]
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_prefers_paragraphs(self, mock_get):
         """Test that paragraph text is preferred over raw text"""
         mock_response = MagicMock()
@@ -144,7 +144,7 @@ class TestGetBody:
         assert "Paragraph 1" in result
         assert "Paragraph 2" in result
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_strips_noise_by_id(self, mock_get):
         """Ensure elements matched by id regex are removed (covers line 173)."""
         mock_response = MagicMock()
@@ -163,7 +163,7 @@ class TestGetBody:
         assert "Real content" in result
         assert "Buy now" not in result
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_no_body_found_prints_and_returns_empty(
         self, mock_get, capsys=None
     ):
@@ -176,7 +176,7 @@ class TestGetBody:
         result = helpers.get_body("https://example.com")
         assert result == ""
 
-    @patch("src.GDELT.helpers.requests.get")
+    @patch("src.shared_utils.requests.get")
     def test_get_body_falls_back_to_main_text_when_no_paragraphs(self, mock_get):
         """Return raw main text when no <p> tags exist (covers line 199)."""
         mock_response = MagicMock()
@@ -193,7 +193,7 @@ class TestGetBody:
 class TestAiCheckValidation:
     """Test suite for ai_check_validation function"""
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_valid_threat(self, mock_post):
         """Test valid threat identification"""
         mock_response = MagicMock()
@@ -214,7 +214,7 @@ class TestAiCheckValidation:
         assert is_threat is True
         assert detail == "cyber_attack"
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_no_threat(self, mock_post):
         """Test non-threat identification"""
         mock_response = MagicMock()
@@ -233,7 +233,7 @@ class TestAiCheckValidation:
         assert is_threat is False
         assert detail == "This is just policy news"
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_string_no_response(self, mock_post):
         """Test handling of string 'NO' response"""
         mock_response = MagicMock()
@@ -251,7 +251,7 @@ class TestAiCheckValidation:
         is_threat, detail = helpers.ai_check_validation("Title", "Body")
         assert is_threat is False
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_json_parse_error(self, mock_post):
         """Test handling of invalid JSON response"""
         mock_response = MagicMock()
@@ -262,7 +262,7 @@ class TestAiCheckValidation:
         assert is_threat is False
         assert detail == "Parsing Error"
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_request_exception(self, mock_post):
         """Test handling of request exceptions"""
         mock_post.side_effect = requests.RequestException("Connection error")
@@ -271,7 +271,7 @@ class TestAiCheckValidation:
         assert is_threat is False
         assert detail == "Parsing Error"
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_drug_shortage(self, mock_post):
         """Test drug shortage subsector classification"""
         mock_response = MagicMock()
@@ -290,7 +290,7 @@ class TestAiCheckValidation:
         assert is_threat is True
         assert detail == "drug_shortage"
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_medical_device(self, mock_post):
         """Test medical device shortage subsector"""
         mock_response = MagicMock()
@@ -308,7 +308,7 @@ class TestAiCheckValidation:
         is_threat, detail = helpers.ai_check_validation("Device shortage", "Body")
         assert detail == "medical_device_shortage"
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_natural_disaster(self, mock_post):
         """Test natural disaster subsector"""
         mock_response = MagicMock()
@@ -326,7 +326,7 @@ class TestAiCheckValidation:
         is_threat, detail = helpers.ai_check_validation("Hurricane", "Body")
         assert detail == "natural_disaster"
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_posts_correct_url(self, mock_post):
         """Test that correct AI URL is used"""
         mock_response = MagicMock()
@@ -345,7 +345,7 @@ class TestAiCheckValidation:
         call_args = mock_post.call_args
         assert call_args[0][0] == helpers.AI_URL
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_uses_correct_model(self, mock_post):
         """Test that correct AI model is specified"""
         mock_response = MagicMock()
@@ -365,21 +365,23 @@ class TestAiCheckValidation:
         assert call_kwargs["json"]["model"] == helpers.AI_MODEL
 
 
-class TestFindSubsectorFields:
-    """Test suite for find_subsector_fields function"""
+class TestExtractFields:
+    """Test suite for extract_fields function"""
 
-    def test_find_subsector_fields_invalid_subsector(self):
-        """Test with invalid subsector returns empty dict"""
-        result = helpers.find_subsector_fields("invalid_subsector", "Title", "Body")
-        assert result == {}
+    def test_extract_fields_invalid_subsector(self):
+        """Test with invalid subsector exits."""
+        with pytest.raises(SystemExit):
+            helpers.extract_fields("invalid_subsector", "Title", "Body")
 
-    @patch("src.GDELT.helpers.requests.post")
-    def test_find_subsector_fields_drug_shortage(self, mock_post):
-        """Test extraction of drug shortage fields"""
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_drug_shortage(self, mock_post):
+        """Test extraction of drug shortage fields."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "response": json.dumps(
                 {
+                    "exec_summary": "Shortage affects hospitals.",
+                    "geography_scope": "Northeast",
                     "drug_name": "Penicillin",
                     "generic_name": "penicillin",
                     "manufacturer": "Pfizer",
@@ -393,13 +395,17 @@ class TestFindSubsectorFields:
         }
         mock_post.return_value = mock_response
 
-        result = helpers.find_subsector_fields("drug_shortage", "Drug shortage", "Body")
-        assert result["drug_name"] == "Penicillin"
-        assert result["manufacturer"] == "Pfizer"
+        sector_data, subsector_data = helpers.extract_fields(
+            "drug_shortage", "Drug shortage", "Body"
+        )
+        assert sector_data["exec_summary"] == "Shortage affects hospitals."
+        assert sector_data["geography_scope"] == "Northeast"
+        assert subsector_data["drug_name"] == "Penicillin"
+        assert subsector_data["manufacturer"] == "Pfizer"
 
-    @patch("src.GDELT.helpers.requests.post")
-    def test_find_subsector_fields_cyber_attack(self, mock_post):
-        """Test extraction of cyber attack fields"""
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_cyber_attack(self, mock_post):
+        """Test extraction of cyber attack fields."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "response": json.dumps(
@@ -420,13 +426,13 @@ class TestFindSubsectorFields:
         }
         mock_post.return_value = mock_response
 
-        result = helpers.find_subsector_fields("cyber_attack", "Ransomware", "Body")
-        assert result["attack_type"] == "ransomware"
-        assert result["ransom_demanded_usd"] == 500000
+        _, subsector_data = helpers.extract_fields("cyber_attack", "Ransomware", "Body")
+        assert subsector_data["attack_type"] == "ransomware"
+        assert subsector_data["ransom_demanded_usd"] == 500000
 
-    @patch("src.GDELT.helpers.requests.post")
-    def test_find_subsector_fields_medical_device(self, mock_post):
-        """Test extraction of medical device shortage fields"""
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_medical_device(self, mock_post):
+        """Test extraction of medical device shortage fields."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "response": json.dumps(
@@ -447,15 +453,15 @@ class TestFindSubsectorFields:
         }
         mock_post.return_value = mock_response
 
-        result = helpers.find_subsector_fields(
+        _, subsector_data = helpers.extract_fields(
             "medical_device_shortage", "Device shortage", "Body"
         )
-        assert result["device_name"] == "Ventilator"
-        assert result["recall_class"] == "Class II"
+        assert subsector_data["device_name"] == "Ventilator"
+        assert subsector_data["recall_class"] == "Class II"
 
-    @patch("src.GDELT.helpers.requests.post")
-    def test_find_subsector_fields_natural_disaster(self, mock_post):
-        """Test extraction of natural disaster fields"""
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_natural_disaster(self, mock_post):
+        """Test extraction of natural disaster fields."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "response": json.dumps(
@@ -477,13 +483,15 @@ class TestFindSubsectorFields:
         }
         mock_post.return_value = mock_response
 
-        result = helpers.find_subsector_fields("natural_disaster", "Hurricane", "Body")
-        assert result["disaster_type"] == "Hurricane"
-        assert result["beds_offline"] == 500
+        _, subsector_data = helpers.extract_fields(
+            "natural_disaster", "Hurricane", "Body"
+        )
+        assert subsector_data["disaster_type"] == "Hurricane"
+        assert subsector_data["beds_offline"] == 500
 
-    @patch("src.GDELT.helpers.requests.post")
-    def test_find_subsector_fields_other(self, mock_post):
-        """Test extraction of other event fields"""
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_other(self, mock_post):
+        """Test extraction of other event fields."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "response": json.dumps(
@@ -501,49 +509,53 @@ class TestFindSubsectorFields:
         }
         mock_post.return_value = mock_response
 
-        result = helpers.find_subsector_fields("other", "Staff shortage", "Body")
-        assert result["event_type"] == "Staff shortage"
-        assert result["severity"] == "High"
+        _, subsector_data = helpers.extract_fields("other", "Staff shortage", "Body")
+        assert subsector_data["event_type"] == "Staff shortage"
+        assert subsector_data["severity"] == "High"
 
-    @patch("src.GDELT.helpers.requests.post")
-    def test_find_subsector_fields_request_exception(self, mock_post):
-        """Test handling of request exceptions"""
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_request_exception(self, mock_post):
+        """Test handling of request exceptions."""
         mock_post.side_effect = requests.RequestException("Connection error")
 
-        result = helpers.find_subsector_fields("drug_shortage", "Title", "Body")
-        # Should return dict with all fields set to None
-        assert all(v is None for v in result.values())
+        sector_data, subsector_data = helpers.extract_fields(
+            "drug_shortage", "Title", "Body"
+        )
+        assert all(v is None for v in sector_data.values())
+        assert all(v is None for v in subsector_data.values())
 
-    @patch("src.GDELT.helpers.requests.post")
-    def test_find_subsector_fields_json_parse_error(self, mock_post):
-        """Test handling of JSON parse errors"""
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_json_parse_error(self, mock_post):
+        """Test handling of JSON parse errors."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"response": "not valid json"}
         mock_post.return_value = mock_response
 
-        result = helpers.find_subsector_fields("drug_shortage", "Title", "Body")
-        # Should return dict with all fields set to None
-        assert all(v is None for v in result.values())
+        sector_data, subsector_data = helpers.extract_fields(
+            "drug_shortage", "Title", "Body"
+        )
+        assert all(v is None for v in sector_data.values())
+        assert all(v is None for v in subsector_data.values())
 
-    @patch("src.GDELT.helpers.requests.post")
-    def test_find_subsector_fields_uses_json_format(self, mock_post):
-        """Test that JSON format is requested"""
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_uses_json_format(self, mock_post):
+        """Test that JSON format is requested."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
         mock_post.return_value = mock_response
 
-        helpers.find_subsector_fields("drug_shortage", "Title", "Body")
+        helpers.extract_fields("drug_shortage", "Title", "Body")
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["format"] == "json"
 
-    @patch("src.GDELT.helpers.requests.post")
-    def test_find_subsector_fields_low_temperature(self, mock_post):
-        """Test that low temperature is used for deterministic extraction"""
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_low_temperature(self, mock_post):
+        """Test that low temperature is used for deterministic extraction."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
         mock_post.return_value = mock_response
 
-        helpers.find_subsector_fields("drug_shortage", "Title", "Body")
+        helpers.extract_fields("drug_shortage", "Title", "Body")
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["options"]["temperature"] == 0.0
 
@@ -553,10 +565,10 @@ class TestRunBertAndUseBert:
 
     def test_run_bert_delegates_to_run_bert_inference(self, monkeypatch):
         """Test that _run_bert imports and calls run_bert_inference with mock data."""
-        fake_module = types.ModuleType("BERT_filter")
+        fake_module = types.ModuleType("src.GDELT.BERT_filter")
         mock_run_bert_inference = MagicMock(return_value="cyber_attack")
         fake_module.run_bert_inference = mock_run_bert_inference
-        monkeypatch.setitem(sys.modules, "BERT_filter", fake_module)
+        monkeypatch.setitem(sys.modules, "src.GDELT.BERT_filter", fake_module)
 
         result = helpers._run_bert("Ransomware hits hospital", "Body text")
 
@@ -565,7 +577,7 @@ class TestRunBertAndUseBert:
             {"title": "Ransomware hits hospital", "body": "Body text"}
         )
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_use_bert_rejects_none_without_llm(
         self, mock_post, monkeypatch
     ):
@@ -580,7 +592,7 @@ class TestRunBertAndUseBert:
         assert detail == "BERT: unrelated news"
         mock_post.assert_not_called()
 
-    @patch("src.GDELT.helpers.requests.post")
+    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_use_bert_forwards_to_llm_when_flagged(
         self, mock_post, monkeypatch
     ):

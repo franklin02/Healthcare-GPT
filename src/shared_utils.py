@@ -1,14 +1,35 @@
-"""Facilitates interactions with a large language model (LLM).
+"""Provide shared utility functions for file validation, data processing, and URL handling in the application.
 
-Attributes
+This module provides utility functions and constants that assist in processing and managing data for the application.
+It includes functions for fetching news articles, extracting key information, and classifying them into different categories.
+Including page fetching, validation of files, JSON and CSV outputs, and URL construction.
+The shared utilities aim to simplify and streamline repetitive tasks or operations across the project.
+
+Attributes:
     - `AI_URL`: The base URL for the AI service.
     - `AI_MODEL`: The specific model that the AI will use for processing.
+    - `_sys`: System-related functionality or constant.
+    - `_PROJECT_ROOT`: Specifies the project's root directory.
+    - `READY_FOR_RAG_DIR`: Directory designated for resources ready for retrieval-augmented generation (RAG).
+    - `NOISE_DIR`: Directory for storing noise data.
+    - `VULNERABILITIES_DIR`: Directory for storing vulnerabilities data.
+    - `HEADERS`: Headers for HTTP-related tasks.
+    - `VULN_CSV_HEADER`: Header for the vulnerabilities CSV file.
+    - `NOISE_CSV_HEADER`: Header for the noise CSV file.
     - `SUBSECTOR_FIELDS`: A dictionary that maps subsectors to their specific fields.
 
 Functions:
+    - `get_page`: Retrieves web page content for a given URL, handling HTTP requests.
+    - `_site_filename`: Generates or retrieves specific filename associated with a site.
+    - `check_valid_file`: Validates files against specific criteria.
+    - `json_output`: Outputs data in JSON format.
+    - `vuln_output`: Processes and generates output related to vulnerabilities.
+    - `noise_output`: Processes and generates output related to noise.
+    - `build_page_url`: Constructs URLs for web pages based on given parameters.
     - `ai_check_validation`: Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach
        at a named healthcare entity based on strict, predefined criteria.
-    - `extract_fields`: Extracts sector and subsector fields for a confirmed healthcare disruption using the provided article title and body.
+    - `find_subsector_fields`: Extracts specific fields for a given healthcare subsector by utilizing an AI-based metadata extraction process from the provided article title and body.
+
 
 Possible subsectors:
         - "drug_shortage": A confirmed shortage of a named drug patients need now.
@@ -17,14 +38,77 @@ Possible subsectors:
         - "natural_disaster": Operational shutdowns due to fire, flood, storm, or other physical events.
         - "other": Other confirmed operational disruptions that do not fit the previous categories.
         - "none": Used when no operational disruption or breach is confirmed.
+
 """
 
 import json
+import csv
+import os
+import tempfile
 import requests
+from pathlib import Path
+import sys as _sys
+import re
+from bs4 import BeautifulSoup
 
 AI_URL = "http://localhost:11434/api/generate"
-AI_MODEL = "gemma4:e4b"
+AI_MODEL = "llama3.2"
 
+# Anchor to the project root so this works both as `scrapers.shared_utils`
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+if str(_PROJECT_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_PROJECT_ROOT))
+from src.classes import Vulnerability
+
+# temporary for now, to be removed later
+READY_FOR_RAG_DIR = _PROJECT_ROOT / "data" / "processed"
+NOISE_DIR = _PROJECT_ROOT / "data" / "noise"
+VULNERABILITIES_DIR = _PROJECT_ROOT / "data" / "vulnerabilities"
+
+_NOISE_PATTERNS = (
+    "ad",
+    "advert",
+    "promo",
+    "sidebar",
+    "related",
+    "newsletter",
+    "subscribe",
+    "comment",
+    "social",
+    "share",
+    "cookie",
+)
+_NOISE_RE = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
+_NOISE_SELECTOR = ",".join(f'[class*="{p}"]' for p in _NOISE_PATTERNS)
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+}
+
+VULN_CSV_HEADER = [
+    "date_accessed",
+    "date_published",
+    "source_name",
+    "subsector",
+    "title",
+    "direct_link",
+    "exec_summary",
+    "content_preview",
+]
+
+NOISE_CSV_HEADER = [
+    "date_accessed",
+    "source_name",
+    "title",
+    "url",
+    "reason",
+    "body_preview",
+]
 
 LLM_SECTOR_FIELDS = [
     "exec_summary",
@@ -33,6 +117,7 @@ LLM_SECTOR_FIELDS = [
     "end_date",
     "resilience_or_mitigation_observed",
 ]
+
 SUBSECTOR_FIELDS = {
     "drug_shortage": [
         "drug_name",
@@ -97,18 +182,334 @@ SUBSECTOR_FIELDS = {
 }
 
 
-def _run_bert(title: str, body: str) -> str:
-    import sys
-    from pathlib import Path
+def get_page(url):
+    """
+    Fetches the content of a web page for the given URL.
 
-    gdelt_dir = Path(__file__).resolve().parent.parent / "GDELT"
-    if str(gdelt_dir) not in sys.path:
-        sys.path.append(str(gdelt_dir))
+    Parameters:
+        url (str): The URL of the web page to fetch.
 
+    Returns:
+        requests.Response: The response object containing the web page content.
+
+    Raises:
+        requests.exceptions.HTTPError: If the HTTP request returned an unsuccessful status code.
+        requests.exceptions.RequestException: For any issues during the HTTP request such as timeouts or connection errors.
+    """
+    resp = requests.get(url, timeout=15, headers=HEADERS)
+    resp.raise_for_status()
+    return resp
+
+
+def _site_filename(site_name: str) -> str:
+    """
+    Generates a sanitized site filename by trimming leading and trailing whitespace from the given site name.
+
+    Parameters:
+        site_name (str): The name of the site as a string.
+
+    Returns:
+        str: The trimmed site name with whitespace removed.
+    """
+    return site_name.strip()
+
+
+def check_valid_file(site_name):
+    """
+    Checks for the existence of required files and directories for the given site name. If the required files do not exist, creates them with appropriate initial content.
+
+    Parameters:
+        site_name (str): The name of the site used to generate file names and structure.
+
+    Function Logic:
+        - Ensures the directories READY_FOR_RAG_DIR, NOISE_DIR, and VULNERABILITIES_DIR exist by creating them if necessary.
+        - Constructs a file stem using the supplied site_name with the help of the `_site_filename` function.
+        - Checks if a .json file for the site exists in READY_FOR_RAG_DIR. If not, creates the file with a default JSON structure.
+        - Checks if a .csv file for the site exists in NOISE_DIR. If not, creates an empty file with a header row defined by NOISE_CSV_HEADER.
+        - Checks if a .csv file for the site exists in VULNERABILITIES_DIR. If not, creates an empty file with a header row defined by VULN_CSV_HEADER.
+        - Prints messages to indicate the creation of new files when applicable.
+
+    """
+    READY_FOR_RAG_DIR.mkdir(parents=True, exist_ok=True)
+    NOISE_DIR.mkdir(parents=True, exist_ok=True)
+    VULNERABILITIES_DIR.mkdir(parents=True, exist_ok=True)
+
+    stem = _site_filename(site_name)
+
+    json_path = READY_FOR_RAG_DIR / f"{stem}.json"
+    if not json_path.exists():
+        json_path.write_text(json.dumps({"sources": []}, indent=4), encoding="utf-8")
+        print(f"Created {json_path}")
+
+    noise_path = NOISE_DIR / f"{stem}.csv"
+    if not noise_path.exists():
+        with open(noise_path, "w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(NOISE_CSV_HEADER)
+        print(f"Created {noise_path}")
+
+    vulnerabilities_path = VULNERABILITIES_DIR / f"{stem}.csv"
+    if not vulnerabilities_path.exists():
+        with open(vulnerabilities_path, "w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(VULN_CSV_HEADER)
+        print(f"Created {vulnerabilities_path}")
+
+
+def _content_preview(body: str | None) -> str:
+    """
+    Parameter:
+        body (str): the entire body of an article
+
+    Returns:
+        First 250 characters of the article (success)
+    """
+    return (body or "")[:250].replace("\n", " ")
+
+
+def _top_row_matches(
+    csv_path: Path,
+    title: str,
+    body_snippet: str,
+    preview_column: str,
+) -> bool:
+    """
+    Not documenting on purpose, this function will likely be deleted in the near future
+    """
+
+    if not csv_path.exists():
+        return False
+
+    with open(csv_path, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        try:
+            first_row = next(reader)
+        except StopIteration:
+            return False
+
+    if first_row.get("title", "") != title:
+        return False
+
+    incoming_preview = _content_preview(body_snippet)
+    if first_row.get(preview_column, "") != incoming_preview:
+        print(
+            f"[WARN] Title matched but body preview differs for {title!r} "
+            f"— stopping anyway"
+        )
+    return True
+
+
+def is_known_article(site_name: str, title: str, body_snippet: str) -> bool:
+    """
+    Not documenting on purpose, this function will likely be deleted in the near future
+    """
+    site = _site_filename(site_name)
+    if _top_row_matches(
+        VULNERABILITIES_DIR / f"{site}.csv", title, body_snippet, "content_preview"
+    ):
+        return True
+    if _top_row_matches(NOISE_DIR / f"{site}.csv", title, body_snippet, "body_preview"):
+        return True
+    return False
+
+
+def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
+    """
+    Not documenting on purpose, this function will likely be deleted in the near future
+    """
+    if not new_rows:
+        return
+
+    csv_path = VULNERABILITIES_DIR / f"{_site_filename(site_name)}.csv"
+    existing_data_rows: list[list[str]] = []
+    if csv_path.exists():
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            try:
+                next(reader)  # drop the existing header
+            except StopIteration:
+                pass
+            existing_data_rows = list(reader)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{_site_filename(site_name)}.",
+        suffix=".csv.tmp",
+        dir=str(VULNERABILITIES_DIR),
+    )
     try:
-        from BERT_filter import run_bert_inference
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(VULN_CSV_HEADER)
+            writer.writerows(new_rows)
+            writer.writerows(existing_data_rows)
+        os.replace(tmp_path, csv_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+
+def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
+    """
+    Not documenting on purpose, this function will likely be deleted in the near future
+    """
+    if not new_rows:
+        return
+
+    csv_path = NOISE_DIR / f"{_site_filename(site_name)}.csv"
+    existing_data_rows: list[list[str]] = []
+    if csv_path.exists():
+        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            try:
+                next(reader)  # drop the existing header
+            except StopIteration:
+                pass
+            existing_data_rows = list(reader)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{_site_filename(site_name)}.",
+        suffix=".csv.tmp",
+        dir=str(NOISE_DIR),
+    )
+    try:
+        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(NOISE_CSV_HEADER)
+            writer.writerows(new_rows)
+            writer.writerows(existing_data_rows)
+        os.replace(tmp_path, csv_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+
+def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None:
+    """
+    Not documenting on purpose, this function will likely be deleted in the near future
+    """
+    if not new_vulns:
+        return
+
+    json_path = READY_FOR_RAG_DIR / f"{_site_filename(site_name)}.json"
+    if json_path.exists():
+        data = json.loads(json_path.read_text(encoding="utf-8"))
+    else:
+        data = {"sources": []}
+
+    new_dicts = [v.to_dict() for v in new_vulns]
+    data["sources"] = new_dicts + data.get("sources", [])
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f"{_site_filename(site_name)}.",
+        suffix=".json.tmp",
+        dir=str(READY_FOR_RAG_DIR),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        os.replace(tmp_path, json_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+
+def get_body(url: str) -> str:
+    """Fetch and return the main article text for a URL.
+
+    The function performs a simple HTML scrape using `requests` and
+    `BeautifulSoup`, removes common non-content tags and noisy selectors
+    (ads, sidebars, footers), and returns the concatenated paragraph text
+    when available. Network errors or missing content return an empty string.
+
+    Args:
+        url (str): The URL to fetch. If the scheme is missing, `https://` is
+            prepended.
+
+    Returns:
+        str: Cleaned article text, or an empty string on error or if no body
+            content is found.
+
+    Notes:
+        - This is a heuristic extractor and may not work for all sites.
+        - The returned body may be long; callers should truncate if needed.
+    """
+    if not url:
+        return ""
+
+    # Normalize URL
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    # Fetch
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
+        return ""
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Strip non-content tags
+    for tag in soup(
+        [
+            "script",
+            "style",
+            "noscript",
+            "iframe",
+            "form",
+            "header",
+            "footer",
+            "nav",
+            "aside",
+        ]
+    ):
+        tag.decompose()
+
+    # Strip noise by class
+    for el in soup.select(_NOISE_SELECTOR):
+        el.decompose()
+
+    # Strip noise by id
+    for el in soup.find_all(id=_NOISE_RE):
+        el.decompose()
+
+    # Pick the best content container, in order of preference
+    main = None
+    for candidate in (
+        soup.find("article"),
+        soup.find("main"),
+        soup.find(attrs={"role": "main"}),
+        soup.body,
+        soup,
+    ):
+        if candidate and candidate.get_text(strip=True):
+            main = candidate
+            break
+
+    if main is None:
+        print("[WARNING] no body found")
+        return ""
+
+    # Prefer paragraph text (gives cleaner article body across sites.)
+    # Fall back to all text if no <p> tags found.
+    paragraphs = [p.get_text(" ", strip=True) for p in main.find_all("p")]
+    paragraphs = [p for p in paragraphs if p]
+
+    if paragraphs:
+        return "\n\n".join(paragraphs)
+    return main.get_text(" ", strip=True)
+
+
+def _run_bert(title: str, body: str) -> str:
+    """
+    Run BERT inference on an article. Returns the predicted subsector string or "none".
+    """
+    try:
+        from src.GDELT.BERT_filter import run_bert_inference
     except ImportError as exc:
-        raise RuntimeError(f"BERT_filter.py not found at {gdelt_dir}") from exc
+        raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
 
     return run_bert_inference({"title": title, "body": body})
 
@@ -120,8 +521,7 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     Parameters:
         title (str): The title of the article being analyzed.
         body (str): The main content or excerpt of the article.
-        use_bert (bool): If true, run BERT first as a lightweight rejection
-            filter before sending the article to the LLM.
+        use_bert (bool): False by default, calls bert before calling the llm to save time
 
     Returns: A tuple:
         - A boolean indicating whether the article is flagged as a threat (True if operational disruption or confirmed breach).
@@ -132,6 +532,7 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     Exceptions:
     If an error occurs during the request or response parsing, the function catches the error, logs it, and returns False with "Parsing Error".
     """
+
     if use_bert:
         bert_subsector = _run_bert(title, body)
         if bert_subsector == "none":
@@ -236,6 +637,11 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
         is_threat = data.get("is_operational_disruption", False)
 
         # Use subsector if it's a threat, otherwise use the analysis as the "reason"
+        if isinstance(is_threat, str):
+            is_threat = is_threat.upper() != "NO"
+        else:
+            is_threat = bool(is_threat)
+
         detail = (
             data.get("subsector", "none")
             if is_threat
@@ -250,6 +656,25 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
 
 
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
+    """
+    This function is called once we know an article classifies as a true vulnerability. We pass in the artile information
+    to AI (currently Ollama) to get all of the sector and subsector fields to build the 'Vulnerability' shape, this will
+    later be used to make a JSON structure to be ingested.
+
+    Args:
+        subsector (string): this is obtained by ai_check_validation
+        title (string): title of the current article
+        body (string): full body of the current article
+
+    Returns: A tuple with 2 dicts
+        - First dict: contains all the universal LLM_SECTOR_FIELDS applicable (decided by AI)
+        - Second dict: contains all the SUBSECTOR_FIELDS applicable (also decided by AI)
+
+    Note:
+        - We should find an alternative to this function, currently the AI decided which fields can be grabbed given the current article,
+        this is not ideal for the long term.
+
+    """
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)
     if not subsector_fields:
         print(f"No fields found for subsector: {subsector}")

@@ -22,7 +22,7 @@ ALLOWED_SUBSECTORS = {
 DATE_PATTERNS = (
 	re.compile(r"^\d{4}-\d{2}-\d{2}$"),
 	re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}-\d{2}$"),
-	re.compile(r"^\d{2}/\d{2}/\d{4}$"),
+	re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$"),
 )
 
 
@@ -32,8 +32,10 @@ def _has_letter(value: Any) -> bool:
 	return isinstance(value, str) and any(character.isalpha() for character in value)
 
 
-def _is_valid_date(value: Any) -> bool:
+def _is_valid_date(value: Any, allow_empty: bool = False) -> bool:
 	"""Check if the value is a string that matches one of the allowed date formats."""
+	if allow_empty and value == "":
+		return True
 	return isinstance(value, str) and any(pattern.fullmatch(value) for pattern in DATE_PATTERNS)
 
 
@@ -56,14 +58,15 @@ def validate_source(source: dict[str, Any], index: int) -> list[str]:
 		errors.append(f"{prefix}: source_name must contain at least one letter")
 
 	direct_link = source.get("direct_link")
-	if not isinstance(direct_link, str) or not direct_link.startswith("https://"):
-		errors.append(f"{prefix}: direct_link must start with https://")
+	if not isinstance(direct_link, str) or not direct_link.startswith("http"):
+		errors.append(f"{prefix}: direct_link must start with http")
 
 	# Validate date fields
 	for field_name in ("date_accessed", "date_published"):
-		if not _is_valid_date(source.get(field_name)):
+		allow_empty = field_name == "date_published"
+		if not _is_valid_date(source.get(field_name), allow_empty=allow_empty):
 			errors.append(
-				f"{prefix}: {field_name} must be YYYY-MM-DD, YYYY-MM-DD HH-MM, or MM/DD/YYYY"
+				f"{prefix}: {field_name} must be YYYY-MM-DD, YYYY-MM-DD HH-MM, or YYYY-MM-DD HH:MM"
 			)
 
 	subsector = source.get("subsector")

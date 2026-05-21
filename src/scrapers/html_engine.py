@@ -5,8 +5,14 @@ from pathlib import Path
 import sys as _sys
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from .ask_llm import ai_check_validation, extract_fields
-from .shared_utils import (
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_PROJECT_ROOT))
+
+from src.shared_utils import (
+    ai_check_validation,
+    extract_fields,
     get_page,
     check_valid_file,
     is_known_article,
@@ -14,11 +20,6 @@ from .shared_utils import (
     prepend_noise_csv,
     prepend_json_sources,
 )
-
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(_PROJECT_ROOT) not in _sys.path:
-    _sys.path.insert(0, str(_PROJECT_ROOT))
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
 
 

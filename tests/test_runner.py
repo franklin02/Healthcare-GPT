@@ -6,6 +6,26 @@ from unittest.mock import Mock, MagicMock, patch, mock_open, call
 from datetime import datetime
 
 from src.GDELT import runner
+from src.classes import Vulnerability
+
+
+def _make_vuln(
+    id_value: str = "abc123",
+    subsector: str = "drug_shortage",
+    direct_link: str = "https://example.com/1",
+    source_name: str = "test",
+    title: str = "Test Article",
+) -> Vulnerability:
+    return Vulnerability(
+        id=id_value,
+        title=title,
+        source_name=source_name,
+        direct_link=direct_link,
+        subsector=subsector,
+        date_accessed="2024-01-01 00:00",
+        date_published="2023-05-15",
+        content="content",
+    )
 
 
 class TestStableId:
@@ -373,13 +393,13 @@ class TestProcessSeed:
         assert result is None
         assert "https://example.com/test" in seen
 
-    @patch("src.GDELT.runner.find_subsector_fields")
+    @patch("src.GDELT.runner.extract_fields")
     @patch("src.GDELT.runner.get_body")
     @patch("src.GDELT.runner.ai_check_validation")
     def test_process_seed_valid_disruption(
-        self, mock_ai_check, mock_get_body, mock_find_fields
+        self, mock_ai_check, mock_get_body, mock_extract_fields
     ):
-        """process_seed should return record dict for valid disruption."""
+        """process_seed should return a Vulnerability for valid disruption."""
         seed = {
             "url": "https://example.com/test",
             "source": "TestSource",
@@ -388,15 +408,24 @@ class TestProcessSeed:
         seen = set()
         mock_get_body.return_value = "Content about drug shortage"
         mock_ai_check.return_value = (True, "drug_shortage")
-        mock_find_fields.return_value = {"drugs": ["aspirin"]}
+        mock_extract_fields.return_value = (
+            {
+                "exec_summary": "Shortage confirmed.",
+                "geography_scope": "Midwest",
+            },
+            {"drug_name": "aspirin"},
+        )
 
         result = runner.process_seed(seed, seen)
 
         assert result is not None
-        assert result["subsector"] == "drug_shortage"
-        assert result["source_name"] == "TestSource"
-        assert result["direct_link"] == "https://example.com/test"
-        assert result["subsector_data"] == {"drugs": ["aspirin"]}
+        assert result.subsector == "drug_shortage"
+        assert result.source_name == "TestSource"
+        assert result.direct_link == "https://example.com/test"
+        assert result.exec_summary == "Shortage confirmed."
+        assert result.geography_scope == "Midwest"
+        assert result.subsector_data is not None
+        assert result.subsector_data.drug_name == "aspirin"
 
     @patch("src.GDELT.runner.get_body")
     @patch("src.GDELT.runner.ai_check_validation")
@@ -412,11 +441,11 @@ class TestProcessSeed:
         assert result is None
         assert "https://example.com/test" in seen
 
-    @patch("src.GDELT.runner.find_subsector_fields")
+    @patch("src.GDELT.runner.extract_fields")
     @patch("src.GDELT.runner.get_body")
     @patch("src.GDELT.runner.ai_check_validation")
     def test_process_seed_all_valid_subsectors(
-        self, mock_ai_check, mock_get_body, mock_find_fields
+        self, mock_ai_check, mock_get_body, mock_extract_fields
     ):
         """process_seed should accept all valid subsectors."""
         valid_subsectors = {
@@ -427,7 +456,7 @@ class TestProcessSeed:
             "other",
         }
         mock_get_body.return_value = "Content"
-        mock_find_fields.return_value = {}
+        mock_extract_fields.return_value = ({}, {})
 
         for subsector in valid_subsectors:
             seen = set()
@@ -437,7 +466,7 @@ class TestProcessSeed:
                 seen,
             )
             assert result is not None
-            assert result["subsector"] == subsector
+            assert result.subsector == subsector
 
 
 class TestRun:
@@ -465,16 +494,13 @@ class TestRun:
         mock_backfill.return_value = [
             {"url": "https://example.com/1", "source": "test"},
         ]
-        mock_process_seed.return_value = {
-            "id": "abc123",
-            "title": "Test Article",
-            "subsector": "drug_shortage",
-            "direct_link": "https://example.com/1",
-            "source_name": "test",
-            "date_published": "2023-05-15",
-            "content": "content",
-            "subsector_data": {},
-        }
+        mock_process_seed.return_value = _make_vuln(
+            id_value="abc123",
+            subsector="drug_shortage",
+            direct_link="https://example.com/1",
+            source_name="test",
+            title="Test Article",
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = runner.run(
@@ -485,7 +511,8 @@ class TestRun:
             )
 
         assert len(result) == 1
-        assert result[0]["subsector"] == "drug_shortage"
+        assert isinstance(result[0], Vulnerability)
+        assert result[0].subsector == "drug_shortage"
 
     @patch("src.GDELT.runner.save_seen")
     @patch("src.GDELT.runner.load_seen")
@@ -655,16 +682,13 @@ class TestRun:
         """run should merge with existing output file containing dict with sources list."""
         mock_load_seen.return_value = set()
         mock_backfill.return_value = [{"url": "https://example.com/new"}]
-        mock_process_seed.return_value = {
-            "id": "new_id",
-            "title": "New",
-            "subsector": "cyber_attack",
-            "direct_link": "https://example.com/new",
-            "source_name": "test",
-            "date_published": "2023-05-15",
-            "content": "content",
-            "subsector_data": {},
-        }
+        mock_process_seed.return_value = _make_vuln(
+            id_value="new_id",
+            subsector="cyber_attack",
+            direct_link="https://example.com/new",
+            source_name="test",
+            title="New",
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_file = Path(tmpdir) / "output.json"
@@ -711,16 +735,13 @@ class TestRun:
         """run should merge with existing output file that is a list."""
         mock_load_seen.return_value = set()
         mock_backfill.return_value = [{"url": "https://example.com/new"}]
-        mock_process_seed.return_value = {
-            "id": "new_id",
-            "title": "New",
-            "subsector": "cyber_attack",
-            "direct_link": "https://example.com/new",
-            "source_name": "test",
-            "date_published": "2023-05-15",
-            "content": "content",
-            "subsector_data": {},
-        }
+        mock_process_seed.return_value = _make_vuln(
+            id_value="new_id",
+            subsector="cyber_attack",
+            direct_link="https://example.com/new",
+            source_name="test",
+            title="New",
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_file = Path(tmpdir) / "output.json"
@@ -760,16 +781,13 @@ class TestRun:
         """run should replace unexpected existing output content with fresh records."""
         mock_load_seen.return_value = set()
         mock_backfill.return_value = [{"url": "https://example.com/new"}]
-        mock_process_seed.return_value = {
-            "id": "new_id",
-            "title": "New",
-            "subsector": "cyber_attack",
-            "direct_link": "https://example.com/new",
-            "source_name": "test",
-            "date_published": "2023-05-15",
-            "content": "content",
-            "subsector_data": {},
-        }
+        mock_process_seed.return_value = _make_vuln(
+            id_value="new_id",
+            subsector="cyber_attack",
+            direct_link="https://example.com/new",
+            source_name="test",
+            title="New",
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_file = Path(tmpdir) / "output.json"
@@ -810,16 +828,13 @@ class TestRun:
         """run should create new output file."""
         mock_load_seen.return_value = set()
         mock_backfill.return_value = [{"url": "https://example.com/new"}]
-        mock_process_seed.return_value = {
-            "id": "new_id",
-            "title": "New",
-            "subsector": "cyber_attack",
-            "direct_link": "https://example.com/new",
-            "source_name": "test",
-            "date_published": "2023-05-15",
-            "content": "content",
-            "subsector_data": {},
-        }
+        mock_process_seed.return_value = _make_vuln(
+            id_value="new_id",
+            subsector="cyber_attack",
+            direct_link="https://example.com/new",
+            source_name="test",
+            title="New",
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_file = Path(tmpdir) / "output.json"

@@ -1,4 +1,12 @@
-"""Validate JSON files that follow the Healthcare-GPT source schema."""
+"""Validate JSON files
+
+This module provides a small command-line validator for the processed source
+files produced by the pipeline. It checks the top-level container shape and a
+handful of required fields on each source entry so schema regressions are
+detected early in tests or local workflows.
+
+Use by adding the path of the JSON file to validate as an argument. 
+"""
 
 from __future__ import annotations
 
@@ -27,13 +35,16 @@ DATE_PATTERNS = (
 
 
 def _has_letter(value: Any) -> bool:
-    """Check if the value is a string that contains at least one letter.
-    This ensures that fields like title and source_name are not just numbers or empty."""
+    """Return True when value is a string containing at least one letter."""
     return isinstance(value, str) and any(character.isalpha() for character in value)
 
 
 def _is_valid_date(value: Any, allow_empty: bool = False) -> bool:
-    """Check if the value is a string that matches one of the allowed date formats."""
+    """Return True when value matches one of the accepted date formats.
+
+    The validator accepts YYYY-MM-DD, YYYY-MM-DD HH-MM, and
+    YYYY-MM-DD HH:MM. date_published may also be empty. 
+    """
     if allow_empty and value == "":
         return True
     return isinstance(value, str) and any(
@@ -42,7 +53,12 @@ def _is_valid_date(value: Any, allow_empty: bool = False) -> bool:
 
 
 def validate_source(source: dict[str, Any], index: int) -> list[str]:
-    """Validate a single source object and return a list of error messages."""
+    """Validate one source record and return any schema errors found.
+
+    Each record needs a non-empty identifier, descriptive text fields, a URL
+    that begins with http, an allowed subsector, and date fields in one of
+    the accepted formats.
+    """
     errors: list[str] = []
     source_id = source.get("id", f"index {index}")
     prefix = f"Source {index} (id={source_id})"
@@ -80,7 +96,14 @@ def validate_source(source: dict[str, Any], index: int) -> list[str]:
 
 
 def validate_json_file(file_path: Path) -> list[str]:
-    """Validate the JSON file at the given path and return a list of error messages."""
+    """Validate a JSON file that follows the defined schema.
+
+    The file must contain an object at the top level with a sources array.
+    Each item in that array is validated with validate_source.
+
+    Returns a list of human-readable error messages. An empty list means the
+    file passed all current checks.
+    """
     try:
         with file_path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
@@ -108,7 +131,12 @@ def validate_json_file(file_path: Path) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Main function to parse arguments and validate the JSON file."""
+    """Run the validator as a command-line program.
+
+    The CLI accepts a single path argument, prints each validation error on its
+    own line, and exits with 1 when validation fails or 0 when the file
+    is valid.
+    """
     parser = argparse.ArgumentParser(
         description="Validate a Healthcare-GPT JSON file against the expected schema checks."
     )

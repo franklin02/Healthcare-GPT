@@ -5,7 +5,7 @@ files produced by the pipeline. It checks the top-level container shape and a
 handful of required fields on each source entry so schema regressions are
 detected early in tests or local workflows.
 
-Use by adding the path of the JSON file to validate as an argument. 
+Use by adding the path of the JSON file to validate as an argument.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def _is_valid_date(value: Any, allow_empty: bool = False) -> bool:
     """Return True when value matches one of the accepted date formats.
 
     The validator accepts YYYY-MM-DD, YYYY-MM-DD HH-MM, and
-    YYYY-MM-DD HH:MM. date_published may also be empty. 
+    YYYY-MM-DD HH:MM. date_published may also be empty.
     """
     if allow_empty and value == "":
         return True

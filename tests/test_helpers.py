@@ -483,7 +483,9 @@ class TestExtractFields:
         }
         mock_post.return_value = mock_response
 
-        _, subsector_data = helpers.extract_fields("natural_disaster", "Hurricane", "Body")
+        _, subsector_data = helpers.extract_fields(
+            "natural_disaster", "Hurricane", "Body"
+        )
         assert subsector_data["disaster_type"] == "Hurricane"
         assert subsector_data["beds_offline"] == 500
 

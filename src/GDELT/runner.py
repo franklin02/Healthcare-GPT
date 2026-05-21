@@ -12,9 +12,9 @@ Pipeline:
 import argparse
 import hashlib
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
-import os
 import shutil
 
 from gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES
@@ -214,7 +214,7 @@ def run(
     if invalid:
         print(f"Error: Invalid subsector(s): {', '.join(invalid)}")
         print(
-            f"Valid subsectors are: cyber_attack, drug_shortage, medical_device_shortage, natural_disaster, or all"
+            "Valid subsectors are: cyber_attack, drug_shortage, medical_device_shortage, natural_disaster, or all"
         )
         return []
 
@@ -234,8 +234,13 @@ def run(
         )
     ]
     persist_raw_seeds(raw_seeds)
+
+    # Date-bounded runs should always process the full matched seed set.
+    if start_date or end_date:
+        limit = None
+
     seeds = raw_seeds
-    if limit and not (start_date or end_date):
+    if limit:
         seeds = seeds[:limit]
 
     print(f"\nProcessing {len(seeds)} seeds...\n")
@@ -341,8 +346,8 @@ if __name__ == "__main__":
         "--limit",
         "-l",
         type=int,
-        default=3,
-        help="Cap on seeds to process; useful for smoke-testing (default: 3)",
+        default=None,
+        help="Cap on seeds to process; useful for smoke-testing (default: 3 unless --num-files is explicitly provided)",
     )
     parser.add_argument(
         "--output-path",
@@ -372,9 +377,18 @@ if __name__ == "__main__":
         help="Comma-separated subsectors to scan, or all",
     )
     args = parser.parse_args()
+
+    # If --num-files/-n is explicitly provided without --limit/-l, process all
+    # discovered seeds for that fetch window instead of using the smoke-test cap.
+    n_provided = any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
+    l_provided = any(opt in sys.argv[1:] for opt in ("-l", "--limit"))
+    effective_limit = args.limit
+    if not l_provided:
+        effective_limit = None if n_provided else 3
+
     run(
         num_files=args.num_files,
-        limit=args.limit,
+        limit=effective_limit,
         subsectors=args.subsectors,
         output_path=args.output_path,
         start_date=args.start_date,

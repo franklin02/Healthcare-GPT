@@ -1,6 +1,13 @@
 API Reference
 =============
 
+Pipeline Entrypoints
+--------------------
+
+.. automodule:: src.orchestrator
+   :members:
+   :undoc-members:
+
 RAG Server
 ----------
 

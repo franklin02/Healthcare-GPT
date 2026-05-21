@@ -30,6 +30,8 @@ The current work emphasizes:
 ## What Is Current
 
 - `src/GDELT/` contains the main GDELT pipeline and BERT classifier work.
+- `src/orchestrator.py` is the top-level command for running GDELT followed by
+  all configured HTML scrapers.
 - `src/GDELT/runner.py` coordinates seed collection, article scraping,
   validation, extraction, intermediate saves, and final JSON output.
 - `src/GDELT/BERT_filter.py` contains the zero-shot classifier workflow used

@@ -86,6 +86,8 @@ uvicorn main:app --reload
   article experiments.
 - `src/scrapers/bert_scraper.py`: compact article scraper used by the BERT
   classifier.
+- `src/orchestrator.py`: top-level command that runs GDELT first, then all
+    configured HTML scrapers.
 - `src/ingest.py`: JSON loading, chunking, duplicate detection, and ChromaDB
   indexing.
 - `src/main.py`: FastAPI endpoints and local chat UI.

@@ -13,3 +13,4 @@ docs/_autosummary/
 CLAUDE.md
 *.coverage
 data/
+models

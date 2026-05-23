@@ -22,7 +22,7 @@ import requests
 from bs4 import BeautifulSoup
 
 AI_URL = "http://localhost:11434/api/generate"
-AI_MODEL = "gemma4:e4b"
+AI_MODEL = "llama3.2"
 SUBSECTOR_FIELDS = {
     "drug_shortage": [
         "drug_name",
@@ -244,6 +244,8 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
         if bert_subsector == "none":
             print("[BERT] rejected skipping LLM")
             return False, "BERT: unrelated news"
+        if bert_subsector == "potential_hit":
+            bert_subsector = "other"
         print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
 
     prompt = f"""

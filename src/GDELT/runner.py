@@ -128,7 +128,7 @@ def save_seen(seen: set, seen_file: Path | None = None) -> None:
         pass
 
 
-def process_seed(seed: dict, seen: set) -> dict | None:
+def process_seed(seed: dict, seen: set, use_bert: bool = False) -> dict | None:
     """
     Run a single seed through validation + extraction.
     Returns a record dict if validated as a disruption, else None.
@@ -148,7 +148,7 @@ def process_seed(seed: dict, seen: set) -> dict | None:
     title = url
     excerpt = body[:BODY_CHAR_LIMIT]
 
-    is_disruption, detail = ai_check_validation(title, excerpt)
+    is_disruption, detail = ai_check_validation(title, excerpt, use_bert=use_bert)
 
     seen.add(url)
 
@@ -194,6 +194,7 @@ def run(
     start_date: str | None = None,
     end_date: str | None = None,
     seen_urls_file: str | None = None,
+    use_bert: bool = False,
 ) -> list[dict]:
     subsector_list = (
         ["all"]
@@ -244,7 +245,7 @@ def run(
         print(f"[{i}/{len(seeds)}]")
         url = seed["url"]
         article_id = stable_id(url)
-        rec = process_seed(seed, seen)
+        rec = process_seed(seed, seen, use_bert=use_bert)
         if rec:
             persist_stage(VALIDATED_DIR, article_id, "validated", url, rec)
             persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec)
@@ -371,6 +372,13 @@ if __name__ == "__main__":
         default="all",
         help="Comma-separated subsectors to scan, or all",
     )
+    parser.add_argument(
+        "--use-bert",
+        "-b",
+        action="store_true",
+        default=False,
+        help="Run BERT as a lightweight rejection filter before the LLM (default: off)",
+    )
     args = parser.parse_args()
     run(
         num_files=args.num_files,
@@ -380,4 +388,5 @@ if __name__ == "__main__":
         start_date=args.start_date,
         end_date=args.end_date,
         seen_urls_file=args.seen_urls_file,
+        use_bert=args.use_bert,
     )

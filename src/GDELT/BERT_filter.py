@@ -16,7 +16,7 @@ Example:
 """
 
 from pathlib import Path
-from transformers import pipeline
+from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 import torch
 
 _MODULE_DIR = Path(__file__).resolve().parent
@@ -51,6 +51,8 @@ _FALLBACK_THREAT_LABELS = [
     "medical supply shortage",
 ]
 
+_classifier = None
+
 
 def get_device():
     """Detect the best available device for model inference.
@@ -81,7 +83,17 @@ def load_model():
     else:
         print("[WARN] Finetuned model not found, reverting to base model.")
         MODEL_ID = FALLBACK_MODEL_ID
-    return pipeline("zero-shot-classification", model=MODEL_ID, device=device)
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    model = AutoModelForSequenceClassification.from_pretrained(MODEL_ID)
+    
+    original_forward = model.forward
+    def patched_forward(*args, **kwargs):
+        kwargs.pop("token_type_ids", None)
+        return original_forward(*args, **kwargs)
+    model.forward = patched_forward
+
+    return pipeline("zero-shot-classification", model=model, device=device, tokenizer=tokenizer)
 
 
 def run_bert_inference(data: dict, classifier=None) -> str:
@@ -107,8 +119,11 @@ def run_bert_inference(data: dict, classifier=None) -> str:
             "other", or "none". If falling back to base model, one of:
             "potential_hit" or "none".
     """
+    global _classifier
     if classifier is None:
-        classifier = load_model()
+        if _classifier is None:
+            _classifier = load_model()
+        classifier = _classifier
 
     title = str(data.get("title") or "").strip()
     body = str(data.get("body") or "").strip()
@@ -120,6 +135,7 @@ def run_bert_inference(data: dict, classifier=None) -> str:
             _FINETUNED_CANDIDATES,
             multi_label=False,
             hypothesis_template="This healthcare news involves {}.",
+            truncation=True,
         )
         return _CANDIDATE_TO_SUBSECTOR.get(res["labels"][0], "none")
     else:
@@ -129,6 +145,7 @@ def run_bert_inference(data: dict, classifier=None) -> str:
             _FALLBACK_CANDIDATES,
             multi_label=True,
             hypothesis_template="This healthcare news involves a {}.",
+            truncation=True,
         )
         scores = dict(zip(res["labels"], res["scores"]))
         unrelated_score = scores.get("unrelated news", 0)

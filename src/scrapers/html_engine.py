@@ -221,7 +221,7 @@ def fetch_html_page(site_config, page_url):
     return articles, stop
 
 
-def run_html_scraper(site_config):
+def run_html_scraper(site_config, use_bert: bool = False):
     print(f"--- Scraping for {site_config['name']} has started ---")
     check_valid_file(site_config["name"])
 
@@ -269,7 +269,7 @@ def run_html_scraper(site_config):
             break
 
         for article in articles:
-            is_threat, detail = ai_check_validation(article["title"], article["body"])
+            is_threat, detail = ai_check_validation(article["title"], article["body"], use_bert=use_bert)
             if is_threat:
                 if detail not in SUBSECTOR_FIELDS:
                     print(
@@ -350,5 +350,16 @@ def run_html_scraper(site_config):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="HTML scraper for healthcare news sites")
+    parser.add_argument(
+        "--use-bert",
+        action="store_true",
+        default=False,
+        help="Run BERT pre-filter before LLM validation to skip unrelated articles early",
+    )
+    args = parser.parse_args()
+
     for site in HTML_SITES:
-        run_html_scraper(site)
+        run_html_scraper(site, use_bert=args.use_bert)

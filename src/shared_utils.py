@@ -502,16 +502,28 @@ def get_body(url: str) -> str:
     return main.get_text(" ", strip=True)
 
 
+_classifier = None
+
+
 def _run_bert(title: str, body: str) -> str:
     """
     Run BERT inference on an article. Returns the predicted subsector string or "none".
+    Loads the classifier once on first call and reuses it for subsequent articles.
+    "potential_hit" from the base model fallback is normalized to "other".
     """
+    global _classifier
     try:
-        from src.GDELT.BERT_filter import run_bert_inference
+        from src.GDELT.BERT_filter import run_bert_inference, load_model
     except ImportError as exc:
         raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
 
-    return run_bert_inference({"title": title, "body": body})
+    if _classifier is None:
+        _classifier = load_model()
+
+    result = run_bert_inference({"title": title, "body": body}, _classifier)
+    if result == "potential_hit":
+        return "other"
+    return result
 
 
 def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
@@ -533,12 +545,14 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     If an error occurs during the request or response parsing, the function catches the error, logs it, and returns False with "Parsing Error".
     """
 
+    bert_hint = ""
     if use_bert:
         bert_subsector = _run_bert(title, body)
         if bert_subsector == "none":
             print("[BERT] rejected skipping LLM")
             return False, "BERT: unrelated news"
         print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
+        bert_hint = f"\nBERT PRE-CLASSIFICATION (hint only): {bert_subsector}\n"
 
     prompt = f"""
         [INST] <<SYS>>
@@ -612,7 +626,7 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
         If your analysis sentence describes a confirmed cyberattack, ransomware, breach, PHI exposure, drug shortage, device shortage, evacuation, or care stoppage at a NAMED healthcare entity, you MUST set is_operational_disruption to true and pick a non-"none" subsector. Your boolean MUST match the facts in your analysis sentence — never say "confirmed breach" in analysis and false in the boolean.
         <</SYS>>
 
-        TITLE: {title}
+        TITLE: {title}{bert_hint}
         EXCERPT: {body}
 
         [/INST]

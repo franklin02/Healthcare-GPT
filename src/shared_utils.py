@@ -566,7 +566,7 @@ def _run_bert(title: str, body: str) -> str:
             return "none"
 
     else:
-        # print("[DEBUG] Reusing cached BERT classifier")
+        LOGGER.debug("Reusing cached BERT classifier for title %s", title)
         pass
 
     try:
@@ -735,7 +735,7 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
             },
             timeout=60,
         )
-        # print(f"[DEBUG] HTTP status: {resp.status_code}")
+        LOGGER.debug("HTTP status %d", resp.status_code)
         raw_response = resp.json().get("response", "{}")
         LOGGER.debug(
             "Validation LLM raw response title=%s raw_response=%s",
@@ -743,7 +743,7 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
             raw_response,
         )
         data = json.loads(raw_response)
-        # print(f"[DEBUG] Parsed JSON: {data}")
+        LOGGER.debug("Parsed JSON for title %s: %s", title, data)
         is_threat = data.get("is_operational_disruption", False)
 
         # Use subsector if it's a threat, otherwise use the analysis as the "reason"

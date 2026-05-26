@@ -51,7 +51,6 @@ class CliReporter:
         self.stream = stream or sys.stdout
         self._progress_active = False
         self._last_progress_len = 0
-        self._progress_issue_lines = 0
 
     def phase(self, message: str) -> None:
         """Print a visible phase header."""
@@ -91,17 +90,7 @@ class CliReporter:
             f"{self._percent(current, total)}% {label} ({current}/{total})"
         )
         padding = " " * max(self._last_progress_len - len(message), 0)
-        if self._progress_issue_lines:
-            print(
-                f"\033[{self._progress_issue_lines}A"
-                f"\r{message}{padding}"
-                f"\033[{self._progress_issue_lines}B\r",
-                end="",
-                file=self.stream,
-                flush=True,
-            )
-        else:
-            print(f"\r{message}{padding}", end="", file=self.stream, flush=True)
+        print(f"\r{message}{padding}", end="", file=self.stream, flush=True)
         self._progress_active = True
         self._last_progress_len = len(message)
         if total <= 0 or current >= total:
@@ -155,10 +144,7 @@ class CliReporter:
         print(message, file=self.stream)
 
     def _print_issue(self, message: str) -> None:
-        if self._progress_active:
-            print(f"\n\t{message}", end="", file=self.stream, flush=True)
-            self._progress_issue_lines += 1
-            return
+        self._finish_progress_line()
         print(f"\t{message}", file=self.stream)
 
     def _finish_progress_line(self) -> None:
@@ -166,4 +152,3 @@ class CliReporter:
             print(file=self.stream)
             self._progress_active = False
             self._last_progress_len = 0
-            self._progress_issue_lines = 0

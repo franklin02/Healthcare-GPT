@@ -54,24 +54,6 @@ except Exception as e:
     print(f"[WARNING] Supabase unavailable, DB writes disabled: {e}")
     SUPABASE_AVAILABLE = False
 
-try:
-    from src.supabase_function import (
-        load_cite,
-        is_known_db,
-        insert_vuln,
-        insert_noise,
-        has_supabase_creds,
-    )
-
-    SUPABASE_AVAILABLE = has_supabase_creds()
-    if not SUPABASE_AVAILABLE:
-        print(
-            "[WARNING] SUPABASE_URL or SUPABASE_KEY missing from env, DB writes disabled"
-        )
-except Exception as e:
-    print(f"[WARNING] Supabase unavailable, DB writes disabled: {e}")
-    SUPABASE_AVAILABLE = False
-
 BODY_CHAR_LIMIT = 4000
 LOGGER = get_file_logger(__name__, LOG_FILE)
 

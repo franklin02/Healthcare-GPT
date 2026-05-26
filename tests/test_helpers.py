@@ -55,7 +55,8 @@ class TestEnsureOllamaModelAvailable:
             helpers.ensure_model_available("gemma4:e4b")
 
         assert str(exc.value) == (
-            "[ERROR] Model 'gemma4:e4b' not found in Ollama.\n"
+            "[ERROR] Model 'gemma4:e4b' not found in Ollama. Make sure Ollama "
+            "is installed, on PATH, and running.\n"
             "Run: ollama pull gemma4:e4b"
         )
 
@@ -65,10 +66,11 @@ class TestEnsureOllamaModelAvailable:
         with pytest.raises(SystemExit) as exc:
             helpers.ensure_model_available("gemma4:e4b")
 
-        message = str(exc.value)
-        assert "Could not run 'ollama list'" in message
-        assert "installed, on PATH, and running" in message
-        assert "Run: ollama pull gemma4:e4b" in message
+        assert str(exc.value) == (
+            "[ERROR] Model 'gemma4:e4b' not found in Ollama. Make sure Ollama "
+            "is installed, on PATH, and running.\n"
+            "Run: ollama pull gemma4:e4b"
+        )
 
     @patch(
         "src.shared_utils.subprocess.run",
@@ -79,9 +81,11 @@ class TestEnsureOllamaModelAvailable:
         with pytest.raises(SystemExit) as exc:
             helpers.ensure_model_available("gemma4:e4b")
 
-        message = str(exc.value)
-        assert "Could not run 'ollama list'" in message
-        assert "Run: ollama pull gemma4:e4b" in message
+        assert str(exc.value) == (
+            "[ERROR] Model 'gemma4:e4b' not found in Ollama. Make sure Ollama "
+            "is installed, on PATH, and running.\n"
+            "Run: ollama pull gemma4:e4b"
+        )
 
     @patch("src.shared_utils.subprocess.run")
     def test_ollama_list_nonzero_exits_with_running_guidance(self, mock_run):
@@ -95,11 +99,12 @@ class TestEnsureOllamaModelAvailable:
         with pytest.raises(SystemExit) as exc:
             helpers.ensure_model_available("gemma4:e4b")
 
-        message = str(exc.value)
-        assert "Could not query Ollama models" in message
-        assert "installed, on PATH, and running" in message
-        assert "Error: could not connect to ollama app" in message
-        assert "Run: ollama pull gemma4:e4b" in message
+        assert str(exc.value) == (
+            "[ERROR] Model 'gemma4:e4b' not found in Ollama. Make sure Ollama "
+            "is installed, on PATH, and running.\n"
+            "Details: Error: could not connect to ollama app\n"
+            "Run: ollama pull gemma4:e4b"
+        )
 
 
 class TestGetBody:

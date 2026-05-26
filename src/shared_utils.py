@@ -743,6 +743,16 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         )
 
 
+def _ollama_model_error(model: str, details: str | None = None) -> str:
+    message = (
+        f"[ERROR] Model '{model}' not found in Ollama. Make sure Ollama is "
+        "installed, on PATH, and running."
+    )
+    if details:
+        message = f"{message}\nDetails: {details}"
+    return f"{message}\nRun: ollama pull {model}"
+
+
 def ensure_model_available(model: str = AI_MODEL) -> None:
     """Fail fast if the configured Ollama model is not installed locally."""
     if model in _VERIFIED_OLLAMA_MODELS:
@@ -757,21 +767,11 @@ def ensure_model_available(model: str = AI_MODEL) -> None:
             timeout=15,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        raise SystemExit(
-            "[ERROR] Could not run 'ollama list'. Make sure Ollama is installed, "
-            "on PATH, and running.\n"
-            f"Run: ollama pull {model}"
-        ) from exc
+        raise SystemExit(_ollama_model_error(model)) from exc
 
     if result.returncode != 0:
         details = (result.stderr or result.stdout or "").strip()
-        message = (
-            "[ERROR] Could not query Ollama models. Make sure Ollama is installed, "
-            "on PATH, and running."
-        )
-        if details:
-            message = f"{message}\nDetails: {details}"
-        raise SystemExit(f"{message}\nRun: ollama pull {model}")
+        raise SystemExit(_ollama_model_error(model, details))
 
     installed_models = {
         line.split()[0]
@@ -779,8 +779,6 @@ def ensure_model_available(model: str = AI_MODEL) -> None:
         if line.strip() and line.split()
     }
     if model not in installed_models:
-        raise SystemExit(
-            f"[ERROR] Model '{model}' not found in Ollama.\nRun: ollama pull {model}"
-        )
+        raise SystemExit(_ollama_model_error(model))
 
     _VERIFIED_OLLAMA_MODELS.add(model)

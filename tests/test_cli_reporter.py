@@ -53,7 +53,7 @@ def test_verbose_warning_under_active_progress_is_indented():
     reporter.progress(1, 2, "items")
     reporter.warn("something happened")
 
-    assert stream.getvalue().endswith("items (1/2)\n\t[WARNING] something happened\n")
+    assert stream.getvalue().endswith("items (1/2)\n\t[WARN] something happened\n")
 
 
 def test_verbose_warning_finishes_progress_before_printing():

@@ -35,6 +35,20 @@ def _bert_status() -> str:
         return "BERT pre-filter: enabled"
 
 
+try:
+    from src.supabase_function import (
+        load_cite,
+        is_known_db,
+        insert_vuln,
+        insert_noise,
+        has_supabase_creds,
+    )
+
+    SUPABASE_AVAILABLE = has_supabase_creds()
+except Exception:
+    SUPABASE_AVAILABLE = False
+
+
 SUBSECTOR_FIELDS = [
     "drug_shortage",
     "medical_device_shortage",
@@ -85,20 +99,20 @@ HTML_SITES = [
             "cap": 18,
         },
     },
-    {
-        "name": "MedicalNewsToday",
-        "url": "https://www.medicalnewstoday.com/news",
-        "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
-        "map": {
-            "container": "ol li",
-            "title": None,
-            "link_selector": "a:has(h2)",
-            "body_selector": "article.article-body",
-            "date_selector": "",
-            "starting_page": 1,
-            "cap": 1,
-        },
-    },
+    # {
+    #     "name": "MedicalNewsToday",
+    #     "url": "https://www.medicalnewstoday.com/news",
+    #     "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
+    #     "map": {
+    #         "container": "ol li",
+    #         "title": None,
+    #         "link_selector": "a:has(h2)",
+    #         "body_selector": "article.article-body",
+    #         "date_selector": "",
+    #         "starting_page": 1,
+    #         "cap": 1,
+    #     },
+    # },
     {
         "name": "AHA",
         "url": "https://www.aha.org/news",
@@ -267,6 +281,13 @@ def run_html_scraper(
         reporter.status(_bert_status())
     check_valid_file(site_config["name"])
 
+    db_known: list[dict[str, str]] = []
+    if SUPABASE_AVAILABLE:
+        try:
+            db_known = load_cite(site_config["name"])
+        except Exception as e:
+            print(f"[WARNING] load_cite failed for {site_config['name']}: {e}")
+
     starting_page = site_config["map"]["starting_page"]
     cap = site_config["map"]["cap"]
     current_page = starting_page
@@ -319,6 +340,7 @@ def run_html_scraper(
 
         stats.discovered += len(articles)
         for article_index, article in enumerate(articles, start=1):
+            body_snippet = (article["body"] or "")[:250].replace("\n", " ")
             stats.processed += 1
             if reporter.verbose:
                 reporter.detail(
@@ -326,6 +348,22 @@ def run_html_scraper(
                 )
             else:
                 reporter.progress(article_index - 1, len(articles), site_config["name"])
+
+            if SUPABASE_AVAILABLE and db_known:
+                try:
+                    if is_known_db(db_known, article["title"], body_snippet):
+                        stats.skipped += 1
+                        reporter.detail(
+                            f"[SKIP-DB] Already in Supabase: {article['title']}"
+                        )
+                        if not reporter.verbose:
+                            reporter.progress(
+                                article_index, len(articles), site_config["name"]
+                            )
+                        continue
+                except Exception as e:
+                    reporter.warn(f"is_known_db check failed: {e}", stats)
+
             is_threat, detail = ai_check_validation(
                 article["title"],
                 article["body"],
@@ -390,6 +428,14 @@ def run_html_scraper(
                 new_vulns.append(vuln)
                 stats.validated += 1
                 reporter.detail(f"[VALID] ({vuln.subsector}): {vuln.title}")
+
+                if SUPABASE_AVAILABLE:
+                    try:
+                        insert_vuln(vuln)
+                    except Exception as e:
+                        reporter.warn(
+                            f"insert_vuln failed for {vuln.title!r}: {e}", stats
+                        )
             else:
                 stats.rejected += 1
                 body_preview = (article["body"] or "")[:250].replace("\n", " ")
@@ -403,6 +449,23 @@ def run_html_scraper(
                         body_preview,
                     ]
                 )
+                if SUPABASE_AVAILABLE:
+                    try:
+                        insert_noise(
+                            source_name=site_config["name"],
+                            title=article["title"],
+                            url=article["link"],
+                            reason=detail,
+                            body_preview=body_preview,
+                            date_accessed=datetime.datetime.now().strftime(
+                                "%Y-%m-%d %H:%M"
+                            ),
+                        )
+                    except Exception as e:
+                        reporter.warn(
+                            f"insert_noise failed for {article['title']!r}: {e}",
+                            stats,
+                        )
             if not reporter.verbose:
                 reporter.progress(article_index, len(articles), site_config["name"])
 

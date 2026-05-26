@@ -4,6 +4,7 @@ GDELT end-to-end runner.
 Pipeline:
   gdelt_seeds.backfill_cyber_seeds     -- collect candidate seeds from GDELT GKG
   src.shared_utils.get_body            -- scrape page body
+  src.shared_utils.get_title           -- scrape page title (skipped on empty body)
   src.shared_utils.ai_check_validation -- LLM validates as active disruption
   src.shared_utils.extract_fields      -- LLM extracts schema-specific fields
 
@@ -22,7 +23,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.GDELT.gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES  # noqa: E402
-from src.shared_utils import AI_MODEL, ai_check_validation, extract_fields, get_body  # noqa: E402
+from src.shared_utils import (  # noqa: E402
+    AI_MODEL,
+    ai_check_validation,
+    extract_fields,
+    get_body,
+    get_title,
+)
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
 from src.logging_utils import get_file_logger  # noqa: E402
@@ -39,6 +46,16 @@ LOG_FILE = LOG_DIR / "gdelt_runner.log"
 
 BODY_CHAR_LIMIT = 4000
 LOGGER = get_file_logger(__name__, LOG_FILE)
+
+try:
+    from src.supabase_function import has_supabase_creds, insert_vuln
+
+    SUPABASE_AVAILABLE = has_supabase_creds()
+    if not SUPABASE_AVAILABLE:
+        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
+except Exception as e:
+    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
+    SUPABASE_AVAILABLE = False
 
 
 def _bert_status() -> str:
@@ -194,7 +211,7 @@ def process_seed(
         LOGGER.debug("Empty body for url=%s", url)
         return None
 
-    title = url
+    title = get_title(url)
     excerpt = body[:BODY_CHAR_LIMIT]
 
     is_disruption, detail = ai_check_validation(
@@ -374,6 +391,11 @@ def run(
             persist_stage(VALIDATED_DIR, article_id, "validated", url, rec.to_dict())
             persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
             records.append(rec)
+            if SUPABASE_AVAILABLE:
+                try:
+                    insert_vuln(rec)
+                except Exception as e:
+                    LOGGER.warning("insert_vuln failed for %r: %s", rec.title, e)
         else:
             LOGGER.debug("Seed skipped url=%s", url)
         if not reporter.verbose:

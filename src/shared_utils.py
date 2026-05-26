@@ -737,7 +737,7 @@ def get_extraction_template(subsector: str) -> dict:
     subsector_cls = SUBSECTOR_DATA_CLASSES.get(subsector)
     subsector_fields = SUBSECTOR_FIELDS.get(subsector, [])
 
-    if subsector_cls and hasattr(subsector_cls, "__annotations__"):
+    if subsector_cls:
         annotations = subsector_cls.__annotations__
         for field in subsector_fields:
             if field in annotations:

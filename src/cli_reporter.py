@@ -51,6 +51,7 @@ class CliReporter:
         self.stream = stream or sys.stdout
         self._progress_active = False
         self._last_progress_len = 0
+        self._progress_issue_lines = 0
 
     def phase(self, message: str) -> None:
         """Print a visible phase header."""
@@ -69,13 +70,13 @@ class CliReporter:
         """Print a warning and optionally increment warning stats."""
         if stats is not None:
             stats.warnings += 1
-        self._print(f"[WARN] {message}")
+        self._print_issue(f"[WARN] {message}")
 
     def error(self, message: str, stats: PipelineStats | None = None) -> None:
         """Print an error and optionally increment error stats."""
         if stats is not None:
             stats.errors += 1
-        self._print(f"[ERROR] {message}")
+        self._print_issue(f"[ERROR] {message}")
 
     def progress(self, current: int, total: int, label: str = "Progress") -> None:
         """Redraw a fixed-width progress bar for the current item count."""
@@ -84,7 +85,17 @@ class CliReporter:
             f"{self._percent(current, total)}% {label} ({current}/{total})"
         )
         padding = " " * max(self._last_progress_len - len(message), 0)
-        print(f"\r{message}{padding}", end="", file=self.stream, flush=True)
+        if self._progress_issue_lines:
+            print(
+                f"\033[{self._progress_issue_lines}A"
+                f"\r{message}{padding}"
+                f"\033[{self._progress_issue_lines}B\r",
+                end="",
+                file=self.stream,
+                flush=True,
+            )
+        else:
+            print(f"\r{message}{padding}", end="", file=self.stream, flush=True)
         self._progress_active = True
         self._last_progress_len = len(message)
         if total <= 0 or current >= total:
@@ -137,8 +148,16 @@ class CliReporter:
         self._finish_progress_line()
         print(message, file=self.stream)
 
+    def _print_issue(self, message: str) -> None:
+        if self._progress_active:
+            print(f"\n\t{message}", end="", file=self.stream, flush=True)
+            self._progress_issue_lines += 1
+            return
+        print(f"\t{message}", file=self.stream)
+
     def _finish_progress_line(self) -> None:
         if self._progress_active:
             print(file=self.stream)
             self._progress_active = False
             self._last_progress_len = 0
+            self._progress_issue_lines = 0

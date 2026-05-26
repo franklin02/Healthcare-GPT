@@ -35,6 +35,29 @@ def test_print_finishes_active_progress_line():
     assert stream.getvalue().endswith("items (1/2)\ndone enough\n")
 
 
+def test_warning_under_active_progress_is_indented():
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+
+    reporter.progress(1, 2, "items")
+    reporter.warn("something happened")
+
+    assert stream.getvalue().endswith("items (1/2)\n\t[WARN] something happened")
+
+
+def test_progress_after_warning_repaints_original_bar_line():
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+
+    reporter.progress(1, 3, "items")
+    reporter.warn("something happened")
+    reporter.progress(2, 3, "items")
+
+    output = stream.getvalue()
+    assert "\n\t[WARN] something happened" in output
+    assert "\033[1A\rProgress: [██████░░░░] 67% items (2/3)\033[1B\r" in output
+
+
 def test_detail_only_prints_when_verbose():
     quiet_stream = io.StringIO()
     CliReporter(verbose=False, stream=quiet_stream).detail("hidden")

@@ -311,7 +311,7 @@ def run_html_scraper(
                     f"[{article_index}/{len(articles)}] {article['title'][:90]}"
                 )
             else:
-                reporter.progress(article_index, len(articles), site_config["name"])
+                reporter.progress(article_index - 1, len(articles), site_config["name"])
             is_threat, detail = ai_check_validation(
                 article["title"], article["body"], use_bert=use_bert
             )
@@ -322,6 +322,10 @@ def run_html_scraper(
                         f"Unrecognized subsector '{detail}'; skipping: {article['title']}",
                         stats,
                     )
+                    if not reporter.verbose:
+                        reporter.progress(
+                            article_index, len(articles), site_config["name"]
+                        )
                     continue
                 sector_data, ss_data = extract_fields(
                     detail, article["title"], article["body"]
@@ -382,6 +386,8 @@ def run_html_scraper(
                         body_preview,
                     ]
                 )
+            if not reporter.verbose:
+                reporter.progress(article_index, len(articles), site_config["name"])
 
         if stop:
             break

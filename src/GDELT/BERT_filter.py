@@ -76,6 +76,14 @@ def get_device():
         return -1
 
 
+def _device_label(device) -> str:
+    if device == 0:
+        return "cuda"
+    if device == "mps":
+        return "mps"
+    return "cpu"
+
+
 def load_model():
     """Load the zero-shot classification pipeline.
 
@@ -86,6 +94,7 @@ def load_model():
         transformers.Pipeline: Loaded zero-shot classification pipeline.
     """
     device = get_device()
+    device_label = _device_label(device)
     print(f"[DEBUG] Looking for finetuned model at: {FINETUNE_BERT_PATH}")
     if FINETUNE_BERT_PATH.exists():
         MODEL_ID = FINETUNE_BERT_PATH
@@ -104,8 +113,8 @@ def load_model():
             tokenizer=tokenizer,
             device=device,
         )
-        print(f"[INFO] BERT model loaded from {MODEL_ID}")
-        LOGGER.info("BERT model loaded from %s", MODEL_ID)
+        print(f"[INFO] BERT model loaded from {MODEL_ID} using {device_label}")
+        LOGGER.info("BERT model loaded from %s using %s", MODEL_ID, device_label)
         return model
     except Exception as e:
         print(f"[WARN] Failed to load BERT model: {e}")

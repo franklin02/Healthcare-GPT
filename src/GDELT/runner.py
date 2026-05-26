@@ -343,7 +343,7 @@ def run(
         if reporter.verbose:
             reporter.detail(f"[{i}/{len(seeds)}]")
         else:
-            reporter.progress(i, len(seeds), "GDELT articles")
+            reporter.progress(i - 1, len(seeds), "GDELT articles")
         LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
         url = seed["url"]
         article_id = stable_id(url)
@@ -360,6 +360,8 @@ def run(
             records.append(rec)
         else:
             LOGGER.debug("Seed skipped url=%s", url)
+        if not reporter.verbose:
+            reporter.progress(i, len(seeds), "GDELT articles")
 
     # Save seen URLs once at the end
     save_seen(seen, seen_urls_path)

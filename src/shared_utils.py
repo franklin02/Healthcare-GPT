@@ -719,6 +719,52 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
         return False, "Parsing Error"
 
 
+def get_extraction_template(subsector: str) -> dict:
+    """Builds a typed JSON extraction template for the LLM prompt.
+
+    Inspects the dataclass annotations for the given subsector and maps 
+    each field to a stringified type hint (e.g., "string", "boolean", "integer", 
+    "list of strings") to constrain the LLM output and prevent type hallucination.
+
+    Args:
+        subsector (str): The classification name of the healthcare subsector.
+
+    Returns:
+        dict: A mapping of required field names to their expected primitive types.
+    """
+    template = {
+        "exec_summary": "string",
+        "geography_scope": "string",
+        "start_date": "string",
+        "end_date": "string",
+        "resilience_or_mitigation_observed": "string",
+    }
+    
+    subsector_cls = SUBSECTOR_DATA_CLASSES.get(subsector)
+    subsector_fields = SUBSECTOR_FIELDS.get(subsector, [])
+    
+    if subsector_cls and hasattr(subsector_cls, "__annotations__"):
+        annotations = subsector_cls.__annotations__
+        for field in subsector_fields:
+            if field in annotations:
+                type_str = str(annotations[field]).lower()
+                if "list" in type_str:
+                    template[field] = "list of strings"
+                elif "bool" in type_str:
+                    template[field] = "boolean"
+                elif "int" in type_str or "float" in type_str:
+                    template[field] = "integer"
+                else:
+                    template[field] = "string"
+            else:
+                template[field] = "string"
+    else:
+        for field in subsector_fields:
+            template[field] = "string"
+            
+    return template
+
+
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
     """
     This function is called once we know an article classifies as a true vulnerability. We pass in the artile information

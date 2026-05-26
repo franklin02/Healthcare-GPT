@@ -688,11 +688,11 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
             },
             timeout=60,
         )
-        #print(f"[DEBUG] HTTP status: {resp.status_code}")
+        # print(f"[DEBUG] HTTP status: {resp.status_code}")
         raw_response = resp.json().get("response", "{}")
-        #print(f"[DEBUG] Raw LLM response: {raw_response[:300]}")
+        # print(f"[DEBUG] Raw LLM response: {raw_response[:300]}")
         data = json.loads(raw_response)
-        #print(f"[DEBUG] Parsed JSON: {data}")
+        # print(f"[DEBUG] Parsed JSON: {data}")
         is_threat = data.get("is_operational_disruption", False)
 
         # Use subsector if it's a threat, otherwise use the analysis as the "reason"

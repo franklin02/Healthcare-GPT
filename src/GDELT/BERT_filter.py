@@ -20,7 +20,7 @@ from transformers import pipeline
 import torch
 
 _MODULE_DIR = Path(__file__).resolve().parent
-FINETUNE_BERT_PATH = _MODULE_DIR.parent.parent / "models" / "healthcare_bert_v2"
+FINETUNE_BERT_PATH = _MODULE_DIR.parent / "models" / "healthcare_bert_v2"
 FALLBACK_MODEL_ID = "typeform/distilbert-base-uncased-mnli"
 
 _FINETUNED_CANDIDATES = [
@@ -76,12 +76,29 @@ def load_model():
         transformers.Pipeline: Loaded zero-shot classification pipeline.
     """
     device = get_device()
+    print(f"[DEBUG] Looking for finetuned model at: {FINETUNE_BERT_PATH}")
     if FINETUNE_BERT_PATH.exists():
         MODEL_ID = FINETUNE_BERT_PATH
     else:
         print("[WARN] Finetuned model not found, reverting to base model.")
         MODEL_ID = FALLBACK_MODEL_ID
-    return pipeline("zero-shot-classification", model=MODEL_ID, device=device)
+
+    try:
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+        tokenizer.model_input_names = ["input_ids", "attention_mask"]
+        model = pipeline(
+            "zero-shot-classification",
+            model=MODEL_ID,
+            tokenizer=tokenizer,
+            device=device,
+        )
+        print(f"[INFO] BERT model loaded from {MODEL_ID}")
+        return model
+    except Exception as e:
+        print(f"[WARN] Failed to load BERT model: {e}")
+        return None
 
 
 def run_bert_inference(data: dict, classifier=None) -> str:
@@ -121,7 +138,16 @@ def run_bert_inference(data: dict, classifier=None) -> str:
             multi_label=False,
             hypothesis_template="This healthcare news involves {}.",
         )
-        return _CANDIDATE_TO_SUBSECTOR.get(res["labels"][0], "none")
+
+        top_label = res["labels"][0]
+        top_score = res["scores"][0]
+
+        print(f"[BERT] top label: '{top_label}' (score: {top_score:.2f})")
+
+        if top_score < 0.15:
+            return "none"
+
+        return _CANDIDATE_TO_SUBSECTOR.get(top_label, "none")
     else:
         print("[WARN] Running inference with base model, results may be less accurate.")
         res = classifier(

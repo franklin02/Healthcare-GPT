@@ -519,6 +519,13 @@ def _run_bert(title: str, body: str) -> str:
 
     if _classifier is None:
         _classifier = load_model()
+        if _classifier is None:
+            print("[WARN] BERT classifier failed to load, skipping.")
+            return "none"
+
+    else:
+        # print("[DEBUG] Reusing cached BERT classifier")
+        pass
 
     result = run_bert_inference({"title": title, "body": body}, _classifier)
     if result == "potential_hit":
@@ -548,10 +555,11 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     if use_bert:
         bert_subsector = _run_bert(title, body)
         if bert_subsector == "none":
-            print("[BERT] rejected — skipping LLM")
+            print("[BERT] rejected, skipping LLM")
             return False, "BERT: unrelated news"
-        print(f"[BERT] classified as '{bert_subsector}' — skipping validation LLM")
-        return True, bert_subsector
+        print(
+            f"[BERT] classified as '{bert_subsector}' passing to LLM for confirmation"
+        )
 
     prompt = f"""
         [INST] <<SYS>>
@@ -631,6 +639,43 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
         [/INST]
     """
 
+    promptG = f"""
+    You are a strict Healthcare Operations Auditor. Your ONLY job is to flag articles that describe a REAL, ALREADY-OCCURRING healthcare disruption or a CONFIRMED breach at a named healthcare entity.
+
+    DEFAULT TO NO. Reject the article unless the evidence is explicit, named, and concrete. The vast majority of healthcare news is NOT a disruption.
+
+    ===== ACCEPT (mark YES) ONLY IF (A) OR (B) IS TRUE =====
+
+    (A) ACTIVE CARE DISRUPTION — the article states that a NAMED facility (hospital, clinic, pharmacy, lab, healthcare network) is CURRENTLY or RECENTLY:
+        - Diverting ambulances, cancelling surgeries, or turning patients away
+        - Operating on downtime / paper procedures because EHR is offline
+        - Suspending services or evacuating due to fire, flood, storm, or other physical event
+        - Physically out of a specific drug or medical device that patients need now (real supply outage, not pricing or formulary debate)
+        - Cut off from operations by a workforce strike, power outage, or other concrete event
+
+    (B) CONFIRMED HEALTHCARE BREACH / CYBERATTACK — both must be true:
+        Part 1: Named healthcare entity (hospitals, clinics, pharmacies, insurers, device manufacturers, EHR vendors, labs)
+        Part 2: Incident already confirmed (ransomware, PHI exposed, breach disclosed, systems impacted)
+
+    ===== REJECT (mark NO) =====
+    - Earnings, funding, IPOs, partnerships, product launches
+    - Policy, legislation, regulation, research, clinical trials
+    - Drug pricing without actual supply outage
+    - Cyber threats/advisories not yet exploited
+    - Op-eds, interviews, wellness articles, anything hedged with "could" or "may"
+
+    ===== OUTPUT =====
+    Respond with EXACTLY this JSON and nothing else:
+    {{
+    "analysis": "One factual sentence: name the entity and impact, OR reason for rejection.",
+    "is_operational_disruption": true or false,
+    "subsector": "drug_shortage" | "medical_device_shortage" | "cyber_attack" | "natural_disaster" | "other" | "none"
+    }}
+
+    TITLE: {title}
+    EXCERPT: {body}
+    """
+
     try:
         resp = requests.post(
             AI_URL,
@@ -643,10 +688,11 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
             },
             timeout=60,
         )
-
+        print(f"[DEBUG] HTTP status: {resp.status_code}")
         raw_response = resp.json().get("response", "{}")
+        print(f"[DEBUG] Raw LLM response: {raw_response[:300]}")
         data = json.loads(raw_response)
-
+        print(f"[DEBUG] Parsed JSON: {data}")
         is_threat = data.get("is_operational_disruption", False)
 
         # Use subsector if it's a threat, otherwise use the analysis as the "reason"

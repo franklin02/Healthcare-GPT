@@ -269,7 +269,9 @@ def run_html_scraper(site_config, use_bert: bool = False):
             break
 
         for article in articles:
-            is_threat, detail = ai_check_validation(article["title"], article["body"], use_bert=use_bert)
+            is_threat, detail = ai_check_validation(
+                article["title"], article["body"], use_bert=use_bert
+            )
             if is_threat:
                 if detail not in SUBSECTOR_FIELDS:
                     print(
@@ -352,7 +354,9 @@ def run_html_scraper(site_config, use_bert: bool = False):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="HTML scraper for healthcare news sites")
+    parser = argparse.ArgumentParser(
+        description="HTML scraper for healthcare news sites"
+    )
     parser.add_argument(
         "--use-bert",
         action="store_true",

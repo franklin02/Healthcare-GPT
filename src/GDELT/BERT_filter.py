@@ -16,10 +16,20 @@ Example:
 """
 
 from pathlib import Path
-from transformers import pipeline
+
 import torch
+import sys
+from transformers import pipeline
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.logging_utils import get_file_logger
 
 _MODULE_DIR = Path(__file__).resolve().parent
+LOG_FILE = _MODULE_DIR.parent.parent / "data" / "logs" / "bert_filter.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
 FINETUNE_BERT_PATH = _MODULE_DIR.parent / "models" / "healthcare_bert_v2"
 FALLBACK_MODEL_ID = "typeform/distilbert-base-uncased-mnli"
 
@@ -95,9 +105,11 @@ def load_model():
             device=device,
         )
         print(f"[INFO] BERT model loaded from {MODEL_ID}")
+        LOGGER.info("BERT model loaded from %s", MODEL_ID)
         return model
     except Exception as e:
         print(f"[WARN] Failed to load BERT model: {e}")
+        LOGGER.warning("Failed to load BERT model: %s", e)
         return None
 
 
@@ -152,6 +164,10 @@ def run_bert_inference(data: dict, classifier=None) -> str:
         return _CANDIDATE_TO_SUBSECTOR.get(top_label, "none")
     else:
         print("[WARN] Running inference with base model, results may be less accurate.")
+        LOGGER.warning(
+            "Running inference with base model, results may be less accurate for title %s",
+            title,
+        )
         res = classifier(
             text,
             _FALLBACK_CANDIDATES,

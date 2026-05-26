@@ -46,10 +46,17 @@ import csv
 import os
 import tempfile
 import requests
+import sys
 from pathlib import Path
-import sys as _sys
 import re
 from bs4 import BeautifulSoup
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from src.logging_utils import get_file_logger
+from src.classes import Vulnerability
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
@@ -57,9 +64,14 @@ AI_MODEL = "llama3.2"
 # Anchor to the project root so this works both as `scrapers.shared_utils`
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+<<<<<<< 103-per-subsector-prompts
 if str(_PROJECT_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PROJECT_ROOT))
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
+=======
+LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "shared_utils.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
+>>>>>>> main
 
 # temporary for now, to be removed later
 READY_FOR_RAG_DIR = _PROJECT_ROOT / "data" / "processed"
@@ -198,6 +210,7 @@ def get_page(url):
     """
     resp = requests.get(url, timeout=15, headers=HEADERS)
     resp.raise_for_status()
+    LOGGER.debug("Successfully fetched URL: %s", url)
     return resp
 
 
@@ -240,18 +253,25 @@ def check_valid_file(site_name):
     if not json_path.exists():
         json_path.write_text(json.dumps({"sources": []}, indent=4), encoding="utf-8")
         print(f"Created {json_path}")
+        LOGGER.debug("Created JSON file for site %s at %s", site_name, json_path)
 
     noise_path = NOISE_DIR / f"{stem}.csv"
     if not noise_path.exists():
         with open(noise_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(NOISE_CSV_HEADER)
         print(f"Created {noise_path}")
+        LOGGER.debug("Created noise CSV file for site %s at %s", site_name, noise_path)
 
     vulnerabilities_path = VULNERABILITIES_DIR / f"{stem}.csv"
     if not vulnerabilities_path.exists():
         with open(vulnerabilities_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(VULN_CSV_HEADER)
         print(f"Created {vulnerabilities_path}")
+        LOGGER.debug(
+            "Created vulnerabilities CSV file for site %s at %s",
+            site_name,
+            vulnerabilities_path,
+        )
 
 
 def _content_preview(body: str | None) -> str:
@@ -276,6 +296,7 @@ def _top_row_matches(
     """
 
     if not csv_path.exists():
+        LOGGER.debug("CSV file %s does not exist, cannot match top row", csv_path)
         return False
 
     with open(csv_path, "r", newline="", encoding="utf-8") as f:
@@ -283,9 +304,16 @@ def _top_row_matches(
         try:
             first_row = next(reader)
         except StopIteration:
+            LOGGER.debug("CSV file %s is empty, cannot match top row", csv_path)
             return False
 
     if first_row.get("title", "") != title:
+        LOGGER.debug(
+            "Top row title %s does not match incoming title %s in file %s",
+            first_row.get("title", ""),
+            title,
+            csv_path,
+        )
         return False
 
     incoming_preview = _content_preview(body_snippet)
@@ -294,6 +322,7 @@ def _top_row_matches(
             f"[WARN] Title matched but body preview differs for {title!r} "
             f"— stopping anyway"
         )
+        LOGGER.warning("Body preview differs for title %s", title)
     return True
 
 
@@ -342,6 +371,11 @@ def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
             writer.writerows(existing_data_rows)
         os.replace(tmp_path, csv_path)
     except Exception:
+        LOGGER.error(
+            "Failed to prepend to vulnerabilities CSV for site %s: %s",
+            site_name,
+            exc_info=True,
+        )
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
@@ -378,6 +412,9 @@ def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
             writer.writerows(existing_data_rows)
         os.replace(tmp_path, csv_path)
     except Exception:
+        LOGGER.error(
+            "Failed to prepend to noise CSV for site %s: %s", site_name, exc_info=True
+        )
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
@@ -409,6 +446,11 @@ def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None
             json.dump(data, f, indent=4, ensure_ascii=False)
         os.replace(tmp_path, json_path)
     except Exception:
+        LOGGER.error(
+            "Failed to prepend to JSON sources for site %s: %s",
+            site_name,
+            exc_info=True,
+        )
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
@@ -435,6 +477,7 @@ def get_body(url: str) -> str:
         - The returned body may be long; callers should truncate if needed.
     """
     if not url:
+        LOGGER.warning("Empty URL provided to get_body()")
         return ""
 
     # Normalize URL
@@ -447,6 +490,7 @@ def get_body(url: str) -> str:
         resp.raise_for_status()
     except requests.RequestException as e:
         print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
+        LOGGER.error("Failed to fetch URL %s: %s", url, e)
         return ""
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -490,6 +534,7 @@ def get_body(url: str) -> str:
 
     if main is None:
         print("[WARNING] no body found")
+        LOGGER.warning("No body found for URL %s", url)
         return ""
 
     # Prefer paragraph text (gives cleaner article body across sites.)
@@ -498,7 +543,9 @@ def get_body(url: str) -> str:
     paragraphs = [p for p in paragraphs if p]
 
     if paragraphs:
+        LOGGER.debug("Extracted %d paragraphs from URL %s", len(paragraphs), url)
         return "\n\n".join(paragraphs)
+    LOGGER.debug("No paragraphs found, falling back to all text for URL %s", url)
     return main.get_text(" ", strip=True)
 
 
@@ -515,6 +562,7 @@ def _run_bert(title: str, body: str) -> str:
     try:
         from src.GDELT.BERT_filter import run_bert_inference, load_model
     except ImportError as exc:
+        LOGGER.error("Failed to import BERT_filter module: %s", exc)
         raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
 
     if _classifier is None:
@@ -524,7 +572,7 @@ def _run_bert(title: str, body: str) -> str:
             return "none"
 
     else:
-        # print("[DEBUG] Reusing cached BERT classifier")
+        LOGGER.debug("Reusing cached BERT classifier for title %s", title)
         pass
 
     try:
@@ -560,11 +608,11 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     if use_bert:
         bert_subsector = _run_bert(title, body)
         if bert_subsector == "none":
-            print("[BERT] rejected, skipping LLM")
+            print("[BERT] rejected skipping LLM")
+            LOGGER.info("BERT rejected article with title %s", title)
             return False, "BERT: unrelated news"
-        print(
-            f"[BERT] classified as '{bert_subsector}' passing to LLM for confirmation"
-        )
+        print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
+        LOGGER.info("BERT flagged article with title %s as %s", title, bert_subsector)
 
     prompt = f"""
         [INST] <<SYS>>
@@ -693,11 +741,15 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
             },
             timeout=60,
         )
-        # print(f"[DEBUG] HTTP status: {resp.status_code}")
+        LOGGER.debug("HTTP status %d", resp.status_code)
         raw_response = resp.json().get("response", "{}")
-        # print(f"[DEBUG] Raw LLM response: {raw_response[:300]}")
+        LOGGER.debug(
+            "Validation LLM raw response title=%s raw_response=%s",
+            title,
+            raw_response,
+        )
         data = json.loads(raw_response)
-        # print(f"[DEBUG] Parsed JSON: {data}")
+        LOGGER.debug("Parsed JSON for title %s: %s", title, data)
         is_threat = data.get("is_operational_disruption", False)
 
         # Use subsector if it's a threat, otherwise use the analysis as the "reason"
@@ -711,11 +763,11 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
             if is_threat
             else data.get("analysis", "No impact detected")
         )
-
         return is_threat, detail
 
     except Exception as e:
         print(f"Error parsing AI response: {e}")
+        LOGGER.error("Error parsing AI response for title %s: %s", title, e)
         return False, "Parsing Error"
 
 
@@ -782,6 +834,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)
     if not subsector_fields:
         print(f"No fields found for subsector: {subsector}")
+        LOGGER.error("No fields found for subsector %s", subsector)
         exit(1)
 
     # generate typed json template for the LLM
@@ -833,6 +886,12 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         )
 
         raw_response = resp.json().get("response", "{}")
+        LOGGER.debug(
+            "Extraction LLM raw response subsector=%s title=%s raw_response=%s",
+            subsector,
+            title,
+            raw_response,
+        )
         raw = json.loads(raw_response)
 
         sector_data = {k: raw.get(k) for k in LLM_SECTOR_FIELDS}
@@ -841,6 +900,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
 
     except Exception as e:
         print(f"Error extracting fields: {e}")
+        LOGGER.error("Error extracting fields for title %s: %s", title, e)
         return (
             {k: None for k in LLM_SECTOR_FIELDS},
             {k: None for k in subsector_fields},

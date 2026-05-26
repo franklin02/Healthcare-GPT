@@ -90,7 +90,9 @@ def test_load_model_falls_back_to_base_model_when_finetuned_missing(pipeline_moc
 
         assert result is mock_classifier
         mock_get_device.assert_called_once()
-        mock_print.assert_any_call("[WARN] Finetuned model not found, reverting to base model.")
+        mock_print.assert_any_call(
+            "[WARN] Finetuned model not found, reverting to base model."
+        )
         pipeline_mock.assert_called_once_with(
             "zero-shot-classification",
             model=BERT_filter.FALLBACK_MODEL_ID,

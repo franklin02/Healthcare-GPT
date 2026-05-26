@@ -415,6 +415,43 @@ def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None
         raise
 
 
+def get_title(url: str) -> str:
+    """Fetch and return the page title for a URL.
+
+    Extracts the HTML <title> tag and strips common site-name suffixes
+    (e.g. " | Reuters", " - NBC News").  Falls back to the raw URL if no
+    usable ``<title>`` tag is found or the request fails.
+
+    Args:
+        url (str): The URL to fetch.  ``https://`` is prepended if the scheme
+            is missing.
+
+    Returns:
+        str: Cleaned page title, or the URL on failure.
+    """
+    if not url:
+        return url
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
+        return url
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    title_tag = soup.find("title")
+    if title_tag:
+        raw = title_tag.get_text(strip=True)
+        if raw:
+            cleaned = _TITLE_SITE_SUFFIX_RE.sub("", raw).strip()
+            return cleaned if cleaned else raw
+    return url
+
+
 def get_body(url: str) -> str:
     """Fetch and return the main article text for a URL.
 
@@ -490,7 +527,7 @@ def get_body(url: str) -> str:
             break
 
     if main is None:
-        print("[WARNING] no body found")
+        print("[WARN] no body found")
         return ""
 
     # Prefer paragraph text (gives cleaner article body across sites.)
@@ -804,93 +841,3 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
             {k: None for k in LLM_SECTOR_FIELDS},
             {k: None for k in subsector_fields},
         )
-
-
-def get_title_and_body(url: str) -> tuple[str, str]:
-    """
-    Fetch and return the page title and main article text for a URL in one request.
-
-    The title is extracted from the HTML <title> tag with common site-name
-    suffixes stripped (e.g. " | Reuters", " - NBC News").  If no usable
-    <title> tag is found, the raw URL is used as the title fallback.
-
-    Body extraction follows the same heuristics as :func:`get_body`.
-
-    Args:
-        url (str): The URL to fetch. https:// is prepended if the scheme
-            is missing.
-
-    Returns:
-        tuple[str, str]: (title, body) where title is the cleaned page
-        title (or the URL on failure) and body is the article text (empty
-        string on error or when no content is found).
-    """
-    if not url:
-        return url, ""
-
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    try:
-        resp = requests.get(url, timeout=30, headers=HEADERS)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
-        return url, ""
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    title = url
-    title_tag = soup.find("title")
-    if title_tag:
-        raw = title_tag.get_text(strip=True)
-        if raw:
-            cleaned = _TITLE_SITE_SUFFIX_RE.sub("", raw).strip()
-            title = cleaned if cleaned else raw
-
-    for tag in soup(
-        [
-            "script",
-            "style",
-            "noscript",
-            "iframe",
-            "form",
-            "header",
-            "footer",
-            "nav",
-            "aside",
-        ]
-    ):
-        tag.decompose()
-
-    for element in soup.select(_NOISE_SELECTOR):
-        element.decompose()
-
-    for element in soup.find_all(id=_NOISE_RE):
-        element.decompose()
-
-    main = None
-    for candidate in (
-        soup.find("article"),
-        soup.find("main"),
-        soup.find(attrs={"role": "main"}),
-        soup.body,
-        soup,
-    ):
-        if candidate and candidate.get_text(strip=True):
-            main = candidate
-            break
-
-    if main is None:
-        print("[WARN] no body found")
-        return title, ""
-
-    paragraphs = [p.get_text(" ", strip=True) for p in main.find_all("p")]
-    paragraphs = [p for p in paragraphs if p]
-
-    if paragraphs:
-        body = "\n\n".join(paragraphs)
-    else:
-        body = main.get_text(" ", strip=True)
-
-    return title, body

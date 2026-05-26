@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.GDELT.gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES  # noqa: E402
-from src.shared_utils import ai_check_validation, extract_fields, get_body  # noqa: E402
+from src.shared_utils import AI_MODEL, ai_check_validation, extract_fields, get_body  # noqa: E402
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
 from src.logging_utils import get_file_logger  # noqa: E402
@@ -39,6 +39,17 @@ LOG_FILE = LOG_DIR / "gdelt_runner.log"
 
 BODY_CHAR_LIMIT = 4000
 LOGGER = get_file_logger(__name__, LOG_FILE)
+
+
+def _bert_status() -> str:
+    try:
+        from src.GDELT.BERT_filter import describe_model
+
+        model_id, device_label = describe_model()
+        return f"BERT pre-filter: {model_id} using {device_label}"
+    except Exception as exc:
+        LOGGER.warning("Failed to describe BERT model: %s", exc)
+        return "BERT pre-filter: enabled"
 
 
 def stable_id(url: str) -> str:
@@ -186,7 +197,9 @@ def process_seed(
     title = url
     excerpt = body[:BODY_CHAR_LIMIT]
 
-    is_disruption, detail = ai_check_validation(title, excerpt, use_bert=use_bert)
+    is_disruption, detail = ai_check_validation(
+        title, excerpt, use_bert=use_bert, verbose=reporter.verbose
+    )
     LOGGER.debug(
         "LLM validation url=%s disruption=%s detail=%s", url, is_disruption, detail
     )
@@ -278,6 +291,9 @@ def run(
     stats = stats or PipelineStats("GDELT")
     if local_reporter:
         reporter.phase("GDELT pipeline")
+    reporter.status(f"LLM model: {AI_MODEL}")
+    if use_bert:
+        reporter.status(_bert_status())
 
     subsector_list = (
         ["all"]

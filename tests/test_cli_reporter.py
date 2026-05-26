@@ -25,19 +25,30 @@ def test_progress_redraws_until_complete():
     assert "\rProgress: [██████████] 100% items (2/2)" in output
 
 
-def test_print_finishes_active_progress_line():
+def test_status_finishes_active_progress_line():
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
 
     reporter.progress(1, 2, "items")
-    reporter.info("done enough")
+    reporter.status("done enough")
 
     assert stream.getvalue().endswith("items (1/2)\ndone enough\n")
 
 
-def test_warning_under_active_progress_is_indented():
+def test_warning_is_hidden_by_default_but_counted():
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
+    stats = PipelineStats("test")
+
+    reporter.warn("something happened", stats)
+
+    assert stream.getvalue() == ""
+    assert stats.warnings == 1
+
+
+def test_verbose_warning_under_active_progress_is_indented():
+    stream = io.StringIO()
+    reporter = CliReporter(verbose=True, stream=stream)
 
     reporter.progress(1, 2, "items")
     reporter.warn("something happened")
@@ -47,7 +58,7 @@ def test_warning_under_active_progress_is_indented():
 
 def test_progress_after_warning_repaints_original_bar_line():
     stream = io.StringIO()
-    reporter = CliReporter(stream=stream)
+    reporter = CliReporter(verbose=True, stream=stream)
 
     reporter.progress(1, 3, "items")
     reporter.warn("something happened")

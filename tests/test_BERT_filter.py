@@ -65,7 +65,7 @@ def test_load_model_uses_finetuned_model_when_present(pipeline_mock):
         mock_classifier = MagicMock(name="mock_classifier")
         pipeline_mock.return_value = mock_classifier
 
-        result = BERT_filter.load_model()
+        result = BERT_filter.load_model(verbose=True)
 
         assert result is mock_classifier
         mock_get_device.assert_called_once()
@@ -96,7 +96,7 @@ def test_load_model_falls_back_to_base_model_when_finetuned_missing(pipeline_moc
         mock_classifier = MagicMock(name="mock_classifier")
         pipeline_mock.return_value = mock_classifier
 
-        result = BERT_filter.load_model()
+        result = BERT_filter.load_model(verbose=True)
 
         assert result is mock_classifier
         mock_get_device.assert_called_once()

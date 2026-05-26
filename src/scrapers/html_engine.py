@@ -11,6 +11,7 @@ if str(_PROJECT_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PROJECT_ROOT))
 
 from src.shared_utils import (  # noqa: E402
+    AI_MODEL,
     ai_check_validation,
     extract_fields,
     get_page,
@@ -22,6 +23,16 @@ from src.shared_utils import (  # noqa: E402
 )  # noqa: E402
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
+
+
+def _bert_status() -> str:
+    try:
+        from src.GDELT.BERT_filter import describe_model
+
+        model_id, device_label = describe_model()
+        return f"BERT pre-filter: {model_id} using {device_label}"
+    except Exception:
+        return "BERT pre-filter: enabled"
 
 
 SUBSECTOR_FIELDS = [
@@ -251,6 +262,9 @@ def run_html_scraper(
     stats = stats or PipelineStats(site_config["name"])
     stats.sites_scanned += 1
     reporter.phase(f"HTML scraper: {site_config['name']}")
+    reporter.status(f"LLM model: {AI_MODEL}")
+    if use_bert:
+        reporter.status(_bert_status())
     check_valid_file(site_config["name"])
 
     starting_page = site_config["map"]["starting_page"]
@@ -313,7 +327,10 @@ def run_html_scraper(
             else:
                 reporter.progress(article_index - 1, len(articles), site_config["name"])
             is_threat, detail = ai_check_validation(
-                article["title"], article["body"], use_bert=use_bert
+                article["title"],
+                article["body"],
+                use_bert=use_bert,
+                verbose=reporter.verbose,
             )
             if is_threat:
                 if detail not in SUBSECTOR_FIELDS:

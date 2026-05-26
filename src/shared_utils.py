@@ -543,7 +543,7 @@ def get_body(url: str) -> str:
 _classifier = None
 
 
-def _run_bert(title: str, body: str) -> str:
+def _run_bert(title: str, body: str, verbose: bool = False) -> str:
     """
     Run BERT inference on an article. Returns the predicted subsector string or "none".
     Loads the classifier once on first call and reuses it for subsequent articles.
@@ -557,9 +557,12 @@ def _run_bert(title: str, body: str) -> str:
         raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
 
     if _classifier is None:
-        _classifier = load_model()
+        try:
+            _classifier = load_model(verbose=verbose)
+        except TypeError:
+            _classifier = load_model()
         if _classifier is None:
-            print("[WARN] BERT classifier failed to load, skipping.")
+            LOGGER.warning("BERT classifier failed to load, skipping")
             return "none"
 
     else:
@@ -567,9 +570,14 @@ def _run_bert(title: str, body: str) -> str:
         pass
 
     try:
-        result = run_bert_inference({"title": title, "body": body}, _classifier)
+        try:
+            result = run_bert_inference(
+                {"title": title, "body": body}, _classifier, verbose=verbose
+            )
+        except TypeError:
+            result = run_bert_inference({"title": title, "body": body}, _classifier)
     except Exception as e:
-        print(f"[ERROR] BERT inference failed: {e}")
+        LOGGER.warning("BERT inference failed: %s", e)
         return "none"
 
     if result == "potential_hit":
@@ -577,7 +585,9 @@ def _run_bert(title: str, body: str) -> str:
     return result
 
 
-def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
+def ai_check_validation(
+    title, body, use_bert=False, verbose: bool = False
+) -> tuple[bool, str]:
     """
     Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach at a named healthcare entity based on strict, predefined criteria.
 
@@ -597,12 +607,16 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     """
 
     if use_bert:
-        bert_subsector = _run_bert(title, body)
+        bert_subsector = _run_bert(title, body, verbose=verbose)
         if bert_subsector == "none":
-            print("[BERT] rejected skipping LLM")
+            if verbose:
+                print("[BERT] rejected skipping LLM")
             LOGGER.info("BERT rejected article with title %s", title)
             return False, "BERT: unrelated news"
-        print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
+        if verbose:
+            print(
+                f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation"
+            )
         LOGGER.info("BERT flagged article with title %s as %s", title, bert_subsector)
 
     prompt = f"""

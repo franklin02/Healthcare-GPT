@@ -63,14 +63,20 @@ class CliReporter:
             self._print(message)
 
     def info(self, message: str) -> None:
-        """Print a normal user-facing message."""
+        """Print a normal message only when verbose output is enabled."""
+        if self.verbose:
+            self._print(message)
+
+    def status(self, message: str) -> None:
+        """Print a concise status line in all output modes."""
         self._print(message)
 
     def warn(self, message: str, stats: PipelineStats | None = None) -> None:
-        """Print a warning and optionally increment warning stats."""
+        """Print a warning in verbose mode and optionally increment warning stats."""
         if stats is not None:
             stats.warnings += 1
-        self._print_issue(f"[WARN] {message}")
+        if self.verbose:
+            self._print_issue(f"[WARN] {message}")
 
     def error(self, message: str, stats: PipelineStats | None = None) -> None:
         """Print an error and optionally increment error stats."""

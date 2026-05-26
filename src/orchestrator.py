@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from src.cli_reporter import CliReporter, PipelineStats
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _GDELT_DIR = _PROJECT_ROOT / "src" / "GDELT"
@@ -12,7 +13,8 @@ if str(_GDELT_DIR) not in sys.path:
     sys.path.insert(0, str(_GDELT_DIR))
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> int:
+    """Parse CLI options and run the selected pipeline stages."""
     parser = argparse.ArgumentParser(
         description="Unified runner for GDELT and HTML scrapers"
     )
@@ -36,6 +38,13 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
         help="Skip the HTML scraper pipeline",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Show detailed per-article pipeline output",
     )
 
     # GDELT-specific
@@ -81,7 +90,9 @@ if __name__ == "__main__":
         help="Comma-separated subsectors to scan, or 'all'",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    reporter = CliReporter(verbose=args.verbose)
+    summaries: list[PipelineStats] = []
 
     if not args.skip_gdelt:
         from src.GDELT import runner
@@ -92,7 +103,8 @@ if __name__ == "__main__":
         if not l_provided:
             effective_limit = None if n_provided else 3
 
-        print("=== Running GDELT pipeline ===")
+        gdelt_stats = PipelineStats("GDELT")
+        reporter.phase("Running GDELT pipeline")
         runner.run(
             num_files=args.num_files,
             limit=effective_limit,
@@ -102,11 +114,32 @@ if __name__ == "__main__":
             end_date=args.end_date,
             seen_urls_file=args.seen_urls_file,
             use_bert=args.use_bert,
+            verbose=args.verbose,
+            reporter=reporter,
+            stats=gdelt_stats,
         )
+        summaries.append(gdelt_stats)
 
     if not args.skip_html:
         from src.scrapers import html_engine
 
-        print("\n=== Running HTML/Scooper pipeline ===")
+        html_stats = PipelineStats("HTML")
+        reporter.phase("Running HTML/Scooper pipeline")
         for site in html_engine.HTML_SITES:
-            html_engine.run_html_scraper(site, use_bert=args.use_bert)
+            site_stats = html_engine.run_html_scraper(
+                site,
+                use_bert=args.use_bert,
+                verbose=args.verbose,
+                reporter=reporter,
+                stats=PipelineStats(site["name"]),
+            )
+            html_stats.merge(site_stats)
+        summaries.append(html_stats)
+
+    if summaries:
+        reporter.summary(summaries)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

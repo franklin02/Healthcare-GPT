@@ -51,18 +51,15 @@ from pathlib import Path
 import re
 from bs4 import BeautifulSoup
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.logging_utils import get_file_logger
-from src.classes import Vulnerability
+from src.logging_utils import get_file_logger  # noqa: E402
+from src.classes import Vulnerability  # noqa: E402
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
-
-# Anchor to the project root so this works both as `scrapers.shared_utils`
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "shared_utils.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
@@ -723,12 +720,14 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     EXCERPT: {body}
     """
 
+    active_prompt = promptG if AI_MODEL.lower().startswith("gemma") else prompt
+
     try:
         resp = requests.post(
             AI_URL,
             json={
                 "model": AI_MODEL,
-                "prompt": prompt,
+                "prompt": active_prompt,
                 "stream": False,
                 "format": "json",
                 "options": {"temperature": 0.1},

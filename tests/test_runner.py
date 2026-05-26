@@ -1,8 +1,7 @@
-import pytest
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch, mock_open, call
+from unittest.mock import Mock, patch, mock_open
 from datetime import datetime
 
 from src.GDELT import runner
@@ -860,9 +859,9 @@ class TestRun:
 
             with (
                 patch("src.GDELT.runner.backfill_cyber_seeds") as mock_backfill,
-                patch("src.GDELT.runner.ensure_raw_dirs") as mock_ensure,
+                patch("src.GDELT.runner.ensure_raw_dirs"),
                 patch("src.GDELT.runner.load_seen") as mock_load,
-                patch("src.GDELT.runner.save_seen") as mock_save,
+                patch("src.GDELT.runner.save_seen"),
             ):
                 mock_load.return_value = set()
                 mock_backfill.return_value = []
@@ -877,6 +876,72 @@ class TestRun:
                 mock_load.assert_called()
                 call_path = mock_load.call_args[0][0]
                 assert call_path == seen_dir / "seen_urls.json"
+
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
+    def test_run_default_output_is_compact(
+        self,
+        mock_ensure_dirs,
+        mock_persist_stage,
+        mock_process_seed,
+        mock_backfill,
+        mock_persist_raw,
+        mock_load_seen,
+        mock_save_seen,
+        capsys,
+    ):
+        """Default run output should show progress but not verbose item numbering."""
+        mock_load_seen.return_value = set()
+        mock_backfill.return_value = [{"url": "https://example.com/1"}]
+        mock_process_seed.return_value = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner.run(num_files=1, limit=1, subsectors="all", output_path=tmpdir)
+
+        output = capsys.readouterr().out
+        assert "Progress: [██████████] 100% GDELT articles (1/1)" in output
+        assert "[1/1]" not in output
+
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
+    def test_run_verbose_output_shows_detail(
+        self,
+        mock_ensure_dirs,
+        mock_persist_stage,
+        mock_process_seed,
+        mock_backfill,
+        mock_persist_raw,
+        mock_load_seen,
+        mock_save_seen,
+        capsys,
+    ):
+        """Verbose run output should show the current per-item progress detail."""
+        mock_load_seen.return_value = set()
+        mock_backfill.return_value = [{"url": "https://example.com/1"}]
+        mock_process_seed.return_value = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner.run(
+                num_files=1,
+                limit=1,
+                subsectors="all",
+                output_path=tmpdir,
+                verbose=True,
+            )
+
+        output = capsys.readouterr().out
+        assert "[1/1]" in output
+        assert "Progress:" not in output
 
 
 class TestEnsureRawDirs:

@@ -10,7 +10,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.shared_utils import (
+from src.shared_utils import (  # noqa: E402
     ai_check_validation,
     extract_fields,
     get_page,
@@ -19,8 +19,9 @@ from src.shared_utils import (
     prepend_vuln_csv,
     prepend_noise_csv,
     prepend_json_sources,
-)
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
+)  # noqa: E402
+from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
+from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
 
 
 SUBSECTOR_FIELDS = [
@@ -118,16 +119,24 @@ HTML_SITES = [
 ]
 
 
-def fetch_html_page(site_config, page_url):
+def fetch_html_page(
+    site_config,
+    page_url,
+    reporter: CliReporter | None = None,
+    stats: PipelineStats | None = None,
+):
+    """Fetch one listing page and return article payloads plus a stop flag."""
+    reporter = reporter or CliReporter(verbose=True)
     response = get_page(page_url)
     soup = BeautifulSoup(response.content, "html.parser")
 
     m = site_config["map"]
     link_elements = soup.select(m["container"])
     if not link_elements:
-        print(
-            f"[SELECTOR MISS] container '{m['container']}' matched 0 elements on {page_url}"
-            f" — check your container selector in HTML_SITES"
+        reporter.warn(
+            f"container '{m['container']}' matched 0 elements on {page_url}; "
+            "check HTML_SITES config",
+            stats,
         )
         return [], False
 
@@ -141,9 +150,10 @@ def fetch_html_page(site_config, page_url):
             a_tag = el if el.name == "a" else el.select_one("a[href]")
 
         if not a_tag:
-            print(
-                f"[SELECTOR MISS] link_selector '{m.get('link_selector')}' found no anchor"
-                f" in a '{m['container']}' item — skipping"
+            reporter.warn(
+                f"link_selector '{m.get('link_selector')}' found no anchor "
+                f"in a '{m['container']}' item",
+                stats,
             )
             continue
 
@@ -184,17 +194,20 @@ def fetch_html_page(site_config, page_url):
 
             body_el = article_soup.select_one(body_selector)
             if not body_el:
-                print(
-                    f"[SELECTOR MISS] body_selector '{body_selector}' matched nothing on"
-                    f" {entry['link']} — skipping article. Update body_selector in HTML_SITES config."
+                reporter.warn(
+                    f"body_selector '{body_selector}' matched nothing on "
+                    f"{entry['link']}; skipping article",
+                    stats,
                 )
+                if stats is not None:
+                    stats.skipped += 1
                 time.sleep(0.5)
                 continue
 
             body = body_el.get_text(separator=" ", strip=True)
 
             if is_known_article(site_config["name"], entry["title"], body):
-                print(
+                reporter.detail(
                     f"[FINISH] Reached known article on {site_config['name']}: "
                     f"{entry['title']!r}"
                 )
@@ -206,7 +219,11 @@ def fetch_html_page(site_config, page_url):
 
             time.sleep(0.5)
         except Exception as e:
-            print(f"[WARNING] Could not fetch article body at {entry['link']}: {e}")
+            reporter.warn(
+                f"Could not fetch article body at {entry['link']}: {e}", stats
+            )
+            if stats is not None:
+                stats.skipped += 1
             continue
 
         articles.append(
@@ -221,8 +238,19 @@ def fetch_html_page(site_config, page_url):
     return articles, stop
 
 
-def run_html_scraper(site_config, use_bert: bool = False):
-    print(f"--- Scraping for {site_config['name']} has started ---")
+def run_html_scraper(
+    site_config,
+    use_bert: bool = False,
+    verbose: bool = False,
+    reporter: CliReporter | None = None,
+    stats: PipelineStats | None = None,
+) -> PipelineStats:
+    """Run one configured HTML scraper and return its run statistics."""
+    local_reporter = reporter is None
+    reporter = reporter or CliReporter(verbose=verbose)
+    stats = stats or PipelineStats(site_config["name"])
+    stats.sites_scanned += 1
+    reporter.phase(f"HTML scraper: {site_config['name']}")
     check_valid_file(site_config["name"])
 
     starting_page = site_config["map"]["starting_page"]
@@ -255,27 +283,44 @@ def run_html_scraper(site_config, use_bert: bool = False):
                 page_url = f"{site_config['url']}{sep}{page_param}={current_page}"
 
         try:
-            articles, stop = fetch_html_page(site_config, page_url)
-        except Exception as e:
-            print(
-                f"[ERROR] Fetching {site_config['name']} page {current_page} ({page_url}): {e}"
+            articles, stop = fetch_html_page(
+                site_config,
+                page_url,
+                reporter=reporter,
+                stats=stats,
             )
-            return
+        except Exception as e:
+            reporter.error(
+                f"Fetching {site_config['name']} page {current_page} ({page_url}): {e}",
+                stats,
+            )
+            return stats
 
         if not articles:
-            print(
-                f"[WARNING] No articles found on page {current_page} — stopping pagination"
+            reporter.warn(
+                f"No articles found on page {current_page}; stopping pagination",
+                stats,
             )
             break
 
-        for article in articles:
+        stats.discovered += len(articles)
+        for article_index, article in enumerate(articles, start=1):
+            stats.processed += 1
+            if reporter.verbose:
+                reporter.detail(
+                    f"[{article_index}/{len(articles)}] {article['title'][:90]}"
+                )
+            else:
+                reporter.progress(article_index, len(articles), site_config["name"])
             is_threat, detail = ai_check_validation(
                 article["title"], article["body"], use_bert=use_bert
             )
             if is_threat:
                 if detail not in SUBSECTOR_FIELDS:
-                    print(
-                        f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
+                    stats.skipped += 1
+                    reporter.warn(
+                        f"Unrecognized subsector '{detail}'; skipping: {article['title']}",
+                        stats,
                     )
                     continue
                 sector_data, ss_data = extract_fields(
@@ -322,8 +367,10 @@ def run_html_scraper(site_config, use_bert: bool = False):
                     ]
                 )
                 new_vulns.append(vuln)
-                print(f"[VALID] ({vuln.subsector}): {vuln.title}")
+                stats.validated += 1
+                reporter.detail(f"[VALID] ({vuln.subsector}): {vuln.title}")
             else:
+                stats.rejected += 1
                 body_preview = (article["body"] or "")[:250].replace("\n", " ")
                 new_noise_rows.append(
                     [
@@ -345,10 +392,14 @@ def run_html_scraper(site_config, use_bert: bool = False):
     prepend_vuln_csv(site_config["name"], new_rows)
     prepend_noise_csv(site_config["name"], new_noise_rows)
     prepend_json_sources(site_config["name"], new_vulns)
-    print(
-        f"--- Finished {site_config['name']}: "
-        f"{len(new_vulns)} vuln(s) + {len(new_noise_rows)} noise prepended ---"
+    stats.output_records += len(new_vulns)
+    reporter.info(
+        f"Finished {site_config['name']}: "
+        f"{len(new_vulns)} vuln(s), {len(new_noise_rows)} rejected"
     )
+    if local_reporter:
+        reporter.summary(stats)
+    return stats
 
 
 if __name__ == "__main__":
@@ -363,7 +414,14 @@ if __name__ == "__main__":
         default=False,
         help="Run BERT pre-filter before LLM validation to skip unrelated articles early",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Show detailed per-article scraper output",
+    )
     args = parser.parse_args()
 
     for site in HTML_SITES:
-        run_html_scraper(site, use_bert=args.use_bert)
+        run_html_scraper(site, use_bert=args.use_bert, verbose=args.verbose)

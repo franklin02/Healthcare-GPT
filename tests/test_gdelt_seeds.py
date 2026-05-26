@@ -1,6 +1,4 @@
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-import pandas as pd
+from unittest.mock import Mock, patch
 import io
 import zipfile
 from src.GDELT import gdelt_seeds

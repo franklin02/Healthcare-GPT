@@ -93,6 +93,7 @@ _BODY_BOILERPLATE_PATTERNS = re.compile(
     r"content management system|blox digital|subscribe|sign in|log in|search|menu|close",
     re.IGNORECASE,
 )
+_TITLE_SITE_SUFFIX_RE = re.compile(r"(?:\s*[|–—]\s+[^|–—]+|\s-\s+[^-]+)$")
 
 HEADERS = {
     "User-Agent": (
@@ -456,6 +457,43 @@ def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None
         raise
 
 
+def get_title(url: str) -> str:
+    """Fetch and return the page title for a URL.
+
+    Extracts the HTML <title> tag and strips common site-name suffixes
+    (e.g. " | Reuters", " - NBC News").  Falls back to the raw URL if no
+    usable ``<title>`` tag is found or the request fails.
+
+    Args:
+        url (str): The URL to fetch.  ``https://`` is prepended if the scheme
+            is missing.
+
+    Returns:
+        str: Cleaned page title, or the URL on failure.
+    """
+    if not url:
+        return url
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
+        return url
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    title_tag = soup.find("title")
+    if title_tag:
+        raw = title_tag.get_text(strip=True)
+        if raw:
+            cleaned = _TITLE_SITE_SUFFIX_RE.sub("", raw).strip()
+            return cleaned if cleaned else raw
+    return url
+
+
 def get_body(url: str) -> str:
     """Fetch and return the main article text for a URL.
 
@@ -533,7 +571,7 @@ def get_body(url: str) -> str:
             break
 
     if main is None:
-        print("[WARNING] no body found")
+        print("[WARN] no body found")
         LOGGER.warning("No body found for URL %s", url)
         return ""
 

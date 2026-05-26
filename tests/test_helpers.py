@@ -217,6 +217,133 @@ class TestGetBody:
         assert result == ""
 
 
+class TestGetTitle:
+    """Test suite for get_title function"""
+
+    def test_empty_url_returns_empty_string(self):
+        """Test with empty URL returns empty string"""
+        assert helpers.get_title("") == ""
+
+    def test_none_url_returns_none(self):
+        """Test with None URL returns None"""
+        assert helpers.get_title(None) is None
+
+    @patch("src.shared_utils.requests.get")
+    def test_extracts_title_from_title_tag(self, mock_get):
+        """Test that the text of the <title> tag is returned"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title>Hospital Ransomware Attack</title></head>"
+            "<body><article><p>Content</p></article></body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        assert helpers.get_title("https://example.com") == "Hospital Ransomware Attack"
+
+    @patch("src.shared_utils.requests.get")
+    def test_strips_pipe_site_suffix(self, mock_get):
+        """Test that ' | Site' suffix is stripped from the title"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title>Hospital Ransomware Attack | Reuters</title></head>"
+            "<body></body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        title = helpers.get_title("https://example.com")
+        assert title == "Hospital Ransomware Attack"
+        assert "Reuters" not in title
+
+    @patch("src.shared_utils.requests.get")
+    def test_strips_dash_site_suffix(self, mock_get):
+        """Test that ' - Site' suffix is stripped from the title"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title>Hospital Ransomware Attack - NBC News</title></head>"
+            "<body></body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        title = helpers.get_title("https://example.com")
+        assert title == "Hospital Ransomware Attack"
+        assert "NBC News" not in title
+
+    @patch("src.shared_utils.requests.get")
+    def test_strips_em_dash_site_suffix(self, mock_get):
+        """Test that ' – Site' suffix is stripped from the title"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title>Drug Shortage – BBC Health</title></head>"
+            "<body></body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        assert helpers.get_title("https://example.com") == "Drug Shortage"
+
+    @patch("src.shared_utils.requests.get")
+    def test_strips_only_last_separator_segment(self, mock_get):
+        """Test that only the last separator segment is stripped, leaving earlier parts intact"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title>Attack | Full Story | Site</title></head>"
+            "<body></body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        assert helpers.get_title("https://example.com") == "Attack | Full Story"
+
+    @patch("src.shared_utils.requests.get")
+    def test_falls_back_to_url_when_no_title_tag(self, mock_get):
+        """Test that the raw URL is returned when no <title> tag exists"""
+        mock_response = MagicMock()
+        mock_response.text = "<html><head></head><body><p>Content</p></body></html>"
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        url = "https://example.com/article"
+        assert helpers.get_title(url) == url
+
+    @patch("src.shared_utils.requests.get")
+    def test_falls_back_to_url_when_title_tag_empty(self, mock_get):
+        """Test that the raw URL is returned when the <title> tag is empty"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title></title></head><body><p>Content</p></body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        url = "https://example.com/article"
+        assert helpers.get_title(url) == url
+
+    @patch("src.shared_utils.requests.get")
+    def test_network_error_returns_url(self, mock_get):
+        """Test that the raw URL is returned on network failure"""
+        mock_get.side_effect = requests.RequestException("Connection failed")
+
+        url = "https://example.com"
+        assert helpers.get_title(url) == url
+
+    @patch("src.shared_utils.requests.get")
+    def test_normalizes_url_without_scheme(self, mock_get):
+        """Test that URLs without a scheme get https:// prepended before fetching"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title>Test</title></head><body></body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        helpers.get_title("example.com")
+        args, _ = mock_get.call_args
+        assert args[0] == "https://example.com"
+
+
 class TestAiCheckValidation:
     """Test suite for ai_check_validation function"""
 

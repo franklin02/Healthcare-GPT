@@ -22,6 +22,24 @@ from src.shared_utils import (
 )
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
 
+try:
+    from src.supabase_function import (
+        load_cite,
+        is_known_db,
+        insert_vuln,
+        insert_noise,
+        has_supabase_creds,
+    )
+
+    SUPABASE_AVAILABLE = has_supabase_creds()
+    if not SUPABASE_AVAILABLE:
+        print(
+            "[WARNING] SUPABASE_URL or SUPABASE_KEY missing from env, DB writes disabled"
+        )
+except Exception as e:
+    print(f"[WARNING] Supabase unavailable, DB writes disabled: {e}")
+    SUPABASE_AVAILABLE = False
+
 
 SUBSECTOR_FIELDS = [
     "drug_shortage",
@@ -73,20 +91,20 @@ HTML_SITES = [
             "cap": 18,
         },
     },
-    {
-        "name": "MedicalNewsToday",
-        "url": "https://www.medicalnewstoday.com/news",
-        "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
-        "map": {
-            "container": "ol li",
-            "title": None,
-            "link_selector": "a:has(h2)",
-            "body_selector": "article.article-body",
-            "date_selector": "",
-            "starting_page": 1,
-            "cap": 1,
-        },
-    },
+    # {
+    #     "name": "MedicalNewsToday",
+    #     "url": "https://www.medicalnewstoday.com/news",
+    #     "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
+    #     "map": {
+    #         "container": "ol li",
+    #         "title": None,
+    #         "link_selector": "a:has(h2)",
+    #         "body_selector": "article.article-body",
+    #         "date_selector": "",
+    #         "starting_page": 1,
+    #         "cap": 1,
+    #     },
+    # },
     {
         "name": "AHA",
         "url": "https://www.aha.org/news",
@@ -225,6 +243,13 @@ def run_html_scraper(site_config, use_bert: bool = False):
     print(f"--- Scraping for {site_config['name']} has started ---")
     check_valid_file(site_config["name"])
 
+    db_known: list[dict[str, str]] = []
+    if SUPABASE_AVAILABLE:
+        try:
+            db_known = load_cite(site_config["name"])
+        except Exception as e:
+            print(f"[WARNING] load_cite failed for {site_config['name']}: {e}")
+
     starting_page = site_config["map"]["starting_page"]
     cap = site_config["map"]["cap"]
     current_page = starting_page
@@ -269,9 +294,16 @@ def run_html_scraper(site_config, use_bert: bool = False):
             break
 
         for article in articles:
-            is_threat, detail = ai_check_validation(
-                article["title"], article["body"], use_bert=use_bert
-            )
+            body_snippet = (article["body"] or "")[:250].replace("\n", " ")
+            if SUPABASE_AVAILABLE and db_known:
+                try:
+                    if is_known_db(db_known, article["title"], body_snippet):
+                        print(f"[SKIP-DB] Already in Supabase: {article['title']}")
+                        continue
+                except Exception as e:
+                    print(f"[WARNING] is_known_db check failed: {e}")
+
+            is_threat, detail = ai_check_validation(article["title"], article["body"])
             if is_threat:
                 if detail not in SUBSECTOR_FIELDS:
                     print(
@@ -323,6 +355,12 @@ def run_html_scraper(site_config, use_bert: bool = False):
                 )
                 new_vulns.append(vuln)
                 print(f"[VALID] ({vuln.subsector}): {vuln.title}")
+
+                if SUPABASE_AVAILABLE:
+                    try:
+                        insert_vuln(vuln)
+                    except Exception as e:
+                        print(f"[WARNING] insert_vuln failed for {vuln.title!r}: {e}")
             else:
                 body_preview = (article["body"] or "")[:250].replace("\n", " ")
                 new_noise_rows.append(
@@ -335,6 +373,23 @@ def run_html_scraper(site_config, use_bert: bool = False):
                         body_preview,
                     ]
                 )
+
+                if SUPABASE_AVAILABLE:
+                    try:
+                        insert_noise(
+                            source_name=site_config["name"],
+                            title=article["title"],
+                            url=article["link"],
+                            reason=detail,
+                            body_preview=body_preview,
+                            date_accessed=datetime.datetime.now().strftime(
+                                "%Y-%m-%d %H:%M"
+                            ),
+                        )
+                    except Exception as e:
+                        print(
+                            f"[WARNING] insert_noise failed for {article['title']!r}: {e}"
+                        )
 
         if stop:
             break

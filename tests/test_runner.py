@@ -365,27 +365,32 @@ class TestProcessSeed:
         mock_get_body.assert_not_called()
         mock_ai_check.assert_not_called()
 
+    @patch("src.GDELT.runner.get_title")
     @patch("src.GDELT.runner.get_body")
     @patch("src.GDELT.runner.ai_check_validation")
-    def test_process_seed_empty_body(self, mock_ai_check, mock_get_body):
-        """process_seed should return None if body is empty."""
+    def test_process_seed_empty_body(self, mock_ai_check, mock_get_body, mock_get_title):
+        """process_seed should return None if body is empty, without fetching the title."""
         seed = {"url": "https://example.com/test", "source": "test"}
         seen = set()
-        mock_get_body.return_value = None
+        mock_get_body.return_value = ""
 
         result = runner.process_seed(seed, seen)
 
         assert result is None
-        # URL should be added to seen even if body is empty
         assert "https://example.com/test" not in seen  # Not added because body is empty
+        mock_get_title.assert_not_called()
 
+    @patch("src.GDELT.runner.get_title")
     @patch("src.GDELT.runner.get_body")
     @patch("src.GDELT.runner.ai_check_validation")
-    def test_process_seed_not_a_disruption(self, mock_ai_check, mock_get_body):
+    def test_process_seed_not_a_disruption(
+        self, mock_ai_check, mock_get_body, mock_get_title
+    ):
         """process_seed should return None if not validated as disruption."""
         seed = {"url": "https://example.com/test", "source": "test"}
         seen = set()
         mock_get_body.return_value = "Some content"
+        mock_get_title.return_value = "Test Article"
         mock_ai_check.return_value = (False, "not relevant")
 
         result = runner.process_seed(seed, seen)
@@ -394,10 +399,11 @@ class TestProcessSeed:
         assert "https://example.com/test" in seen
 
     @patch("src.GDELT.runner.extract_fields")
+    @patch("src.GDELT.runner.get_title")
     @patch("src.GDELT.runner.get_body")
     @patch("src.GDELT.runner.ai_check_validation")
     def test_process_seed_valid_disruption(
-        self, mock_ai_check, mock_get_body, mock_extract_fields
+        self, mock_ai_check, mock_get_body, mock_get_title, mock_extract_fields
     ):
         """process_seed should return a Vulnerability for valid disruption."""
         seed = {
@@ -407,6 +413,7 @@ class TestProcessSeed:
         }
         seen = set()
         mock_get_body.return_value = "Content about drug shortage"
+        mock_get_title.return_value = "Drug Shortage Confirmed"
         mock_ai_check.return_value = (True, "drug_shortage")
         mock_extract_fields.return_value = (
             {
@@ -422,18 +429,23 @@ class TestProcessSeed:
         assert result.subsector == "drug_shortage"
         assert result.source_name == "TestSource"
         assert result.direct_link == "https://example.com/test"
+        assert result.title == "Drug Shortage Confirmed"
         assert result.exec_summary == "Shortage confirmed."
         assert result.geography_scope == "Midwest"
         assert result.subsector_data is not None
         assert result.subsector_data.drug_name == "aspirin"
 
+    @patch("src.GDELT.runner.get_title")
     @patch("src.GDELT.runner.get_body")
     @patch("src.GDELT.runner.ai_check_validation")
-    def test_process_seed_invalid_subsector(self, mock_ai_check, mock_get_body):
+    def test_process_seed_invalid_subsector(
+        self, mock_ai_check, mock_get_body, mock_get_title
+    ):
         """process_seed should skip if subsector is invalid."""
         seed = {"url": "https://example.com/test"}
         seen = set()
         mock_get_body.return_value = "Some content"
+        mock_get_title.return_value = "Test Title"
         mock_ai_check.return_value = (True, "invalid_subsector")
 
         result = runner.process_seed(seed, seen)
@@ -442,10 +454,11 @@ class TestProcessSeed:
         assert "https://example.com/test" in seen
 
     @patch("src.GDELT.runner.extract_fields")
+    @patch("src.GDELT.runner.get_title")
     @patch("src.GDELT.runner.get_body")
     @patch("src.GDELT.runner.ai_check_validation")
     def test_process_seed_all_valid_subsectors(
-        self, mock_ai_check, mock_get_body, mock_extract_fields
+        self, mock_ai_check, mock_get_body, mock_get_title, mock_extract_fields
     ):
         """process_seed should accept all valid subsectors."""
         valid_subsectors = {
@@ -456,6 +469,7 @@ class TestProcessSeed:
             "other",
         }
         mock_get_body.return_value = "Content"
+        mock_get_title.return_value = "Test Title"
         mock_extract_fields.return_value = ({}, {})
 
         for subsector in valid_subsectors:
@@ -467,6 +481,31 @@ class TestProcessSeed:
             )
             assert result is not None
             assert result.subsector == subsector
+
+    @patch("src.GDELT.runner.extract_fields")
+    @patch("src.GDELT.runner.get_title")
+    @patch("src.GDELT.runner.get_body")
+    @patch("src.GDELT.runner.ai_check_validation")
+    def test_process_seed_uses_scraped_title_not_url(
+        self, mock_ai_check, mock_get_body, mock_get_title, mock_extract_fields
+    ):
+        """process_seed should use the scraped page title, not the raw URL."""
+        seed = {
+            "url": "https://example.com/some/path/article",
+            "source": "test",
+            "date": "2023-05-15",
+        }
+        seen = set()
+        mock_get_body.return_value = "Body content"
+        mock_get_title.return_value = "Hospital Ransomware Attack Disrupts Services"
+        mock_ai_check.return_value = (True, "cyber_attack")
+        mock_extract_fields.return_value = ({}, {})
+
+        result = runner.process_seed(seed, seen)
+
+        assert result is not None
+        assert result.title == "Hospital Ransomware Attack Disrupts Services"
+        assert result.title != seed["url"]
 
 
 class TestRun:

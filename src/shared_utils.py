@@ -732,13 +732,7 @@ def get_extraction_template(subsector: str) -> dict:
     Returns:
         dict: A mapping of required field names to their expected primitive types.
     """
-    template = {
-        "exec_summary": "string",
-        "geography_scope": "string",
-        "start_date": "string",
-        "end_date": "string",
-        "resilience_or_mitigation_observed": "string",
-    }
+    template = {f: "string" for f in LLM_SECTOR_FIELDS}
 
     subsector_cls = SUBSECTOR_DATA_CLASSES.get(subsector)
     subsector_fields = SUBSECTOR_FIELDS.get(subsector, [])

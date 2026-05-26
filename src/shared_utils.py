@@ -50,6 +50,7 @@ from pathlib import Path
 import sys as _sys
 import re
 from bs4 import BeautifulSoup
+from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
@@ -59,7 +60,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 if str(_PROJECT_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PROJECT_ROOT))
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
 
 # temporary for now, to be removed later
 READY_FOR_RAG_DIR = _PROJECT_ROOT / "data" / "processed"
@@ -722,8 +722,8 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
 def get_extraction_template(subsector: str) -> dict:
     """Builds a typed JSON extraction template for the LLM prompt.
 
-    Inspects the dataclass annotations for the given subsector and maps 
-    each field to a stringified type hint (e.g., "string", "boolean", "integer", 
+    Inspects the dataclass annotations for the given subsector and maps
+    each field to a stringified type hint (e.g., "string", "boolean", "integer",
     "list of strings") to constrain the LLM output and prevent type hallucination.
 
     Args:
@@ -739,10 +739,10 @@ def get_extraction_template(subsector: str) -> dict:
         "end_date": "string",
         "resilience_or_mitigation_observed": "string",
     }
-    
+
     subsector_cls = SUBSECTOR_DATA_CLASSES.get(subsector)
     subsector_fields = SUBSECTOR_FIELDS.get(subsector, [])
-    
+
     if subsector_cls and hasattr(subsector_cls, "__annotations__"):
         annotations = subsector_cls.__annotations__
         for field in subsector_fields:
@@ -761,7 +761,7 @@ def get_extraction_template(subsector: str) -> dict:
     else:
         for field in subsector_fields:
             template[field] = "string"
-            
+
     return template
 
 

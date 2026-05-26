@@ -47,10 +47,14 @@ def test_load_model_uses_finetuned_model_when_present(pipeline_mock):
     # Use mocks only; this test must not load a real transformer model.
     mock_finetuned_path = MagicMock(name="finetuned_path")
     mock_finetuned_path.exists.return_value = True
+    mock_tokenizer = MagicMock(name="mock_tokenizer")
     with (
         patch.object(BERT_filter, "FINETUNE_BERT_PATH", mock_finetuned_path),
         patch("src.GDELT.BERT_filter.get_device", return_value=-1) as mock_get_device,
+        patch("transformers.AutoTokenizer") as mock_auto_tokenizer,
+        patch("builtins.print"),
     ):
+        mock_auto_tokenizer.from_pretrained.return_value = mock_tokenizer
         mock_classifier = MagicMock(name="mock_classifier")
         pipeline_mock.return_value = mock_classifier
 
@@ -61,6 +65,7 @@ def test_load_model_uses_finetuned_model_when_present(pipeline_mock):
         pipeline_mock.assert_called_once_with(
             "zero-shot-classification",
             model=BERT_filter.FINETUNE_BERT_PATH,
+            tokenizer=mock_tokenizer,
             device=-1,
         )
 
@@ -70,11 +75,14 @@ def test_load_model_falls_back_to_base_model_when_finetuned_missing(pipeline_moc
     # Use mocks only; this test must not load a real transformer model.
     mock_finetuned_path = MagicMock(name="finetuned_path")
     mock_finetuned_path.exists.return_value = False
+    mock_tokenizer = MagicMock(name="mock_tokenizer")
     with (
         patch.object(BERT_filter, "FINETUNE_BERT_PATH", mock_finetuned_path),
         patch("src.GDELT.BERT_filter.get_device", return_value=0) as mock_get_device,
         patch("builtins.print") as mock_print,
+        patch("transformers.AutoTokenizer") as mock_auto_tokenizer,
     ):
+        mock_auto_tokenizer.from_pretrained.return_value = mock_tokenizer
         mock_classifier = MagicMock(name="mock_classifier")
         pipeline_mock.return_value = mock_classifier
 
@@ -82,11 +90,10 @@ def test_load_model_falls_back_to_base_model_when_finetuned_missing(pipeline_moc
 
         assert result is mock_classifier
         mock_get_device.assert_called_once()
-        mock_print.assert_called_once_with(
-            "[WARN] Finetuned model not found, reverting to base model."
-        )
+        mock_print.assert_any_call("[WARN] Finetuned model not found, reverting to base model.")
         pipeline_mock.assert_called_once_with(
             "zero-shot-classification",
             model=BERT_filter.FALLBACK_MODEL_ID,
+            tokenizer=mock_tokenizer,
             device=0,
         )

@@ -12,6 +12,29 @@ def test_progress_uses_unicode_bar_by_default():
     assert "Progress: [█████░░░░░] 50%" in stream.getvalue()
 
 
+def test_progress_redraws_until_complete():
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+
+    reporter.progress(1, 2, "items")
+    reporter.progress(2, 2, "items")
+
+    output = stream.getvalue()
+    assert output.count("\n") == 1
+    assert "\rProgress: [█████░░░░░] 50% items (1/2)" in output
+    assert "\rProgress: [██████████] 100% items (2/2)" in output
+
+
+def test_print_finishes_active_progress_line():
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+
+    reporter.progress(1, 2, "items")
+    reporter.info("done enough")
+
+    assert stream.getvalue().endswith("items (1/2)\ndone enough\n")
+
+
 def test_detail_only_prints_when_verbose():
     quiet_stream = io.StringIO()
     CliReporter(verbose=False, stream=quiet_stream).detail("hidden")

@@ -49,6 +49,8 @@ class CliReporter:
         """Create a reporter that writes to stdout unless a stream is supplied."""
         self.verbose = verbose
         self.stream = stream or sys.stdout
+        self._progress_active = False
+        self._last_progress_len = 0
 
     def phase(self, message: str) -> None:
         """Print a visible phase header."""
@@ -76,11 +78,17 @@ class CliReporter:
         self._print(f"[ERROR] {message}")
 
     def progress(self, current: int, total: int, label: str = "Progress") -> None:
-        """Print a fixed-width progress bar for the current item count."""
-        self._print(
+        """Redraw a fixed-width progress bar for the current item count."""
+        message = (
             f"Progress: {self._progress_bar(current, total)} "
             f"{self._percent(current, total)}% {label} ({current}/{total})"
         )
+        padding = " " * max(self._last_progress_len - len(message), 0)
+        print(f"\r{message}{padding}", end="", file=self.stream, flush=True)
+        self._progress_active = True
+        self._last_progress_len = len(message)
+        if total <= 0 or current >= total:
+            self._finish_progress_line()
 
     def summary(self, stats: PipelineStats | list[PipelineStats]) -> None:
         """Print one or more pipeline run summaries."""
@@ -126,4 +134,11 @@ class CliReporter:
         return "utf" in encoding.lower()
 
     def _print(self, message: str) -> None:
+        self._finish_progress_line()
         print(message, file=self.stream)
+
+    def _finish_progress_line(self) -> None:
+        if self._progress_active:
+            print(file=self.stream)
+            self._progress_active = False
+            self._last_progress_len = 0

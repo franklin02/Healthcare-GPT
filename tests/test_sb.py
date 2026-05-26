@@ -77,36 +77,36 @@ class TestNorm:
 
 
 class TestIsKnownArticle:
-    """Pure-logic tests for is_known_article — no DB needed."""
+    """Pure-logic tests for is_known_db — no DB needed."""
 
     def test_matches_title_and_body_snippet(self):
         """Returns True when title matches and body snippet is contained in content."""
         rows = [{"title": "Some Article", "content": "lorem ipsum dolor sit amet"}]
-        assert sb.is_known_article(rows, "Some Article", "ipsum") is True
+        assert sb.is_known_db(rows, "Some Article", "ipsum") is True
 
     def test_returns_false_on_title_mismatch(self):
         """Returns False when title does not match any row."""
         rows = [{"title": "Some Article", "content": "lorem ipsum dolor"}]
-        assert sb.is_known_article(rows, "Different Title", "ipsum") is False
+        assert sb.is_known_db(rows, "Different Title", "ipsum") is False
 
     def test_returns_false_on_missing_body_snippet(self):
         """Returns False when title matches but body snippet is not in content."""
         rows = [{"title": "Some Article", "content": "lorem ipsum dolor"}]
-        assert sb.is_known_article(rows, "Some Article", "nonexistent") is False
+        assert sb.is_known_db(rows, "Some Article", "nonexistent") is False
 
     def test_handles_none_content_in_row(self):
         """Rows with None content do not raise; the search just doesn't match them."""
         rows = [{"title": "Some Article", "content": None}]
-        assert sb.is_known_article(rows, "Some Article", "anything") is False
+        assert sb.is_known_db(rows, "Some Article", "anything") is False
 
     def test_empty_site_query_returns_false(self):
         """Empty site_query always returns False."""
-        assert sb.is_known_article([], "Some Article", "ipsum") is False
+        assert sb.is_known_db([], "Some Article", "ipsum") is False
 
     def test_normalizes_title_casing(self):
         """Title comparison ignores case and surrounding whitespace."""
         rows = [{"title": "  Some Article  ", "content": "lorem ipsum"}]
-        assert sb.is_known_article(rows, "SOME ARTICLE", "ipsum") is True
+        assert sb.is_known_db(rows, "SOME ARTICLE", "ipsum") is True
 
 
 class TestLoadCite:

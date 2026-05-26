@@ -36,6 +36,42 @@ ENRICHED_DIR = RAW_GDELT_DIR / "enriched"
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "gdelt_runner.log"
 
+try:
+    from src.supabase_function import (
+        load_cite,
+        is_known_db,
+        insert_vuln,
+        insert_noise,
+        has_supabase_creds,
+    )
+
+    SUPABASE_AVAILABLE = has_supabase_creds()
+    if not SUPABASE_AVAILABLE:
+        print(
+            "[WARNING] SUPABASE_URL or SUPABASE_KEY missing from env, DB writes disabled"
+        )
+except Exception as e:
+    print(f"[WARNING] Supabase unavailable, DB writes disabled: {e}")
+    SUPABASE_AVAILABLE = False
+
+try:
+    from src.supabase_function import (
+        load_cite,
+        is_known_db,
+        insert_vuln,
+        insert_noise,
+        has_supabase_creds,
+    )
+
+    SUPABASE_AVAILABLE = has_supabase_creds()
+    if not SUPABASE_AVAILABLE:
+        print(
+            "[WARNING] SUPABASE_URL or SUPABASE_KEY missing from env, DB writes disabled"
+        )
+except Exception as e:
+    print(f"[WARNING] Supabase unavailable, DB writes disabled: {e}")
+    SUPABASE_AVAILABLE = False
+
 BODY_CHAR_LIMIT = 4000
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
@@ -174,16 +210,12 @@ def process_seed(seed: dict, seen: set, use_bert: bool = False) -> Vulnerability
     title = url
     excerpt = body[:BODY_CHAR_LIMIT]
 
-    is_disruption, detail = ai_check_validation(title, excerpt, use_bert=use_bert)
-    LOGGER.debug(
-        "LLM validation url=%s disruption=%s detail=%s", url, is_disruption, detail
-    )
+    is_disruption, detail = ai_check_validation(title, excerpt)
 
     seen.add(url)
 
     if not is_disruption:
         print(f"     [skip] not a disruption: {detail}")
-        LOGGER.debug("Not a disruption url=%s detail=%s", url, detail)
         return None
 
     subsector = detail
@@ -317,6 +349,12 @@ def run(
             records.append(rec)
         else:
             LOGGER.debug("Seed skipped url=%s", url)
+
+            if SUPABASE_AVAILABLE:
+                try:
+                    insert_vuln(rec)
+                except Exception as e:
+                    print(f"[WARNING] insert_vuln failed for {rec.title!r}: {e}")
 
     # Save seen URLs once at the end
     save_seen(seen, seen_urls_path)

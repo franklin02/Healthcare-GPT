@@ -790,8 +790,9 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         print(f"No fields found for subsector: {subsector}")
         exit(1)
 
-    all_fields = LLM_SECTOR_FIELDS + subsector_fields
-    fields_string = ", ".join([f'"{f}"' for f in all_fields])
+    # generate typed json template for the LLM
+    template_dict = get_extraction_template(subsector)
+    template_json = json.dumps(template_dict, indent=2)
 
     prompt = f"""
         [INST] <<SYS>>
@@ -817,7 +818,8 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         ARTICLE TITLE: {title}
         ARTICLE BODY: {body}
 
-        EXTRACT THESE FIELDS (and ONLY these): {fields_string}
+        EXTRACTION TEMPLATE (replace the type placeholders with the extracted value, or null for any field not explicitly stated in the article text):
+        {template_json}
 
         JSON RESPONSE:
         [/INST]

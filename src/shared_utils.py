@@ -543,18 +543,41 @@ def get_body(url: str) -> str:
     return main.get_text(" ", strip=True)
 
 
+_classifier = None
+
+
 def _run_bert(title: str, body: str) -> str:
     """
     Run BERT inference on an article. Returns the predicted subsector string or "none".
+    Loads the classifier once on first call and reuses it for subsequent articles.
+    "potential_hit" from the base model fallback is normalized to "other".
     """
+    global _classifier
     try:
-        from src.GDELT.BERT_filter import run_bert_inference
+        from src.GDELT.BERT_filter import run_bert_inference, load_model
     except ImportError as exc:
         LOGGER.error("Failed to import BERT_filter module: %s", exc)
         raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
 
-    LOGGER.debug("Running BERT inference for title %s", title)
-    return run_bert_inference({"title": title, "body": body})
+    if _classifier is None:
+        _classifier = load_model()
+        if _classifier is None:
+            print("[WARN] BERT classifier failed to load, skipping.")
+            return "none"
+
+    else:
+        # print("[DEBUG] Reusing cached BERT classifier")
+        pass
+
+    try:
+        result = run_bert_inference({"title": title, "body": body}, _classifier)
+    except Exception as e:
+        print(f"[ERROR] BERT inference failed: {e}")
+        return "none"
+
+    if result == "potential_hit":
+        return "other"
+    return result
 
 
 def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
@@ -663,6 +686,43 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
         [/INST]
     """
 
+    promptG = f"""
+    You are a strict Healthcare Operations Auditor. Your ONLY job is to flag articles that describe a REAL, ALREADY-OCCURRING healthcare disruption or a CONFIRMED breach at a named healthcare entity.
+
+    DEFAULT TO NO. Reject the article unless the evidence is explicit, named, and concrete. The vast majority of healthcare news is NOT a disruption.
+
+    ===== ACCEPT (mark YES) ONLY IF (A) OR (B) IS TRUE =====
+
+    (A) ACTIVE CARE DISRUPTION — the article states that a NAMED facility (hospital, clinic, pharmacy, lab, healthcare network) is CURRENTLY or RECENTLY:
+        - Diverting ambulances, cancelling surgeries, or turning patients away
+        - Operating on downtime / paper procedures because EHR is offline
+        - Suspending services or evacuating due to fire, flood, storm, or other physical event
+        - Physically out of a specific drug or medical device that patients need now (real supply outage, not pricing or formulary debate)
+        - Cut off from operations by a workforce strike, power outage, or other concrete event
+
+    (B) CONFIRMED HEALTHCARE BREACH / CYBERATTACK — both must be true:
+        Part 1: Named healthcare entity (hospitals, clinics, pharmacies, insurers, device manufacturers, EHR vendors, labs)
+        Part 2: Incident already confirmed (ransomware, PHI exposed, breach disclosed, systems impacted)
+
+    ===== REJECT (mark NO) =====
+    - Earnings, funding, IPOs, partnerships, product launches
+    - Policy, legislation, regulation, research, clinical trials
+    - Drug pricing without actual supply outage
+    - Cyber threats/advisories not yet exploited
+    - Op-eds, interviews, wellness articles, anything hedged with "could" or "may"
+
+    ===== OUTPUT =====
+    Respond with EXACTLY this JSON and nothing else:
+    {{
+    "analysis": "One factual sentence: name the entity and impact, OR reason for rejection.",
+    "is_operational_disruption": true or false,
+    "subsector": "drug_shortage" | "medical_device_shortage" | "cyber_attack" | "natural_disaster" | "other" | "none"
+    }}
+
+    TITLE: {title}
+    EXCERPT: {body}
+    """
+
     try:
         resp = requests.post(
             AI_URL,
@@ -675,7 +735,7 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
             },
             timeout=60,
         )
-
+        # print(f"[DEBUG] HTTP status: {resp.status_code}")
         raw_response = resp.json().get("response", "{}")
         LOGGER.debug(
             "Validation LLM raw response title=%s raw_response=%s",
@@ -683,7 +743,7 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
             raw_response,
         )
         data = json.loads(raw_response)
-
+        # print(f"[DEBUG] Parsed JSON: {data}")
         is_threat = data.get("is_operational_disruption", False)
 
         # Use subsector if it's a threat, otherwise use the analysis as the "reason"

@@ -151,7 +151,7 @@ def save_seen(seen: set, seen_file: Path | None = None) -> None:
         pass
 
 
-def process_seed(seed: dict, seen: set) -> Vulnerability | None:
+def process_seed(seed: dict, seen: set, use_bert: bool = False) -> Vulnerability | None:
     """
     Run a single seed through validation + extraction.
     Returns a Vulnerability if validated as a disruption, else None.
@@ -174,7 +174,7 @@ def process_seed(seed: dict, seen: set) -> Vulnerability | None:
     title = url
     excerpt = body[:BODY_CHAR_LIMIT]
 
-    is_disruption, detail = ai_check_validation(title, excerpt)
+    is_disruption, detail = ai_check_validation(title, excerpt, use_bert=use_bert)
     LOGGER.debug(
         "LLM validation url=%s disruption=%s detail=%s", url, is_disruption, detail
     )
@@ -241,6 +241,7 @@ def run(
     start_date: str | None = None,
     end_date: str | None = None,
     seen_urls_file: str | None = None,
+    use_bert: bool = False,
 ) -> list[dict]:
     LOGGER.debug(
         "Run started num_files=%s limit=%s subsectors=%s start_date=%s end_date=%s output_path=%s",
@@ -309,7 +310,7 @@ def run(
         LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
         url = seed["url"]
         article_id = stable_id(url)
-        rec = process_seed(seed, seen)
+        rec = process_seed(seed, seen, use_bert=use_bert)
         if rec:
             persist_stage(VALIDATED_DIR, article_id, "validated", url, rec.to_dict())
             persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
@@ -433,6 +434,12 @@ if __name__ == "__main__":
         default="all",
         help="Comma-separated subsectors to scan, or all",
     )
+    parser.add_argument(
+        "--use-bert",
+        action="store_true",
+        default=False,
+        help="Run BERT pre-filter before LLM validation to skip unrelated articles early",
+    )
     args = parser.parse_args()
 
     # If --num-files/-n is explicitly provided without --limit/-l, process all
@@ -451,4 +458,5 @@ if __name__ == "__main__":
         start_date=args.start_date,
         end_date=args.end_date,
         seen_urls_file=args.seen_urls_file,
+        use_bert=args.use_bert,
     )

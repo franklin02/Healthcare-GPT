@@ -182,7 +182,9 @@ def detect_subsector(theme_str):
 
     for subsector, theme_set in SUBSECTOR_THEMES.items():
         if _matches_any_theme(theme_str, theme_set):
-            LOGGER.debug("Detected subsector %s for theme string: %s", subsector, theme_str)
+            LOGGER.debug(
+                "Detected subsector %s for theme string: %s", subsector, theme_str
+            )
             return subsector
     LOGGER.debug("No specific subsector detected for theme string: %s", theme_str)
     return None
@@ -210,7 +212,9 @@ def url_passes_quality(url):
         return False
     for btld in BLOCKED_TLDS:
         if domain.endswith(btld):
-            LOGGER.debug("URL domain %s ends with blocked TLD %s: %s", domain, btld, url)
+            LOGGER.debug(
+                "URL domain %s ends with blocked TLD %s: %s", domain, btld, url
+            )
             return False
     if not any(domain.endswith(tld) for tld in US_TLDS):
         LOGGER.debug("URL domain %s is not in US TLDs: %s", domain, url)
@@ -414,4 +418,8 @@ if __name__ == "__main__":
     print(f"Confirmed: {len(confirmed)} / {len(urls)} URLs passed Gemma filter")
     for url in confirmed:
         print(url)
-    LOGGER.info("Backfill complete: %s seeds confirmed by Gemma out of %s URLs", len(confirmed), len(urls))
+    LOGGER.info(
+        "Backfill complete: %s seeds confirmed by Gemma out of %s URLs",
+        len(confirmed),
+        len(urls),
+    )

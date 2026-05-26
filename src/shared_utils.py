@@ -261,7 +261,11 @@ def check_valid_file(site_name):
         with open(vulnerabilities_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(VULN_CSV_HEADER)
         print(f"Created {vulnerabilities_path}")
-        LOGGER.debug("Created vulnerabilities CSV file for site %s at %s", site_name, vulnerabilities_path)
+        LOGGER.debug(
+            "Created vulnerabilities CSV file for site %s at %s",
+            site_name,
+            vulnerabilities_path,
+        )
 
 
 def _content_preview(body: str | None) -> str:
@@ -298,7 +302,12 @@ def _top_row_matches(
             return False
 
     if first_row.get("title", "") != title:
-        LOGGER.debug("Top row title %s does not match incoming title %s in file %s", first_row.get("title", ""), title, csv_path)
+        LOGGER.debug(
+            "Top row title %s does not match incoming title %s in file %s",
+            first_row.get("title", ""),
+            title,
+            csv_path,
+        )
         return False
 
     incoming_preview = _content_preview(body_snippet)
@@ -356,7 +365,11 @@ def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
             writer.writerows(existing_data_rows)
         os.replace(tmp_path, csv_path)
     except Exception:
-        LOGGER.error("Failed to prepend to vulnerabilities CSV for site %s: %s", site_name, exc_info=True)
+        LOGGER.error(
+            "Failed to prepend to vulnerabilities CSV for site %s: %s",
+            site_name,
+            exc_info=True,
+        )
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
@@ -393,7 +406,9 @@ def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
             writer.writerows(existing_data_rows)
         os.replace(tmp_path, csv_path)
     except Exception:
-        LOGGER.error("Failed to prepend to noise CSV for site %s: %s", site_name, exc_info=True)
+        LOGGER.error(
+            "Failed to prepend to noise CSV for site %s: %s", site_name, exc_info=True
+        )
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
@@ -425,7 +440,11 @@ def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None
             json.dump(data, f, indent=4, ensure_ascii=False)
         os.replace(tmp_path, json_path)
     except Exception:
-        LOGGER.error("Failed to prepend to JSON sources for site %s: %s", site_name, exc_info=True)
+        LOGGER.error(
+            "Failed to prepend to JSON sources for site %s: %s",
+            site_name,
+            exc_info=True,
+        )
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise

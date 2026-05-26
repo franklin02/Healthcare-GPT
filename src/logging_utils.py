@@ -1,5 +1,5 @@
 """
-Shared logging helpers for file-backed module loggers. 
+Shared logging helpers for file-backed module loggers.
 
 Functions:
 - get_file_logger: Get a logger that writes DEBUG+ output to a specified file.
@@ -14,11 +14,11 @@ from pathlib import Path
 def get_file_logger(name: str, log_file: Path) -> logging.Logger:
     """
     Return a module logger that writes DEBUG+ output to ``log_file``.
-    
+
     Parameters:
         name (str): The name of the logger.
         log_file (Path): The file path to write log messages to.
-    
+
     Returns:
         logging.Logger: A configured logger instance.
     """

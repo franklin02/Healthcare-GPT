@@ -39,6 +39,7 @@ LOG_FILE = LOG_DIR / "gdelt_runner.log"
 BODY_CHAR_LIMIT = 4000
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
+
 def stable_id(url: str) -> str:
     return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
 
@@ -57,7 +58,6 @@ def fmt_dt(value: str) -> str:
         except Exception:
             LOGGER.warning("Failed to parse date value %s", value)
             return value
-
 
 
 def ensure_raw_dirs() -> None:
@@ -372,7 +372,9 @@ def run(
         else:
             combined = out_recs
     except Exception:
-        LOGGER.warning("Failed to read existing output file %s: %s", out_file, exc_info=True)
+        LOGGER.warning(
+            "Failed to read existing output file %s: %s", out_file, exc_info=True
+        )
         combined = out_recs
 
     with open(out_file, "w", encoding="utf-8") as f:

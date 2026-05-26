@@ -60,6 +60,7 @@ from src.classes import Vulnerability
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
+MIN_BODY_CHARS_FOR_LLM = 150
 
 # Anchor to the project root so this works both as `scrapers.shared_utils`
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -87,6 +88,11 @@ _NOISE_PATTERNS = (
 )
 _NOISE_RE = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 _NOISE_SELECTOR = ",".join(f'[class*="{p}"]' for p in _NOISE_PATTERNS)
+_BODY_BOILERPLATE_PATTERNS = re.compile(
+    r"skip to main content|copyright|terms of use|privacy policy|powered by|"
+    r"content management system|blox digital|subscribe|sign in|log in|search|menu|close",
+    re.IGNORECASE,
+)
 
 HEADERS = {
     "User-Agent": (
@@ -531,16 +537,50 @@ def get_body(url: str) -> str:
         LOGGER.warning("No body found for URL %s", url)
         return ""
 
-    # Prefer paragraph text (gives cleaner article body across sites.)
-    # Fall back to all text if no <p> tags found.
-    paragraphs = [p.get_text(" ", strip=True) for p in main.find_all("p")]
-    paragraphs = [p for p in paragraphs if p]
+    def _filtered_text_chunks(node) -> list[str]:
+        """
+        Extract text chunks from a BeautifulSoup node, filtering out empty strings and boilerplate.
 
-    if paragraphs:
-        LOGGER.debug("Extracted %d paragraphs from URL %s", len(paragraphs), url)
-        return "\n\n".join(paragraphs)
-    LOGGER.debug("No paragraphs found, falling back to all text for URL %s", url)
-    return main.get_text(" ", strip=True)
+        Parameters:
+            node (BeautifulSoup): The BeautifulSoup node to extract text from.
+
+        Returns:
+            list[str]: A list of filtered text chunks.
+        """
+        chunks: list[str] = []
+        # Use stripped_strings to get text without extra whitespace, then filter out empty and boilerplate chunks
+        for chunk in node.stripped_strings:
+            normalized = chunk.strip()
+            if not normalized:
+                continue
+            if _BODY_BOILERPLATE_PATTERNS.search(normalized):
+                continue
+            chunks.append(normalized)
+        LOGGER.debug(
+            "Extracted %d filtered text chunks from node in URL %s", len(chunks), url
+        )
+        return chunks
+
+    # Prefer paragraph text (gives cleaner article body across sites.)
+    # Fall back to filtered descendant text when no <p> tags are present.
+    content_chunks = [
+        p.get_text(" ", strip=True)
+        for p in main.find_all("p")
+        if p.get_text(" ", strip=True)
+        and not _BODY_BOILERPLATE_PATTERNS.search(p.get_text(" ", strip=True))
+    ]
+
+    if not content_chunks:
+        content_chunks = _filtered_text_chunks(main)
+
+    if content_chunks:
+        LOGGER.debug(
+            "Extracted %d content chunks from URL %s", len(content_chunks), url
+        )
+        return "\n\n".join(content_chunks)
+
+    LOGGER.debug("No content chunks found after filtering for URL %s", url)
+    return ""
 
 
 _classifier = None
@@ -598,6 +638,16 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     Exceptions:
     If an error occurs during the request or response parsing, the function catches the error, logs it, and returns False with "Parsing Error".
     """
+
+    body_text = body or ""
+    if len(body_text) < MIN_BODY_CHARS_FOR_LLM:
+        LOGGER.info(
+            "Skipping LLM validation for title %s because body length %d is below %d characters",
+            title,
+            len(body_text),
+            MIN_BODY_CHARS_FOR_LLM,
+        )
+        return False, "Body too short for LLM review"
 
     if use_bert:
         bert_subsector = _run_bert(title, body)

@@ -303,93 +303,105 @@ def run_html_scraper(site_config, use_bert: bool = False):
                 except Exception as e:
                     print(f"[WARNING] is_known_db check failed: {e}")
 
-            is_threat, detail = ai_check_validation(article["title"], article["body"])
-            if is_threat:
-                if detail not in SUBSECTOR_FIELDS:
-                    print(
-                        f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
-                    )
-                    continue
-                sector_data, ss_data = extract_fields(
-                    detail, article["title"], article["body"]
+            try:
+                is_threat, detail = ai_check_validation(
+                    article["title"], article["body"]
                 )
-
-                # Wrap the raw dict from the LLM in the matching SubsectorData
-                # subclass so Vulnerability.to_dict() can call .to_dict() on it.
-                subsector_cls = SUBSECTOR_DATA_CLASSES.get(detail)
-                subsector_data = (
-                    subsector_cls.from_dict(ss_data) if subsector_cls else None
-                )
-
-                vuln = Vulnerability(
-                    id=str(uuid.uuid4()),
-                    title=article["title"],
-                    source_name=site_config["name"],
-                    direct_link=article["link"],
-                    subsector=detail,
-                    date_accessed=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    date_published=article.get("date", ""),
-                    content=article["body"],
-                    exec_summary=sector_data.get("exec_summary") or "",
-                    geography_scope=sector_data.get("geography_scope"),
-                    start_date=sector_data.get("start_date"),
-                    end_date=sector_data.get("end_date"),
-                    resilience_or_mitigation_observed=sector_data.get(
-                        "resilience_or_mitigation_observed"
-                    ),
-                    subsector_data=subsector_data,
-                )
-
-                content_preview = (vuln.content or "")[:250].replace("\n", " ")
-                new_rows.append(
-                    [
-                        vuln.date_accessed,
-                        vuln.date_published,
-                        vuln.source_name,
-                        vuln.subsector,
-                        vuln.title,
-                        vuln.direct_link,
-                        vuln.exec_summary,
-                        content_preview,
-                    ]
-                )
-                new_vulns.append(vuln)
-                print(f"[VALID] ({vuln.subsector}): {vuln.title}")
-
-                if SUPABASE_AVAILABLE:
-                    try:
-                        insert_vuln(vuln)
-                    except Exception as e:
-                        print(f"[WARNING] insert_vuln failed for {vuln.title!r}: {e}")
-            else:
-                body_preview = (article["body"] or "")[:250].replace("\n", " ")
-                new_noise_rows.append(
-                    [
-                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        site_config["name"],
-                        article["title"],
-                        article["link"],
-                        detail,
-                        body_preview,
-                    ]
-                )
-
-                if SUPABASE_AVAILABLE:
-                    try:
-                        insert_noise(
-                            source_name=site_config["name"],
-                            title=article["title"],
-                            url=article["link"],
-                            reason=detail,
-                            body_preview=body_preview,
-                            date_accessed=datetime.datetime.now().strftime(
-                                "%Y-%m-%d %H:%M"
-                            ),
-                        )
-                    except Exception as e:
+                if is_threat:
+                    if detail not in SUBSECTOR_FIELDS:
                         print(
-                            f"[WARNING] insert_noise failed for {article['title']!r}: {e}"
+                            f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
                         )
+                        continue
+                    sector_data, ss_data = extract_fields(
+                        detail, article["title"], article["body"]
+                    )
+
+                    # Wrap the raw dict from the LLM in the matching SubsectorData
+                    # subclass so Vulnerability.to_dict() can call .to_dict() on it.
+                    subsector_cls = SUBSECTOR_DATA_CLASSES.get(detail)
+                    subsector_data = (
+                        subsector_cls.from_dict(ss_data) if subsector_cls else None
+                    )
+
+                    vuln = Vulnerability(
+                        id=str(uuid.uuid4()),
+                        title=article["title"],
+                        source_name=site_config["name"],
+                        direct_link=article["link"],
+                        subsector=detail,
+                        date_accessed=datetime.datetime.now().strftime(
+                            "%Y-%m-%d %H:%M"
+                        ),
+                        date_published=article.get("date", ""),
+                        content=article["body"],
+                        exec_summary=sector_data.get("exec_summary") or "",
+                        geography_scope=sector_data.get("geography_scope"),
+                        start_date=sector_data.get("start_date"),
+                        end_date=sector_data.get("end_date"),
+                        resilience_or_mitigation_observed=sector_data.get(
+                            "resilience_or_mitigation_observed"
+                        ),
+                        subsector_data=subsector_data,
+                    )
+
+                    content_preview = (vuln.content or "")[:250].replace("\n", " ")
+                    new_rows.append(
+                        [
+                            vuln.date_accessed,
+                            vuln.date_published,
+                            vuln.source_name,
+                            vuln.subsector,
+                            vuln.title,
+                            vuln.direct_link,
+                            vuln.exec_summary,
+                            content_preview,
+                        ]
+                    )
+                    new_vulns.append(vuln)
+                    print(f"[VALID] ({vuln.subsector}): {vuln.title}")
+
+                    if SUPABASE_AVAILABLE:
+                        try:
+                            insert_vuln(vuln)
+                        except Exception as e:
+                            print(
+                                f"[WARNING] insert_vuln failed for {vuln.title!r}: {e}"
+                            )
+                else:
+                    body_preview = (article["body"] or "")[:250].replace("\n", " ")
+                    new_noise_rows.append(
+                        [
+                            datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            site_config["name"],
+                            article["title"],
+                            article["link"],
+                            detail,
+                            body_preview,
+                        ]
+                    )
+
+                    if SUPABASE_AVAILABLE:
+                        try:
+                            insert_noise(
+                                source_name=site_config["name"],
+                                title=article["title"],
+                                url=article["link"],
+                                reason=detail,
+                                body_preview=body_preview,
+                                date_accessed=datetime.datetime.now().strftime(
+                                    "%Y-%m-%d %H:%M"
+                                ),
+                            )
+                        except Exception as e:
+                            print(
+                                f"[WARNING] insert_noise failed for {article['title']!r}: {e}"
+                            )
+            except Exception as e:
+                print(
+                    f"[WARNING] Validation failed for {article.get('title', 'unknown')!r}: {e}"
+                )
+                continue
 
         if stop:
             break

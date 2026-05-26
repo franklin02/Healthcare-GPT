@@ -50,7 +50,6 @@ from pathlib import Path
 import sys as _sys
 import re
 from bs4 import BeautifulSoup
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
@@ -60,6 +59,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 if str(_PROJECT_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PROJECT_ROOT))
+from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
 
 # temporary for now, to be removed later
 READY_FOR_RAG_DIR = _PROJECT_ROOT / "data" / "processed"

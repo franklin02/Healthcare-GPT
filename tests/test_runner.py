@@ -368,7 +368,9 @@ class TestProcessSeed:
     @patch("src.GDELT.runner.get_title")
     @patch("src.GDELT.runner.get_body")
     @patch("src.GDELT.runner.ai_check_validation")
-    def test_process_seed_empty_body(self, mock_ai_check, mock_get_body, mock_get_title):
+    def test_process_seed_empty_body(
+        self, mock_ai_check, mock_get_body, mock_get_title
+    ):
         """process_seed should return None if body is empty, without fetching the title."""
         seed = {"url": "https://example.com/test", "source": "test"}
         seen = set()

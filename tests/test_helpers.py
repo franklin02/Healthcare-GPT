@@ -306,7 +306,9 @@ class TestGetTitle:
     def test_normalizes_url_without_scheme(self, mock_get):
         """Test that URLs without a scheme get https:// prepended before fetching"""
         mock_response = MagicMock()
-        mock_response.text = "<html><head><title>Test</title></head><body></body></html>"
+        mock_response.text = (
+            "<html><head><title>Test</title></head><body></body></html>"
+        )
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
 

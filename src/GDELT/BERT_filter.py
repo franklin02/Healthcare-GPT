@@ -126,6 +126,8 @@ def run_bert_inference(data: dict, classifier=None) -> str:
     """
     if classifier is None:
         classifier = load_model()
+        if classifier is None:
+            return "none"
 
     title = str(data.get("title") or "").strip()
     body = str(data.get("body") or "").strip()

@@ -527,7 +527,12 @@ def _run_bert(title: str, body: str) -> str:
         # print("[DEBUG] Reusing cached BERT classifier")
         pass
 
-    result = run_bert_inference({"title": title, "body": body}, _classifier)
+    try:
+        result = run_bert_inference({"title": title, "body": body}, _classifier)
+    except Exception as e:
+        print(f"[ERROR] BERT inference failed: {e}")
+        return "none"
+
     if result == "potential_hit":
         return "other"
     return result

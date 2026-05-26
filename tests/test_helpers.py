@@ -566,15 +566,21 @@ class TestRunBertAndUseBert:
     def test_run_bert_delegates_to_run_bert_inference(self, monkeypatch):
         """Test that _run_bert imports and calls run_bert_inference with mock data."""
         fake_module = types.ModuleType("src.GDELT.BERT_filter")
+        mock_classifier = MagicMock(name="mock_classifier")
+        mock_load_model = MagicMock(return_value=mock_classifier)
         mock_run_bert_inference = MagicMock(return_value="cyber_attack")
+        fake_module.load_model = mock_load_model
         fake_module.run_bert_inference = mock_run_bert_inference
         monkeypatch.setitem(sys.modules, "src.GDELT.BERT_filter", fake_module)
+        monkeypatch.setattr(helpers, "_classifier", None)
 
         result = helpers._run_bert("Ransomware hits hospital", "Body text")
 
         assert result == "cyber_attack"
+        mock_load_model.assert_called_once()
         mock_run_bert_inference.assert_called_once_with(
-            {"title": "Ransomware hits hospital", "body": "Body text"}
+            {"title": "Ransomware hits hospital", "body": "Body text"},
+            mock_classifier,
         )
 
     @patch("src.shared_utils.requests.post")

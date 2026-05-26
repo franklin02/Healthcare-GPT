@@ -55,8 +55,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.logging_utils import get_file_logger # noqa E402
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES # noqa E402
+from src.logging_utils import get_file_logger  # noqa E402
+from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa E402
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"

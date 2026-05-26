@@ -4,6 +4,7 @@ GDELT end-to-end runner.
 Pipeline:
   gdelt_seeds.backfill_cyber_seeds     -- collect candidate seeds from GDELT GKG
   src.shared_utils.get_body            -- scrape page body
+  src.shared_utils.get_title           -- scrape page title (skipped on empty body)
   src.shared_utils.ai_check_validation -- LLM validates as active disruption
   src.shared_utils.extract_fields      -- LLM extracts schema-specific fields
 
@@ -22,7 +23,7 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES
-from src.shared_utils import ai_check_validation, extract_fields, get_body
+from src.shared_utils import ai_check_validation, extract_fields, get_body, get_title
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
 
 BODY_CHAR_LIMIT = 4000
@@ -150,7 +151,7 @@ def process_seed(seed: dict, seen: set, use_bert: bool = False) -> Vulnerability
         print("     [skip] empty body")
         return None
 
-    title = url
+    title = get_title(url)
     excerpt = body[:BODY_CHAR_LIMIT]
 
     is_disruption, detail = ai_check_validation(title, excerpt, use_bert=use_bert)

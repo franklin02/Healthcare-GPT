@@ -625,3 +625,130 @@ class TestRunBertAndUseBert:
         assert is_threat is True
         assert detail == "cyber_attack"
         mock_post.assert_called_once()
+
+class TestGetExtractionTemplate:
+    """Tests for get_extraction_template().
+ 
+    1. Field-set correctness — every known subsector returns exactly the 5 base
+       fields (LLM_SECTOR_FIELDS) plus its own subsector fields, nothing more.
+    2. Type-string mapping — list → "list of strings", bool → "boolean",
+       int/float → "integer", everything else → "string".
+    3. Unknown subsector — only the 5 base fields returned, all "string".
+    4. Missing annotation (inner else branch) — a field present in
+       SUBSECTOR_FIELDS but absent from the dataclass __annotations__ dict
+       must default to "string".
+    5. No-dataclass path (outer else branch) — when SUBSECTOR_DATA_CLASSES has
+       no entry for a subsector, every subsector field defaults to "string".
+    """
+ 
+    _BASE_FIELDS = frozenset(helpers.LLM_SECTOR_FIELDS)
+ 
+    # ── 1. Field-set correctness per known subsector ──────────────────────────
+ 
+    @pytest.mark.parametrize("subsector", list(helpers.SUBSECTOR_FIELDS.keys()))
+    def test_exact_field_set_per_subsector(self, subsector):
+        """Each known subsector returns exactly base + its own fields.
+ 
+        Verifies no foreign fields are injected and no declared fields are
+        dropped, for every subsector defined in SUBSECTOR_FIELDS.
+        """
+        expected = self._BASE_FIELDS | set(helpers.SUBSECTOR_FIELDS[subsector])
+        result = helpers.get_extraction_template(subsector)
+        assert set(result.keys()) == expected
+ 
+    # ── 2. Unknown subsector → only base fields ───────────────────────────────
+ 
+    def test_unknown_subsector_returns_only_base_fields(self):
+        """An unrecognised subsector yields exactly the 5 base fields."""
+        result = helpers.get_extraction_template("totally_unknown_subsector")
+        assert set(result.keys()) == self._BASE_FIELDS
+ 
+    def test_unknown_subsector_all_values_are_string(self):
+        """Every value for an unknown subsector must be 'string'."""
+        result = helpers.get_extraction_template("totally_unknown_subsector")
+        assert all(v == "string" for v in result.values())
+ 
+    # ── 3 & 4. Type-string mapping + missing annotation (inner else) ──────────
+    #
+    #  A synthetic subsector 'test_sub' is injected via monkeypatch so that the
+    #  mapping logic is exercised in isolation, independent of real dataclasses.
+    #  The dataclass deliberately omits one field to trigger the inner else branch.
+ 
+    @pytest.fixture()
+    def typed_template(self, monkeypatch):
+        """Return get_extraction_template('test_sub') with a controlled dataclass.
+ 
+        The fake dataclass covers all four annotation branches:
+          - list[str]  → "list of strings"
+          - bool       → "boolean"
+          - int        → "integer"
+          - float      → "integer"
+          - str        → "string"
+        Plus 'absent_field', which has no annotation, triggering the inner else.
+        """
+ 
+        class _TypedCls:
+            list_field: list[str]
+            bool_field: bool
+            int_field: int
+            float_field: float
+            str_field: str
+            # 'absent_field' is intentionally omitted — exercises the inner else
+ 
+        fake_fields = [
+            "list_field",
+            "bool_field",
+            "int_field",
+            "float_field",
+            "str_field",
+            "absent_field",
+        ]
+        monkeypatch.setitem(helpers.SUBSECTOR_DATA_CLASSES, "test_sub", _TypedCls)
+        monkeypatch.setitem(helpers.SUBSECTOR_FIELDS, "test_sub", fake_fields)
+        return helpers.get_extraction_template("test_sub")
+ 
+    def test_list_annotation_maps_to_list_of_strings(self, typed_template):
+        assert typed_template["list_field"] == "list of strings"
+ 
+    def test_bool_annotation_maps_to_boolean(self, typed_template):
+        assert typed_template["bool_field"] == "boolean"
+ 
+    def test_int_annotation_maps_to_integer(self, typed_template):
+        assert typed_template["int_field"] == "integer"
+ 
+    def test_float_annotation_maps_to_integer(self, typed_template):
+        """float sits in the same elif branch as int, so it maps to 'integer'."""
+        assert typed_template["float_field"] == "integer"
+ 
+    def test_str_annotation_maps_to_string(self, typed_template):
+        assert typed_template["str_field"] == "string"
+ 
+    def test_base_fields_always_string_even_with_dataclass(self, typed_template):
+        """LLM_SECTOR_FIELDS are seeded as 'string' and must never be overwritten."""
+        for field in helpers.LLM_SECTOR_FIELDS:
+            assert typed_template[field] == "string"
+ 
+    def test_missing_annotation_defaults_to_string(self, typed_template):
+        """A field listed in SUBSECTOR_FIELDS but absent from __annotations__
+        falls through the inner else and must become 'string'."""
+        assert typed_template["absent_field"] == "string"
+ 
+    # ── 5. No-dataclass path (outer else branch) ──────────────────────────────
+ 
+    def test_no_dataclass_all_subsector_fields_are_string(self, monkeypatch):
+        """When no dataclass is registered the outer else assigns 'string' to
+        every subsector field without inspecting any annotations."""
+        fake_fields = ["alpha", "beta", "gamma"]
+        # Add to SUBSECTOR_FIELDS only — SUBSECTOR_DATA_CLASSES is left untouched
+        # so .get("orphan_sub") returns None and triggers the outer else branch.
+        monkeypatch.setitem(helpers.SUBSECTOR_FIELDS, "orphan_sub", fake_fields)
+        result = helpers.get_extraction_template("orphan_sub")
+        for field in fake_fields:
+            assert result[field] == "string"
+ 
+    def test_no_dataclass_base_fields_still_present(self, monkeypatch):
+        """Even without a registered dataclass the 5 base fields must appear."""
+        monkeypatch.setitem(helpers.SUBSECTOR_FIELDS, "orphan_sub", ["alpha"])
+        result = helpers.get_extraction_template("orphan_sub")
+        assert self._BASE_FIELDS.issubset(set(result.keys()))
+

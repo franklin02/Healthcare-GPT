@@ -227,9 +227,7 @@ def _vuln_row_to_sql(
         _skip_with_warning(file_label, "empty source_name", title)
         return None
     if subsector not in ALLOWED_SUBSECTORS:
-        _skip_with_warning(
-            file_label, f"subsector '{subsector}' not allowed", title
-        )
+        _skip_with_warning(file_label, f"subsector '{subsector}' not allowed", title)
         return None
 
     start_norm = _normalize_date(record.get("start_date"))
@@ -248,9 +246,7 @@ def _vuln_row_to_sql(
         "content": _quote_literal(record.get("content")),
         "exec_summary": _quote_literal(record.get("exec_summary") or ""),
         "geography_scope": _quote_literal(record.get("geography_scope")),
-        "start_date": (
-            f"'{start_norm}'::date" if start_norm else "NULL"
-        ),
+        "start_date": (f"'{start_norm}'::date" if start_norm else "NULL"),
         "end_date": f"'{end_norm}'::date" if end_norm else "NULL",
         "resilience_or_mitigation_observed": _quote_literal(
             record.get("resilience_or_mitigation_observed")

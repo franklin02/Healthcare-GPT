@@ -21,7 +21,9 @@ from src.classes import Vulnerability
 TEST_TABLE = "test_table"
 TEMP_SOURCE = "_pytest_temp_"
 IMPOSSIBLE_UUID = "00000000-0000-0000-0000-000000000000"
-SEED_SOURCE = "CyberScoop"  # already present in test_table per src/config/test_table.sql
+SEED_SOURCE = (
+    "CyberScoop"  # already present in test_table per src/config/test_table.sql
+)
 
 
 def _make_vuln(
@@ -112,9 +114,7 @@ class TestLoadCite:
 
     def test_load_cite_returns_known_source(self):
         """Querying a source present in test_table returns at least one row."""
-        rows = sb.load_cite(
-            SEED_SOURCE, vuln_table=TEST_TABLE, noise_table=None
-        )
+        rows = sb.load_cite(SEED_SOURCE, vuln_table=TEST_TABLE, noise_table=None)
         assert len(rows) > 0
 
     def test_load_cite_unknown_source_returns_empty(self):
@@ -128,9 +128,7 @@ class TestLoadCite:
 
     def test_load_cite_keys_are_title_and_content(self):
         """Each returned row exposes title and content keys."""
-        rows = sb.load_cite(
-            SEED_SOURCE, vuln_table=TEST_TABLE, noise_table=None
-        )
+        rows = sb.load_cite(SEED_SOURCE, vuln_table=TEST_TABLE, noise_table=None)
         for row in rows:
             assert set(row.keys()) == {"title", "content"}
 
@@ -162,9 +160,7 @@ class TestInsertVuln:
             content="round trip content body",
         )
         sb.insert_vuln(vuln, table=TEST_TABLE)
-        rows = sb.load_cite(
-            unique_source, vuln_table=TEST_TABLE, noise_table=None
-        )
+        rows = sb.load_cite(unique_source, vuln_table=TEST_TABLE, noise_table=None)
         assert len(rows) == 1
         assert rows[0]["title"] == "round trip test"
         assert rows[0]["content"] == "round trip content body"

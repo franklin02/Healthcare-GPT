@@ -21,9 +21,14 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES
-from src.shared_utils import ai_check_validation, extract_fields, get_body
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
+from gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES  # noqa: E402
+from src.shared_utils import (  # noqa: E402
+    ai_check_validation,
+    ensure_model_available,
+    extract_fields,
+    get_body,
+)
+from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 
 BODY_CHAR_LIMIT = 4000
 
@@ -232,6 +237,7 @@ def run(
         )
         return []
 
+    ensure_model_available()
     ensure_raw_dirs()
 
     # Load seen URLs once at the start

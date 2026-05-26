@@ -44,6 +44,7 @@ Possible subsectors:
 import json
 import csv
 import os
+import subprocess
 import tempfile
 import requests
 from pathlib import Path
@@ -53,13 +54,14 @@ from bs4 import BeautifulSoup
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
+_VERIFIED_OLLAMA_MODELS: set[str] = set()
 
 # Anchor to the project root so this works both as `scrapers.shared_utils`
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 if str(_PROJECT_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PROJECT_ROOT))
-from src.classes import Vulnerability
+from src.classes import Vulnerability  # noqa: E402
 
 # temporary for now, to be removed later
 READY_FOR_RAG_DIR = _PROJECT_ROOT / "data" / "processed"
@@ -739,3 +741,46 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
             {k: None for k in LLM_SECTOR_FIELDS},
             {k: None for k in subsector_fields},
         )
+
+
+def ensure_model_available(model: str = AI_MODEL) -> None:
+    """Fail fast if the configured Ollama model is not installed locally."""
+    if model in _VERIFIED_OLLAMA_MODELS:
+        return
+
+    try:
+        result = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=15,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        raise SystemExit(
+            "[ERROR] Could not run 'ollama list'. Make sure Ollama is installed, "
+            "on PATH, and running.\n"
+            f"Run: ollama pull {model}"
+        ) from exc
+
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout or "").strip()
+        message = (
+            "[ERROR] Could not query Ollama models. Make sure Ollama is installed, "
+            "on PATH, and running."
+        )
+        if details:
+            message = f"{message}\nDetails: {details}"
+        raise SystemExit(f"{message}\nRun: ollama pull {model}")
+
+    installed_models = {
+        line.split()[0]
+        for line in result.stdout.splitlines()[1:]
+        if line.strip() and line.split()
+    }
+    if model not in installed_models:
+        raise SystemExit(
+            f"[ERROR] Model '{model}' not found in Ollama.\nRun: ollama pull {model}"
+        )
+
+    _VERIFIED_OLLAMA_MODELS.add(model)

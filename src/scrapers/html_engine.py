@@ -10,17 +10,18 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.shared_utils import (
+from src.shared_utils import (  # noqa: E402
     ai_check_validation,
     extract_fields,
     get_page,
+    ensure_model_available,
     check_valid_file,
     is_known_article,
     prepend_vuln_csv,
     prepend_noise_csv,
     prepend_json_sources,
 )
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
+from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 
 
 SUBSECTOR_FIELDS = [
@@ -223,6 +224,7 @@ def fetch_html_page(site_config, page_url):
 
 def run_html_scraper(site_config):
     print(f"--- Scraping for {site_config['name']} has started ---")
+    ensure_model_available()
     check_valid_file(site_config["name"])
 
     starting_page = site_config["map"]["starting_page"]

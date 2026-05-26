@@ -2,7 +2,7 @@ import pytest
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch, mock_open, call
+from unittest.mock import Mock, MagicMock, patch, mock_open
 from datetime import datetime
 
 from src.GDELT import runner
@@ -26,6 +26,13 @@ def _make_vuln(
         date_published="2023-05-15",
         content="content",
     )
+
+
+@pytest.fixture(autouse=True)
+def mock_ollama_startup_check(monkeypatch):
+    check = MagicMock()
+    monkeypatch.setattr(runner, "ensure_model_available", check)
+    return check
 
 
 class TestStableId:
@@ -472,6 +479,37 @@ class TestProcessSeed:
 class TestRun:
     """Tests for the main run function."""
 
+    def test_run_checks_model_before_seed_fetch(self, mock_ollama_startup_check):
+        """run should check Ollama model availability before seed collection."""
+        events = []
+        mock_ollama_startup_check.side_effect = lambda: events.append("check")
+
+        def fake_backfill(**kwargs):
+            events.append("backfill")
+            return []
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch(
+                    "src.GDELT.runner.ensure_raw_dirs",
+                    side_effect=lambda: events.append("dirs"),
+                ),
+                patch("src.GDELT.runner.load_seen", return_value=set()),
+                patch(
+                    "src.GDELT.runner.backfill_cyber_seeds", side_effect=fake_backfill
+                ),
+                patch("src.GDELT.runner.persist_raw_seeds"),
+                patch("src.GDELT.runner.save_seen"),
+            ):
+                runner.run(
+                    num_files=1,
+                    limit=1,
+                    subsectors="all",
+                    output_path=tmpdir,
+                )
+
+        assert events == ["check", "dirs", "backfill"]
+
     @patch("src.GDELT.runner.save_seen")
     @patch("src.GDELT.runner.load_seen")
     @patch("src.GDELT.runner.persist_raw_seeds")
@@ -860,9 +898,9 @@ class TestRun:
 
             with (
                 patch("src.GDELT.runner.backfill_cyber_seeds") as mock_backfill,
-                patch("src.GDELT.runner.ensure_raw_dirs") as mock_ensure,
+                patch("src.GDELT.runner.ensure_raw_dirs"),
                 patch("src.GDELT.runner.load_seen") as mock_load,
-                patch("src.GDELT.runner.save_seen") as mock_save,
+                patch("src.GDELT.runner.save_seen"),
             ):
                 mock_load.return_value = set()
                 mock_backfill.return_value = []

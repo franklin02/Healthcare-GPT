@@ -7,6 +7,13 @@ import requests
 import src.shared_utils as helpers
 
 
+LONG_BODY = (
+    "This is a sufficiently long article body used to exercise the shared LLM "
+    "validation path. It contains enough characters to clear the new minimum "
+    "threshold and should still behave like a normal article excerpt for tests."
+)
+
+
 class TestGetBody:
     """Test suite for get_body function"""
 
@@ -189,6 +196,26 @@ class TestGetBody:
         result = helpers.get_body("https://example.com")
         assert "Some plain text without p tags" in result
 
+    @patch("src.shared_utils.requests.get")
+    def test_get_body_filters_boilerplate_only_pages(self, mock_get):
+        """Return empty string when the page is mostly navigation and footer chrome."""
+        mock_response = MagicMock()
+        mock_response.text = """
+            <html>
+                <body>
+                    <div>Skip to main content</div>
+                    <div>Close</div>
+                    <div>© Copyright 2026 Post Register | Terms of Use | Privacy Policy</div>
+                    <div>Powered by BLOX Content Management System from BLOX Digital</div>
+                </body>
+            </html>
+        """
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        result = helpers.get_body("https://example.com")
+        assert result == ""
+
 
 class TestAiCheckValidation:
     """Test suite for ai_check_validation function"""
@@ -209,7 +236,7 @@ class TestAiCheckValidation:
         mock_post.return_value = mock_response
 
         is_threat, detail = helpers.ai_check_validation(
-            "Ransomware hits hospital", "Body text"
+            "Ransomware hits hospital", LONG_BODY
         )
         assert is_threat is True
         assert detail == "cyber_attack"
@@ -229,9 +256,20 @@ class TestAiCheckValidation:
         }
         mock_post.return_value = mock_response
 
-        is_threat, detail = helpers.ai_check_validation("Policy news", "Body text")
+        is_threat, detail = helpers.ai_check_validation("Policy news", LONG_BODY)
         assert is_threat is False
         assert detail == "This is just policy news"
+
+    @patch("src.shared_utils.requests.post")
+    def test_ai_check_validation_short_body_skips_llm(self, mock_post):
+        """Test that short bodies return early without calling the LLM"""
+        body = "Short body text that is clearly below the minimum threshold."
+
+        is_threat, detail = helpers.ai_check_validation("Short article", body)
+
+        assert is_threat is False
+        assert detail == "Body too short for LLM review"
+        mock_post.assert_not_called()
 
     @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_string_no_response(self, mock_post):
@@ -248,7 +286,7 @@ class TestAiCheckValidation:
         }
         mock_post.return_value = mock_response
 
-        is_threat, detail = helpers.ai_check_validation("Title", "Body")
+        is_threat, detail = helpers.ai_check_validation("Title", LONG_BODY)
         assert is_threat is False
 
     @patch("src.shared_utils.requests.post")
@@ -258,7 +296,7 @@ class TestAiCheckValidation:
         mock_response.json.return_value = {"response": "not valid json"}
         mock_post.return_value = mock_response
 
-        is_threat, detail = helpers.ai_check_validation("Title", "Body")
+        is_threat, detail = helpers.ai_check_validation("Title", LONG_BODY)
         assert is_threat is False
         assert detail == "Parsing Error"
 
@@ -267,7 +305,7 @@ class TestAiCheckValidation:
         """Test handling of request exceptions"""
         mock_post.side_effect = requests.RequestException("Connection error")
 
-        is_threat, detail = helpers.ai_check_validation("Title", "Body")
+        is_threat, detail = helpers.ai_check_validation("Title", LONG_BODY)
         assert is_threat is False
         assert detail == "Parsing Error"
 
@@ -286,7 +324,7 @@ class TestAiCheckValidation:
         }
         mock_post.return_value = mock_response
 
-        is_threat, detail = helpers.ai_check_validation("Drug shortage", "Body")
+        is_threat, detail = helpers.ai_check_validation("Drug shortage", LONG_BODY)
         assert is_threat is True
         assert detail == "drug_shortage"
 
@@ -305,7 +343,7 @@ class TestAiCheckValidation:
         }
         mock_post.return_value = mock_response
 
-        is_threat, detail = helpers.ai_check_validation("Device shortage", "Body")
+        is_threat, detail = helpers.ai_check_validation("Device shortage", LONG_BODY)
         assert detail == "medical_device_shortage"
 
     @patch("src.shared_utils.requests.post")
@@ -323,7 +361,7 @@ class TestAiCheckValidation:
         }
         mock_post.return_value = mock_response
 
-        is_threat, detail = helpers.ai_check_validation("Hurricane", "Body")
+        is_threat, detail = helpers.ai_check_validation("Hurricane", LONG_BODY)
         assert detail == "natural_disaster"
 
     @patch("src.shared_utils.requests.post")
@@ -341,7 +379,7 @@ class TestAiCheckValidation:
         }
         mock_post.return_value = mock_response
 
-        helpers.ai_check_validation("Title", "Body")
+        helpers.ai_check_validation("Title", LONG_BODY)
         call_args = mock_post.call_args
         assert call_args[0][0] == helpers.AI_URL
 
@@ -360,7 +398,7 @@ class TestAiCheckValidation:
         }
         mock_post.return_value = mock_response
 
-        helpers.ai_check_validation("Title", "Body")
+        helpers.ai_check_validation("Title", LONG_BODY)
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["model"] == helpers.AI_MODEL
 
@@ -574,12 +612,12 @@ class TestRunBertAndUseBert:
         monkeypatch.setitem(sys.modules, "src.GDELT.BERT_filter", fake_module)
         monkeypatch.setattr(helpers, "_classifier", None)
 
-        result = helpers._run_bert("Ransomware hits hospital", "Body text")
+        result = helpers._run_bert("Ransomware hits hospital", LONG_BODY)
 
         assert result == "cyber_attack"
         mock_load_model.assert_called_once()
         mock_run_bert_inference.assert_called_once_with(
-            {"title": "Ransomware hits hospital", "body": "Body text"},
+            {"title": "Ransomware hits hospital", "body": LONG_BODY},
             mock_classifier,
         )
 
@@ -591,7 +629,7 @@ class TestRunBertAndUseBert:
         monkeypatch.setattr(helpers, "_run_bert", MagicMock(return_value="none"))
 
         is_threat, detail = helpers.ai_check_validation(
-            "Policy news", "Body text", use_bert=True
+            "Policy news", LONG_BODY, use_bert=True
         )
 
         assert is_threat is False
@@ -619,7 +657,7 @@ class TestRunBertAndUseBert:
         mock_post.return_value = mock_response
 
         is_threat, detail = helpers.ai_check_validation(
-            "Ransomware hits hospital", "Body text", use_bert=True
+            "Ransomware hits hospital", LONG_BODY, use_bert=True
         )
 
         assert is_threat is True

@@ -496,6 +496,7 @@ INTERNATIONAL_HINTS: Tuple[str, ...] = (
     "overseas",
     "south america",
     "worldwide",
+    "gaza",
 )
 
 COUNTRIES_AND_CODE: Dict[str, str] = {

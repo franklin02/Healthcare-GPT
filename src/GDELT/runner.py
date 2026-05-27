@@ -35,7 +35,6 @@ from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
 from src.logging_utils import get_file_logger  # noqa: E402
 
 # intermediate stages directory constants + helper functions
-PROJECT_ROOT = Path(__file__).parents[2]
 RAW_GDELT_DIR = PROJECT_ROOT / "data" / "raw" / "gdelt"
 SEEDS_DIR = RAW_GDELT_DIR / "seeds"
 VALIDATED_DIR = RAW_GDELT_DIR / "validated"
@@ -113,7 +112,6 @@ def clear_directory(directory: Path) -> None:
             elif item.is_dir():
                 shutil.rmtree(item)
         except Exception as exc:
-            print(f"Warning: failed to remove {item}: {exc}")
             LOGGER.warning("Failed to remove %s: %s", item, exc)
 
 
@@ -191,7 +189,7 @@ def process_seed(
     Run a single seed through validation + extraction.
     Returns a Vulnerability if validated as a disruption, else None.
     """
-    reporter = reporter or CliReporter(verbose=True)
+    reporter = reporter or CliReporter()
     url = seed["url"]
     LOGGER.debug("Processing seed url=%s", url)
 
@@ -375,8 +373,6 @@ def run(
         stats.processed += 1
         if reporter.verbose:
             reporter.detail(f"[{i}/{len(seeds)}]")
-        else:
-            reporter.progress(i - 1, len(seeds), "GDELT articles")
         LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
         url = seed["url"]
         article_id = stable_id(url)
@@ -452,7 +448,7 @@ def run(
             combined = out_recs
     except Exception:
         LOGGER.warning(
-            "Failed to read existing output file %s: %s", out_file, exc_info=True
+            "Failed to read existing output file %s", out_file, exc_info=True
         )
         combined = out_recs
 

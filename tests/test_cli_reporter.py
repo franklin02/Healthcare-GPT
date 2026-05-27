@@ -25,14 +25,18 @@ def test_progress_redraws_until_complete():
     assert "\rProgress: [██████████] 100% items (2/2)" in output
 
 
-def test_status_finishes_active_progress_line():
+def test_status_redraws_active_progress_line_below():
+    """Interrupting messages print above the sticky bar; the bar is redrawn below."""
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
 
     reporter.progress(1, 2, "items")
     reporter.status("done enough")
 
-    assert stream.getvalue().endswith("items (1/2)\ndone enough\n")
+    output = stream.getvalue()
+    # Message printed exactly once, sticky bar drawn before AND after it.
+    assert output.count("done enough") == 1
+    assert output.count("Progress: [█████░░░░░] 50% items (1/2)") == 2
 
 
 def test_warning_is_hidden_by_default_but_counted():
@@ -46,24 +50,17 @@ def test_warning_is_hidden_by_default_but_counted():
     assert stats.warnings == 1
 
 
-def test_verbose_warning_under_active_progress_is_indented():
+def test_verbose_warning_prints_and_redraws_progress():
     stream = io.StringIO()
     reporter = CliReporter(verbose=True, stream=stream)
 
     reporter.progress(1, 2, "items")
     reporter.warn("something happened")
 
-    assert stream.getvalue().endswith("items (1/2)\n\t[WARN] something happened\n")
-
-
-def test_verbose_warning_finishes_progress_before_printing():
-    stream = io.StringIO()
-    reporter = CliReporter(verbose=True, stream=stream)
-
-    reporter.progress(1, 3, "items")
-    reporter.warn("something happened")
-
-    assert stream.getvalue().endswith("items (1/3)\n\t[WARN] something happened\n")
+    output = stream.getvalue()
+    assert "[WARN] something happened" in output
+    # Bar redrawn once before the warning and once after.
+    assert output.count("Progress: [█████░░░░░] 50% items (1/2)") == 2
 
 
 def test_detail_only_prints_when_verbose():
@@ -75,6 +72,27 @@ def test_detail_only_prints_when_verbose():
 
     assert "hidden" not in quiet_stream.getvalue()
     assert "visible" in verbose_stream.getvalue()
+
+
+def test_info_prints_in_default_mode():
+    stream = io.StringIO()
+    CliReporter(verbose=False, stream=stream).info("important context")
+
+    assert "important context" in stream.getvalue()
+
+
+def test_tick_draws_sticky_counter_line():
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+
+    reporter.tick("CyberScoop", page=2, processed=12, validated=1)
+    reporter.tick("CyberScoop", page=2, processed=13, validated=1)
+    reporter.finish_line()
+
+    output = stream.getvalue()
+    assert "\rCyberScoop | page=2 | processed=12 | validated=1" in output
+    assert "\rCyberScoop | page=2 | processed=13 | validated=1" in output
+    assert output.endswith("\n")
 
 
 def test_summary_prints_core_counts():

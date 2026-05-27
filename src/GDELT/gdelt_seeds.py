@@ -421,8 +421,6 @@ def backfill_cyber_seeds(
     for s in unique:
         reporter.detail(f"[{s['date']}]  {s['source']}")
         reporter.detail(f"  URL: {s['url']}")
-        # Can remove print later, for debugging rn
-        # print(f"  ALL THEMES: {s['themes']}")
         relevant = [
             t
             for t in (s["themes"] or "").split(";")
@@ -431,19 +429,3 @@ def backfill_cyber_seeds(
         reporter.detail(f"  Themes: {' | '.join(relevant[:8])}\n")
 
     return unique
-
-
-if __name__ == "__main__":
-    seeds = backfill_cyber_seeds(num_files=150)
-    urls = [s["url"] for s in seeds]
-    from gemma import filter_with_gemma
-
-    confirmed = filter_with_gemma(urls)
-    print(f"Confirmed: {len(confirmed)} / {len(urls)} URLs passed Gemma filter")
-    for url in confirmed:
-        print(url)
-    LOGGER.info(
-        "Backfill complete: %s seeds confirmed by Gemma out of %s URLs",
-        len(confirmed),
-        len(urls),
-    )

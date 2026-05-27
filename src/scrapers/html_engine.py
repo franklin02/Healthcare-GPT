@@ -25,6 +25,25 @@ from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
 
 
+def _live_site_status(
+    reporter: CliReporter,
+    site_name: str,
+    page: int,
+    stats: PipelineStats,
+) -> None:
+    """Update the per-site sticky counter line (no-op in verbose mode)."""
+    if reporter.verbose:
+        return
+    reporter.tick(
+        site_name,
+        page=page,
+        processed=stats.processed,
+        validated=stats.validated,
+        rejected=stats.rejected,
+        skipped=stats.skipped,
+    )
+
+
 def _bert_status() -> str:
     try:
         from src.GDELT.BERT_filter import describe_model
@@ -286,7 +305,7 @@ def run_html_scraper(
         try:
             db_known = load_cite(site_config["name"])
         except Exception as e:
-            print(f"[WARNING] load_cite failed for {site_config['name']}: {e}")
+            reporter.warn(f"load_cite failed for {site_config['name']}: {e}", stats)
 
     starting_page = site_config["map"]["starting_page"]
     cap = site_config["map"]["cap"]
@@ -303,7 +322,7 @@ def run_html_scraper(
 
     while True:
         if cap != -1 and current_page > cap:
-            print(f"[FINISHED] Reached cap of {cap} for {site_config['name']}")
+            reporter.info(f"Reached page cap ({cap}) for {site_config['name']}")
             break
 
         if current_page == starting_page:
@@ -346,8 +365,6 @@ def run_html_scraper(
                 reporter.detail(
                     f"[{article_index}/{len(articles)}] {article['title'][:90]}"
                 )
-            else:
-                reporter.progress(article_index - 1, len(articles), site_config["name"])
 
             if SUPABASE_AVAILABLE and db_known:
                 try:
@@ -356,10 +373,9 @@ def run_html_scraper(
                         reporter.detail(
                             f"[SKIP-DB] Already in Supabase: {article['title']}"
                         )
-                        if not reporter.verbose:
-                            reporter.progress(
-                                article_index, len(articles), site_config["name"]
-                            )
+                        _live_site_status(
+                            reporter, site_config["name"], current_page, stats
+                        )
                         continue
                 except Exception as e:
                     reporter.warn(f"is_known_db check failed: {e}", stats)
@@ -377,10 +393,9 @@ def run_html_scraper(
                         f"Unrecognized subsector '{detail}'; skipping: {article['title']}",
                         stats,
                     )
-                    if not reporter.verbose:
-                        reporter.progress(
-                            article_index, len(articles), site_config["name"]
-                        )
+                    _live_site_status(
+                        reporter, site_config["name"], current_page, stats
+                    )
                     continue
                 sector_data, ss_data = extract_fields(
                     detail, article["title"], article["body"]
@@ -466,8 +481,7 @@ def run_html_scraper(
                             f"insert_noise failed for {article['title']!r}: {e}",
                             stats,
                         )
-            if not reporter.verbose:
-                reporter.progress(article_index, len(articles), site_config["name"])
+            _live_site_status(reporter, site_config["name"], current_page, stats)
 
         if stop:
             break
@@ -475,6 +489,7 @@ def run_html_scraper(
         current_page += 1
         time.sleep(0.5)
 
+    reporter.finish_line()
     prepend_vuln_csv(site_config["name"], new_rows)
     prepend_noise_csv(site_config["name"], new_noise_rows)
     prepend_json_sources(site_config["name"], new_vulns)

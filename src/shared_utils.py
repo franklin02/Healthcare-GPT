@@ -635,25 +635,15 @@ def _run_bert(title: str, body: str, verbose: bool = False) -> str:
         raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
 
     if _classifier is None:
-        try:
-            _classifier = load_model(verbose=verbose)
-        except TypeError:
-            _classifier = load_model()
+        _classifier = load_model(verbose=verbose)
         if _classifier is None:
             LOGGER.warning("BERT classifier failed to load, skipping")
             return "none"
 
-    else:
-        LOGGER.debug("Reusing cached BERT classifier for title %s", title)
-        pass
-
     try:
-        try:
-            result = run_bert_inference(
-                {"title": title, "body": body}, _classifier, verbose=verbose
-            )
-        except TypeError:
-            result = run_bert_inference({"title": title, "body": body}, _classifier)
+        result = run_bert_inference(
+            {"title": title, "body": body}, _classifier, verbose=verbose
+        )
     except Exception as e:
         LOGGER.warning("BERT inference failed: %s", e)
         return "none"

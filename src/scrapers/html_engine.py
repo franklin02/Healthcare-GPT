@@ -64,8 +64,12 @@ try:
     )
 
     SUPABASE_AVAILABLE = has_supabase_creds()
-except Exception:
-    SUPABASE_AVAILABLE = False
+    if not SUPABASE_AVAILABLE:
+        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
+
+except Exception as e:
+    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
+SUPABASE_AVAILABLE = False
 
 
 SUBSECTOR_FIELDS = [

@@ -898,7 +898,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
 
         FIELD-SPECIFIC GUIDANCE (sector fields, applied to ALL subsectors):
         - "exec_summary": a 1-2 sentence factual summary of the disruption, naming the entity and the impact. Lift facts only from the article. Empty string allowed if the article is too vague to summarize.
-        - "geography_scope": the U.S. state, region, or "US Territory" the disruption affects, only if stated. Otherwise null.
+        - "geography_scope": The full name of the US state, "US" if no specific state is specified, "US Territory" for US territories, out "Outside US" for non-US events, or null if not explicit.
         - "start_date" / "end_date": ISO YYYY-MM-DD; null if not explicit.
         - "resilience_or_mitigation_observed": any specific mitigation, workaround, or response action stated in the article (e.g. "diverted ambulances to nearby hospital", "restored systems within 48 hours"). Null if none stated.
         <</SYS>>

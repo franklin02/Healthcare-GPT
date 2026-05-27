@@ -8,6 +8,22 @@ Pipeline:
   src.shared_utils.ai_check_validation -- LLM validates as active disruption
   src.shared_utils.extract_fields      -- LLM extracts schema-specific fields
 
+Constants:
+    BODY_CHAR_LIMIT: Number of characters to include from the article body when passing to the LLM for validation and extraction.
+
+Functions:
+    stable_id(url): Generate a stable ID for a given URL using SHA-256 hashing.
+    fmt_dt(value): Format a date string into YYYY-MM-DD HH:MM format. Tries multiple input formats and returns the original value if parsing fails.
+    ensure_raw_dirs(): Ensure that the raw directories for seeds, validated, and enriched data exist. Creates them if they don't.
+    save_json(path, data): Save a dictionary as JSON to the specified path, creating parent directories if needed.
+    clear_directory(directory): Delete all files and subdirectories inside a directory.
+    persist_raw_seeds(raw_seeds): Persist raw seeds to the seeds directory, using stable IDs for filenames.
+    persist_stage(directory, article_id, stage, url, data): Persist data for a specific stage (validated, enriched) using a stable ID for the filename.
+    load_seen(seen_file): Load seen URLs from file. Returns a set of URLs that have been seen and processed. If the file does not exist or cannot be read, returns an empty set.
+    save_seen(seen, seen_file): Save seen URLs to file.
+    process_seed(seed, seen, use_bert, reporter, stats): Run a single seed through validation + extraction. Returns a Vulnerability if validated as a disruption, else None.
+    run(num_files, limit, subsectors, output_path, start_date, end_date, seen_urls_file, use_bert, verbose, reporter, stats): Main function to run the GDELT pipeline end-to-end.
+
 """
 
 import argparse
@@ -58,6 +74,12 @@ except Exception as e:
 
 
 def _bert_status() -> str:
+    """
+    Return a string describing the status of the BERT pre-filter, including model details if available. This is used for logging and reporting.
+
+    Returns:
+        A string describing the BERT pre-filter status.
+    """
     try:
         from src.GDELT.BERT_filter import describe_model
 
@@ -69,10 +91,20 @@ def _bert_status() -> str:
 
 
 def stable_id(url: str) -> str:
+    """Generate a stable ID for a given URL using SHA-256 hashing."""
     return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
 
 
 def fmt_dt(value: str) -> str:
+    """
+    Format a date string into YYYY-MM-DD HH:MM format. Tries multiple input formats and returns the original value if parsing fails.
+
+    Parameters:
+        value: The input date string to format.
+
+    Returns:
+        A formatted date string in YYYY-MM-DD HH:MM format, or the original value if parsing fails.
+    """
     try:
         LOGGER.debug("Formatting date value: %s", value)
         return datetime.strptime(value, "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M")
@@ -89,22 +121,36 @@ def fmt_dt(value: str) -> str:
 
 
 def ensure_raw_dirs() -> None:
+    """Ensure that the raw directories for seeds, validated, and enriched data exist. Creates them if they don't."""
     for directory in (SEEDS_DIR, VALIDATED_DIR, ENRICHED_DIR):
         directory.mkdir(parents=True, exist_ok=True)
     LOGGER.debug("Ensured raw directories: %s", RAW_GDELT_DIR)
 
 
 def save_json(path: Path, data: dict) -> None:
+    """
+    Save a dictionary as JSON to the specified path, creating parent directories if needed.
+
+    Parameters:
+        path: The path to the JSON file to save.
+        data: The dictionary to save as JSON.
+    """
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
     LOGGER.debug("Wrote JSON: %s", path)
 
 
 def clear_directory(directory: Path) -> None:
-    """Delete all files and subdirectories inside a directory."""
+    """
+    Delete all files and subdirectories inside a directory.
+
+    Parameters:
+        directory: The path to the directory to clear.
+    """
     if not directory.exists():
         LOGGER.debug("Directory does not exist, skipping clear: %s", directory)
         return
+    # Iterate over all items in the directory and remove them
     for item in directory.iterdir():
         try:
             if item.is_file() or item.is_symlink():
@@ -116,7 +162,14 @@ def clear_directory(directory: Path) -> None:
 
 
 def persist_raw_seeds(raw_seeds: list[dict]) -> None:
+    """
+    Persist raw seeds to the seeds directory, using stable IDs for filenames.
+
+    Parameters:
+        raw_seeds: A list of seed dictionaries to persist.
+    """
     LOGGER.debug("Persisting %s raw seeds", len(raw_seeds))
+    # Use stable_id of the URL for the filename to ensure consistent naming and avoid issues with special characters in URLs. This also allows for easy deduplication if the same URL appears multiple times.
     for seed in raw_seeds:
         article_id = stable_id(seed["url"])
 
@@ -139,6 +192,16 @@ def persist_stage(
     url: str,
     data: dict,
 ) -> None:
+    """
+    Persist data for a specific stage (validated, enriched) using a stable ID for the filename.
+
+    Parameters:
+    - directory: The directory to save the file in (e.g., validated, enriched).
+    - article_id: The stable ID for the article, used as the filename.
+    - stage: The processing stage (e.g., "validated", "enriched") to include in the saved data.
+    - url: The URL of the article, included in the saved data for reference.
+    - data: The dictionary of data to save for this stage.
+    """
     LOGGER.debug("Persisting stage=%s id=%s url=%s", stage, article_id, url)
     save_json(
         directory / f"{article_id}.json",
@@ -153,7 +216,15 @@ def persist_stage(
 
 
 def load_seen(seen_file: Path | None = None) -> set:
-    """Load seen URLs from file. Returns empty set if file doesn't exist."""
+    """
+    Load seen URLs from file. Returns a set of URLs that have been seen and processed. If the file does not exist or cannot be read, returns an empty set.
+
+    Parameters:
+        seen_file: Optional path to the JSON file containing seen URLs. If None, defaults to data/seen_urls.json in the project root.
+
+    Returns:
+        A set of URLs that have been seen and processed. Returns an empty set if the file does not exist or cannot be read.
+    """
     if seen_file is None:
         seen_file = PROJECT_ROOT / "data" / "seen_urls.json"
     try:
@@ -166,7 +237,13 @@ def load_seen(seen_file: Path | None = None) -> set:
 
 
 def save_seen(seen: set, seen_file: Path | None = None) -> None:
-    """Save seen URLs to file."""
+    """
+    Save seen URLs to file.
+
+    Parameters:
+        seen: A set of URLs that have been seen and processed.
+        seen_file: Optional path to the JSON file to save seen URLs. If None, defaults to data/seen_urls.json in the project root.
+    """
     if seen_file is None:
         seen_file = PROJECT_ROOT / "data" / "seen_urls.json"
     try:
@@ -188,6 +265,16 @@ def process_seed(
     """
     Run a single seed through validation + extraction.
     Returns a Vulnerability if validated as a disruption, else None.
+
+    Parameters:
+    - seed: The seed dictionary containing at least a "url" key.
+    - seen: A set of URLs that have already been processed, used to skip duplicates.
+    - use_bert: Whether to run a BERT pre-filter before LLM validation.
+    - reporter: Optional CliReporter for logging progress and details.
+    - stats: Optional PipelineStats for tracking statistics.
+
+    Returns:
+    - A Vulnerability object if the seed is validated as a disruption, or None if it is skipped or rejected.
     """
     reporter = reporter or CliReporter()
     url = seed["url"]
@@ -292,6 +379,25 @@ def run(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ) -> list[dict]:
+    """
+    Main function to run the GDELT pipeline end-to-end.
+
+     Parameters:
+        num_files: Number of GDELT GKG files to scan for seeds.
+        limit: Optional cap on the number of seeds to process, useful for testing.
+        subsectors: Comma-separated list of subsectors to include, or "all".
+        output_path: Optional path to output JSON file or directory.
+        start_date: Optional earliest date for GDELT files to include (YYYYMMDD or ISO format).
+        end_date: Optional latest date for GDELT files to include (YYYYMMDD or ISO format).
+        seen_urls_file: Optional path to JSON file for storing/loading seen URLs.
+        use_bert: Whether to run a BERT pre-filter before LLM validation.
+        verbose: Whether to show detailed per-article output.
+        reporter: Optional CliReporter for logging progress and details.
+        stats: Optional PipelineStats for tracking statistics.
+
+     Returns:
+        A list of validated and enriched vulnerability records as dictionaries.
+    """
     LOGGER.debug(
         "Run started num_files=%s limit=%s subsectors=%s start_date=%s end_date=%s output_path=%s",
         num_files,
@@ -425,6 +531,7 @@ def run(
 
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_recs = []
+    # Convert records to dicts and format date_published before saving, to ensure consistent output formatting regardless of how dates are represented in the Vulnerability objects.
     for r in records:
         d = r.to_dict()
         d["date_published"] = fmt_dt(d.get("date_published", ""))

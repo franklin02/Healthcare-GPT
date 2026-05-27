@@ -3,7 +3,9 @@ import uuid
 
 import pytest
 from dotenv import load_dotenv
-from supabase import create_client
+
+supabase = pytest.importorskip("supabase")
+create_client = supabase.create_client
 
 load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -15,8 +17,8 @@ if not (SUPABASE_URL and SUPABASE_KEY):
         allow_module_level=True,
     )
 
-from src import supabase_function as sb
-from src.classes import Vulnerability
+from src import supabase_function as sb  # noqa: E402
+from src.classes import Vulnerability  # noqa: E402
 
 TEST_TABLE = "test_table"
 TEMP_SOURCE = "_pytest_temp_"

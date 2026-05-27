@@ -51,19 +51,16 @@ from pathlib import Path
 import re
 from bs4 import BeautifulSoup
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.logging_utils import get_file_logger
-from src.classes import Vulnerability
+from src.logging_utils import get_file_logger  # noqa: E402
+from src.classes import Vulnerability  # noqa: E402
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
 MIN_BODY_CHARS_FOR_LLM = 150
-
-# Anchor to the project root so this works both as `scrapers.shared_utils`
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "shared_utils.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
@@ -624,7 +621,7 @@ def get_body(url: str) -> str:
 _classifier = None
 
 
-def _run_bert(title: str, body: str) -> str:
+def _run_bert(title: str, body: str, verbose: bool = False) -> str:
     """
     Run BERT inference on an article. Returns the predicted subsector string or "none".
     Loads the classifier once on first call and reuses it for subsequent articles.
@@ -638,19 +635,17 @@ def _run_bert(title: str, body: str) -> str:
         raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
 
     if _classifier is None:
-        _classifier = load_model()
+        _classifier = load_model(verbose=verbose)
         if _classifier is None:
-            print("[WARN] BERT classifier failed to load, skipping.")
+            LOGGER.warning("BERT classifier failed to load, skipping")
             return "none"
 
-    else:
-        LOGGER.debug("Reusing cached BERT classifier for title %s", title)
-        pass
-
     try:
-        result = run_bert_inference({"title": title, "body": body}, _classifier)
+        result = run_bert_inference(
+            {"title": title, "body": body}, _classifier, verbose=verbose
+        )
     except Exception as e:
-        print(f"[ERROR] BERT inference failed: {e}")
+        LOGGER.warning("BERT inference failed: %s", e)
         return "none"
 
     if result == "potential_hit":
@@ -658,7 +653,9 @@ def _run_bert(title: str, body: str) -> str:
     return result
 
 
-def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
+def ai_check_validation(
+    title, body, use_bert=False, verbose: bool = False
+) -> tuple[bool, str]:
     """
     Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach at a named healthcare entity based on strict, predefined criteria.
 
@@ -688,12 +685,16 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
         return False, "Body too short for LLM review"
 
     if use_bert:
-        bert_subsector = _run_bert(title, body)
+        bert_subsector = _run_bert(title, body, verbose=verbose)
         if bert_subsector == "none":
-            print("[BERT] rejected skipping LLM")
+            if verbose:
+                print("[BERT] rejected skipping LLM")
             LOGGER.info("BERT rejected article with title %s", title)
             return False, "BERT: unrelated news"
-        print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
+        if verbose:
+            print(
+                f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation"
+            )
         LOGGER.info("BERT flagged article with title %s as %s", title, bert_subsector)
 
     prompt = f"""
@@ -811,12 +812,14 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     EXCERPT: {body}
     """
 
+    active_prompt = promptG if AI_MODEL.lower().startswith("gemma") else prompt
+
     try:
         resp = requests.post(
             AI_URL,
             json={
                 "model": AI_MODEL,
-                "prompt": prompt,
+                "prompt": active_prompt,
                 "stream": False,
                 "format": "json",
                 "options": {"temperature": 0.1},

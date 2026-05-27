@@ -10,7 +10,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in _sys.path:
     _sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.shared_utils import (
+from src.shared_utils import (  # noqa: E402
+    AI_MODEL,
     ai_check_validation,
     extract_fields,
     get_page,
@@ -19,8 +20,39 @@ from src.shared_utils import (
     prepend_vuln_csv,
     prepend_noise_csv,
     prepend_json_sources,
-)
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES
+)  # noqa: E402
+from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
+from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
+
+
+def _live_site_status(
+    reporter: CliReporter,
+    site_name: str,
+    page: int,
+    stats: PipelineStats,
+) -> None:
+    """Update the per-site sticky counter line (no-op in verbose mode)."""
+    if reporter.verbose:
+        return
+    reporter.tick(
+        site_name,
+        page=page,
+        processed=stats.processed,
+        validated=stats.validated,
+        rejected=stats.rejected,
+        skipped=stats.skipped,
+    )
+
+
+def _bert_status() -> str:
+    try:
+        from src.GDELT.BERT_filter import describe_model
+
+        model_id, device_label = describe_model()
+        return f"BERT pre-filter: {model_id} using {device_label}"
+    except Exception:
+        return "BERT pre-filter: enabled"
+
 
 try:
     from src.supabase_function import (
@@ -33,12 +65,11 @@ try:
 
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:
-        print(
-            "[WARNING] SUPABASE_URL or SUPABASE_KEY missing from env, DB writes disabled"
-        )
+        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
+
 except Exception as e:
-    print(f"[WARNING] Supabase unavailable, DB writes disabled: {e}")
-    SUPABASE_AVAILABLE = False
+    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
+SUPABASE_AVAILABLE = False
 
 
 SUBSECTOR_FIELDS = [
@@ -136,16 +167,24 @@ HTML_SITES = [
 ]
 
 
-def fetch_html_page(site_config, page_url):
+def fetch_html_page(
+    site_config,
+    page_url,
+    reporter: CliReporter | None = None,
+    stats: PipelineStats | None = None,
+):
+    """Fetch one listing page and return article payloads plus a stop flag."""
+    reporter = reporter or CliReporter(verbose=True)
     response = get_page(page_url)
     soup = BeautifulSoup(response.content, "html.parser")
 
     m = site_config["map"]
     link_elements = soup.select(m["container"])
     if not link_elements:
-        print(
-            f"[SELECTOR MISS] container '{m['container']}' matched 0 elements on {page_url}"
-            f" — check your container selector in HTML_SITES"
+        reporter.warn(
+            f"container '{m['container']}' matched 0 elements on {page_url}; "
+            "check HTML_SITES config",
+            stats,
         )
         return [], False
 
@@ -159,9 +198,10 @@ def fetch_html_page(site_config, page_url):
             a_tag = el if el.name == "a" else el.select_one("a[href]")
 
         if not a_tag:
-            print(
-                f"[SELECTOR MISS] link_selector '{m.get('link_selector')}' found no anchor"
-                f" in a '{m['container']}' item — skipping"
+            reporter.warn(
+                f"link_selector '{m.get('link_selector')}' found no anchor "
+                f"in a '{m['container']}' item",
+                stats,
             )
             continue
 
@@ -202,17 +242,20 @@ def fetch_html_page(site_config, page_url):
 
             body_el = article_soup.select_one(body_selector)
             if not body_el:
-                print(
-                    f"[SELECTOR MISS] body_selector '{body_selector}' matched nothing on"
-                    f" {entry['link']} — skipping article. Update body_selector in HTML_SITES config."
+                reporter.warn(
+                    f"body_selector '{body_selector}' matched nothing on "
+                    f"{entry['link']}; skipping article",
+                    stats,
                 )
+                if stats is not None:
+                    stats.skipped += 1
                 time.sleep(0.5)
                 continue
 
             body = body_el.get_text(separator=" ", strip=True)
 
             if is_known_article(site_config["name"], entry["title"], body):
-                print(
+                reporter.detail(
                     f"[FINISH] Reached known article on {site_config['name']}: "
                     f"{entry['title']!r}"
                 )
@@ -224,7 +267,11 @@ def fetch_html_page(site_config, page_url):
 
             time.sleep(0.5)
         except Exception as e:
-            print(f"[WARNING] Could not fetch article body at {entry['link']}: {e}")
+            reporter.warn(
+                f"Could not fetch article body at {entry['link']}: {e}", stats
+            )
+            if stats is not None:
+                stats.skipped += 1
             continue
 
         articles.append(
@@ -239,8 +286,22 @@ def fetch_html_page(site_config, page_url):
     return articles, stop
 
 
-def run_html_scraper(site_config, use_bert: bool = False):
-    print(f"--- Scraping for {site_config['name']} has started ---")
+def run_html_scraper(
+    site_config,
+    use_bert: bool = False,
+    verbose: bool = False,
+    reporter: CliReporter | None = None,
+    stats: PipelineStats | None = None,
+) -> PipelineStats:
+    """Run one configured HTML scraper and return its run statistics."""
+    local_reporter = reporter is None
+    reporter = reporter or CliReporter(verbose=verbose)
+    stats = stats or PipelineStats(site_config["name"])
+    stats.sites_scanned += 1
+    reporter.phase(f"HTML scraper: {site_config['name']}")
+    reporter.status(f"LLM model: {AI_MODEL}")
+    if use_bert:
+        reporter.status(_bert_status())
     check_valid_file(site_config["name"])
 
     db_known: list[dict[str, str]] = []
@@ -248,7 +309,7 @@ def run_html_scraper(site_config, use_bert: bool = False):
         try:
             db_known = load_cite(site_config["name"])
         except Exception as e:
-            print(f"[WARNING] load_cite failed for {site_config['name']}: {e}")
+            reporter.warn(f"load_cite failed for {site_config['name']}: {e}", stats)
 
     starting_page = site_config["map"]["starting_page"]
     cap = site_config["map"]["cap"]
@@ -265,7 +326,7 @@ def run_html_scraper(site_config, use_bert: bool = False):
 
     while True:
         if cap != -1 and current_page > cap:
-            print(f"[FINISHED] Reached cap of {cap} for {site_config['name']}")
+            reporter.info(f"Reached page cap ({cap}) for {site_config['name']}")
             break
 
         if current_page == starting_page:
@@ -280,28 +341,48 @@ def run_html_scraper(site_config, use_bert: bool = False):
                 page_url = f"{site_config['url']}{sep}{page_param}={current_page}"
 
         try:
-            articles, stop = fetch_html_page(site_config, page_url)
-        except Exception as e:
-            print(
-                f"[ERROR] Fetching {site_config['name']} page {current_page} ({page_url}): {e}"
+            articles, stop = fetch_html_page(
+                site_config,
+                page_url,
+                reporter=reporter,
+                stats=stats,
             )
-            return
+        except Exception as e:
+            reporter.error(
+                f"Fetching {site_config['name']} page {current_page} ({page_url}): {e}",
+                stats,
+            )
+            return stats
 
         if not articles:
-            print(
-                f"[WARNING] No articles found on page {current_page} — stopping pagination"
+            reporter.warn(
+                f"No articles found on page {current_page}; stopping pagination",
+                stats,
             )
             break
 
-        for article in articles:
+        stats.discovered += len(articles)
+        for article_index, article in enumerate(articles, start=1):
             body_snippet = (article["body"] or "")[:250].replace("\n", " ")
+            stats.processed += 1
+            if reporter.verbose:
+                reporter.detail(
+                    f"[{article_index}/{len(articles)}] {article['title'][:90]}"
+                )
+
             if SUPABASE_AVAILABLE and db_known:
                 try:
                     if is_known_db(db_known, article["title"], body_snippet):
-                        print(f"[SKIP-DB] Already in Supabase: {article['title']}")
+                        stats.skipped += 1
+                        reporter.detail(
+                            f"[SKIP-DB] Already in Supabase: {article['title']}"
+                        )
+                        _live_site_status(
+                            reporter, site_config["name"], current_page, stats
+                        )
                         continue
                 except Exception as e:
-                    print(f"[WARNING] is_known_db check failed: {e}")
+                    reporter.warn(f"is_known_db check failed: {e}", stats)
 
             try:
                 is_threat, detail = ai_check_validation(
@@ -409,13 +490,18 @@ def run_html_scraper(site_config, use_bert: bool = False):
         current_page += 1
         time.sleep(0.5)
 
+    reporter.finish_line()
     prepend_vuln_csv(site_config["name"], new_rows)
     prepend_noise_csv(site_config["name"], new_noise_rows)
     prepend_json_sources(site_config["name"], new_vulns)
-    print(
-        f"--- Finished {site_config['name']}: "
-        f"{len(new_vulns)} vuln(s) + {len(new_noise_rows)} noise prepended ---"
+    stats.output_records += len(new_vulns)
+    reporter.info(
+        f"Finished {site_config['name']}: "
+        f"{len(new_vulns)} vuln(s), {len(new_noise_rows)} rejected"
     )
+    if local_reporter:
+        reporter.summary(stats)
+    return stats
 
 
 if __name__ == "__main__":
@@ -430,7 +516,14 @@ if __name__ == "__main__":
         default=False,
         help="Run BERT pre-filter before LLM validation to skip unrelated articles early",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Show detailed per-article scraper output",
+    )
     args = parser.parse_args()
 
     for site in HTML_SITES:
-        run_html_scraper(site, use_bert=args.use_bert)
+        run_html_scraper(site, use_bert=args.use_bert, verbose=args.verbose)

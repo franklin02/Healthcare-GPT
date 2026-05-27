@@ -1,3 +1,33 @@
+"""
+GDELT seed discovery and backfill logic.
+This module provides functions to fetch and process GDELT GKG files, filter them for relevant themes and US locations,
+and extract candidate seed records for the healthcare subsectors of interest.
+It also includes a backfill function to collect seeds from recent GDELT files based on date bounds or a specified number of recent files.
+
+Constants:
+GKG_COLS: Mapping of column indices to their corresponding field names in the GDELT GKG files.
+CYBER_THEMES: Set of themes related to cyber attacks.
+HEALTH_THEMES: Set of themes related to healthcare.
+DRUG_SHORTAGE_THEMES: Set of themes related to drug shortages.
+DEVICE_SHORTAGE_THEMES: Set of themes related to medical device shortages.
+NATURAL_DISASTER_THEMES: Set of themes related to natural disasters.
+NOISE_THEMES: Set of themes considered noise.
+SUBSECTOR_THEMES: Mapping of subsectors to their required theme sets.
+US_TLDS: Set of top-level domains associated with US-based websites.
+BLOCKED_TLDS: Set of top-level domains associated with non-US-based websites that should be blocked.
+URL_DENY_PATTERNS: Regular expression pattern to identify URLs that should be denied based on their path.
+URL_REQUIRE_PATTERNS: Regular expression pattern to identify URLs that should be required based on their content.
+
+Functions:
+is_us_located(location_str): Check if a location string from GDELT indicates a US location.
+themes_match(theme_str, subsector="all"): Check if themes in a theme string match the required themes for a given subsector or any supported subsector.
+detect_subsector(theme_str): Detect the specific subsector for a theme string based on the presence of required themes.
+themes_match_noise(theme_str): Check if themes in a theme string match any of the noise themes.
+url_passes_quality(url): Check if a URL passes quality checks based on its domain and path.
+process_gkg_file(link, subsector="all", reporter=None, stats=None): Download and process a GDELT GKG file, filtering for relevant themes, US locations, and quality URLs, and return candidate seed records.
+backfill_cyber_seeds(num_files=20, subsector="all", start_date=None, end_date=None, reporter=None, stats=None): Collect recent or date-bounded GDELT seeds for the requested subsector by scanning the master file list and processing relevant GKG files.
+"""
+
 import requests
 import pandas as pd
 import zipfile
@@ -127,12 +157,20 @@ URL_REQUIRE_PATTERNS = re.compile(
 )
 
 
-# Note:
-# This checks to see if the loc is in the US, this will need to be changed to include US territories aswell.
 def is_us_located(location_str):
+    """
+    Check if a GDELT location string indicates a US location.
+
+    Parameters:
+        location_str: The location string from GDELT's V1Locations field.
+
+    Returns:
+        True if the location string indicates a US location, False otherwise.
+    """
     if not isinstance(location_str, str) or not location_str.strip():
         LOGGER.debug("Location string is not valid: %s", location_str)
         return True
+    # GDELT location strings have entries separated by semicolons, with fields separated by hashes. The country code is typically the third field. We check if any entry has "US" as the country code.
     for entry in location_str.split(";"):
         parts = entry.split("#")
         if len(parts) >= 3 and parts[2].strip().upper() == "US":
@@ -143,6 +181,16 @@ def is_us_located(location_str):
 
 
 def _matches_any_theme(theme_str, theme_set):
+    """
+    Check if any of the expected themes in theme_set are present in theme_str.
+
+    Parameters:
+        theme_str: The theme string from GDELT's V1Themes field, which may contain multiple themes separated by semicolons.
+        theme_set: A set of themes to check against.
+
+    Returns:
+        True if any theme in theme_set is present in theme_str, False otherwise.
+    """
     if not isinstance(theme_str, str):
         LOGGER.debug("Theme string is not valid: %s", theme_str)
         return False
@@ -158,6 +206,13 @@ def themes_match(theme_str, subsector="all"):
     Supported subsector values:
     - a specific subsector name in SUBSECTOR_THEMES
     - "all" to match any supported subsector
+
+    Parameters:
+        theme_str: The theme string from GDELT's V1Themes field.
+        subsector: The subsector to check against.
+
+    Returns:
+        True if the themes match the requested subsector, False otherwise.
     """
     LOGGER.debug("Checking themes %s against subsector %s", theme_str, subsector)
     if subsector == "all":
@@ -175,7 +230,15 @@ def themes_match(theme_str, subsector="all"):
 
 
 def detect_subsector(theme_str):
-    """Return the first matching subsector for a theme string, or None."""
+    """
+    Return the first matching subsector for a theme string, or None.
+
+    Parameters:
+        theme_str: The theme string from GDELT's V1Themes field.
+
+    Returns:
+        The detected subsector name if a match is found, or None if no specific subsector can be detected.
+    """
     if not _matches_any_theme(theme_str, HEALTH_THEMES):
         LOGGER.debug("Theme string does not match health themes: %s", theme_str)
         return None
@@ -191,6 +254,15 @@ def detect_subsector(theme_str):
 
 
 def themes_match_noise(theme_str):
+    """
+    Check if themes match any noise patterns.
+
+    Parameters:
+        theme_str: The theme string from GDELT's V1Themes field.
+
+    Returns:
+        True if any noise theme is present in the theme string, False otherwise.
+    """
     if not isinstance(theme_str, str):
         LOGGER.debug("Theme string is not valid: %s", theme_str)
         return False
@@ -200,6 +272,17 @@ def themes_match_noise(theme_str):
 
 
 def url_passes_quality(url):
+    """
+    Check if a URL passes quality checks.
+    The URL must start with http, have a domain in US_TLDS and not in BLOCKED_TLDS,
+    and its path must not match URL_DENY_PATTERNS while matching URL_REQUIRE_PATTERNS.
+
+    Parameters:
+        url: The URL to check.
+
+    Returns:
+        True if the URL passes quality checks, False otherwise.
+    """
     if not isinstance(url, str) or not url.startswith("http"):
         LOGGER.debug("URL is not valid: %s", url)
         return False
@@ -210,6 +293,7 @@ def url_passes_quality(url):
     except Exception:
         LOGGER.warning("Failed to parse URL %s: %s", url, exc_info=True)
         return False
+    # Check for blocked TLDs first to quickly filter out non-US domains before checking for allowed TLDs.
     for btld in BLOCKED_TLDS:
         if domain.endswith(btld):
             LOGGER.debug(
@@ -230,6 +314,16 @@ def url_passes_quality(url):
 
 
 def _normalize_date_bound(value, end=False):
+    """
+    Normalize a date bound value to YYYYMMDDHHMMSS format for comparison with GDELT file timestamps.
+
+    Parameters:
+        value: The input date bound, which can be in various formats (e.g., YYYY-MM-DD, YYYY-MM-DD HH:MM, numeric YYYYMMDD or YYYYMMDDHHMMSS).
+        end: If True, treat date-only inputs as the end of the day (23:59:59) rather than the start of the day (00:00:00).
+
+    Returns:
+        A string representing the normalized date bound in YYYYMMDDHHMMSS format, or None if the input value is empty or None. If the input cannot be parsed, returns the original value.
+    """
     if not value:
         LOGGER.debug("No date bound provided, returning None")
         return None
@@ -238,6 +332,7 @@ def _normalize_date_bound(value, end=False):
         return (
             (value + ("235959" if end else "000000"))[:14] if len(value) == 8 else value
         )
+    # Try parsing with known date formats. GDELT files use UTC, so we can treat naive datetimes as UTC for normalization purposes.
     for fmt in (
         "%Y-%m-%d",
         "%Y-%m-%d %H:%M",
@@ -267,7 +362,18 @@ def process_gkg_file(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ):
-    """Download and filter one GDELT GKG file into candidate seed records."""
+    """
+    Download and filter one GDELT GKG file into candidate seed records.
+
+    Parameters:
+        link: The URL to the GDELT GKG file (a .zip containing a .csv).
+        subsector: The subsector to filter for, or "all" for any supported subsector.
+        reporter: Optional CliReporter for logging progress and warnings.
+        stats: Optional PipelineStats for recording statistics.
+
+    Returns:
+        A tuple containing a list of candidate seed records (dicts) and the total number of rows processed from the GKG file. Each seed record includes the URL, source, themes, subsector, date, and file name.
+    """
     reporter = reporter or CliReporter(verbose=True)
     LOGGER.debug("Processing GKG file link=%s subsector=%s", link, subsector)
     try:
@@ -363,7 +469,20 @@ def backfill_cyber_seeds(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ):
-    """Collect recent or date-bounded GDELT seeds for the requested subsector."""
+    """
+    Collect recent or date-bounded GDELT seeds for the requested subsector.
+
+    Parameters:
+        num_files: The number of most recent GDELT files to scan if no date bounds are provided. Ignored if start_date or end_date is specified.
+        subsector: The subsector to filter for, or "all" for any supported subsector.
+        start_date: Optional start date bound (inclusive) in formats like YYYY-MM-DD or YYYYMMDD. If provided, only files with timestamps on or after this date will be processed.
+        end_date: Optional end date bound (inclusive) in formats like YYYY-MM-DD or YYYYMMDD. If provided, only files with timestamps on or before this date will be processed.
+        reporter: Optional CliReporter for logging progress and warnings.
+        stats: Optional PipelineStats for recording statistics.
+
+    Returns:
+        A list of unique seed records (dicts) that match the specified subsector and date bounds, extracted from the relevant GDELT GKG files. Each seed record includes the URL, source, themes, subsector, date, and file name.
+    """
     reporter = reporter or CliReporter(verbose=True)
     reporter.detail("Fetching GDELT master file list...")
     LOGGER.debug(
@@ -418,6 +537,7 @@ def backfill_cyber_seeds(
     LOGGER.debug("Unique seeds=%s from total_rows=%s", len(unique), total_rows)
 
     reporter.info(f"Found {len(unique)} unique seeds from {total_rows} rows checked")
+    # Sort unique seeds by date descending for display purposes
     for s in unique:
         reporter.detail(f"[{s['date']}]  {s['source']}")
         reporter.detail(f"  URL: {s['url']}")

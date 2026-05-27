@@ -8,6 +8,22 @@ Pipeline:
   src.shared_utils.ai_check_validation -- LLM validates as active disruption
   src.shared_utils.extract_fields      -- LLM extracts schema-specific fields
 
+Constants:
+    BODY_CHAR_LIMIT: Number of characters to include from the article body when passing to the LLM for validation and extraction.
+
+Functions:
+    stable_id(url): Generate a stable ID for a given URL using SHA-256 hashing.
+    fmt_dt(value): Format a date string into YYYY-MM-DD HH:MM format. Tries multiple input formats and returns the original value if parsing fails.
+    ensure_raw_dirs(): Ensure that the raw directories for seeds, validated, and enriched data exist. Creates them if they don't.
+    save_json(path, data): Save a dictionary as JSON to the specified path, creating parent directories if needed.
+    clear_directory(directory): Delete all files and subdirectories inside a directory.
+    persist_raw_seeds(raw_seeds): Persist raw seeds to the seeds directory, using stable IDs for filenames.
+    persist_stage(directory, article_id, stage, url, data): Persist data for a specific stage (validated, enriched) using a stable ID for the filename.
+    load_seen(seen_file): Load seen URLs from file. Returns a set of URLs that have been seen and processed. If the file does not exist or cannot be read, returns an empty set.
+    save_seen(seen, seen_file): Save seen URLs to file.
+    process_seed(seed, seen, use_bert, reporter, stats): Run a single seed through validation + extraction. Returns a Vulnerability if validated as a disruption, else None.
+    run(num_files, limit, subsectors, output_path, start_date, end_date, seen_urls_file, use_bert, verbose, reporter, stats): Main function to run the GDELT pipeline end-to-end.
+
 """
 
 import argparse

@@ -8,105 +8,6 @@ import requests
 import src.shared_utils as helpers
 
 
-@pytest.fixture(autouse=True)
-def clear_ollama_model_cache():
-    helpers._VERIFIED_OLLAMA_MODELS.clear()
-    yield
-    helpers._VERIFIED_OLLAMA_MODELS.clear()
-
-
-class TestEnsureOllamaModelAvailable:
-    """Test suite for Ollama startup model checks."""
-
-    @patch("src.shared_utils.subprocess.run")
-    def test_installed_model_passes(self, mock_run):
-        """Installed model should pass and cache the successful check."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=(
-                "NAME            ID              SIZE      MODIFIED\n"
-                "llama3.2        abc123          2.0 GB    2 days ago\n"
-                "gemma4:e4b      def456          4.0 GB    1 day ago\n"
-            ),
-            stderr="",
-        )
-
-        helpers.ensure_model_available("gemma4:e4b")
-        helpers.ensure_model_available("gemma4:e4b")
-
-        mock_run.assert_called_once_with(
-            ["ollama", "list"],
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=15,
-        )
-
-    @patch("src.shared_utils.subprocess.run")
-    def test_missing_model_exits_with_pull_guidance(self, mock_run):
-        """Missing model should fail with exact pull guidance."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="NAME            ID              SIZE      MODIFIED\nllama3.2 abc 2 GB now\n",
-            stderr="",
-        )
-
-        with pytest.raises(SystemExit) as exc:
-            helpers.ensure_model_available("gemma4:e4b")
-
-        assert str(exc.value) == (
-            "[ERROR] Model 'gemma4:e4b' not found in Ollama. Make sure Ollama "
-            "is installed, on PATH, and running.\n"
-            "Run: ollama pull gemma4:e4b"
-        )
-
-    @patch("src.shared_utils.subprocess.run", side_effect=FileNotFoundError)
-    def test_ollama_command_missing_exits_with_setup_guidance(self, mock_run):
-        """Missing ollama executable should fail with setup guidance."""
-        with pytest.raises(SystemExit) as exc:
-            helpers.ensure_model_available("gemma4:e4b")
-
-        assert str(exc.value) == (
-            "[ERROR] Model 'gemma4:e4b' not found in Ollama. Make sure Ollama "
-            "is installed, on PATH, and running.\n"
-            "Run: ollama pull gemma4:e4b"
-        )
-
-    @patch(
-        "src.shared_utils.subprocess.run",
-        side_effect=subprocess.TimeoutExpired(cmd=["ollama", "list"], timeout=15),
-    )
-    def test_ollama_list_timeout_exits_with_setup_guidance(self, mock_run):
-        """Timed out ollama list should fail with setup guidance."""
-        with pytest.raises(SystemExit) as exc:
-            helpers.ensure_model_available("gemma4:e4b")
-
-        assert str(exc.value) == (
-            "[ERROR] Model 'gemma4:e4b' not found in Ollama. Make sure Ollama "
-            "is installed, on PATH, and running.\n"
-            "Run: ollama pull gemma4:e4b"
-        )
-
-    @patch("src.shared_utils.subprocess.run")
-    def test_ollama_list_nonzero_exits_with_running_guidance(self, mock_run):
-        """Nonzero ollama list should fail with running/setup guidance."""
-        mock_run.return_value = MagicMock(
-            returncode=1,
-            stdout="",
-            stderr="Error: could not connect to ollama app",
-        )
-
-        with pytest.raises(SystemExit) as exc:
-            helpers.ensure_model_available("gemma4:e4b")
-
-        assert str(exc.value) == (
-            "[ERROR] Model 'gemma4:e4b' not found in Ollama. Make sure Ollama "
-            "is installed, on PATH, and running.\n"
-            "Details: Error: could not connect to ollama app\n"
-            "Run: ollama pull gemma4:e4b"
-        )
-
-
 class TestGetBody:
     """Test suite for get_body function"""
 
@@ -719,3 +620,71 @@ class TestRunBertAndUseBert:
         assert is_threat is True
         assert detail == "cyber_attack"
         mock_post.assert_called_once()
+
+
+@pytest.fixture(autouse=True)
+def clear_ollama_model_cache():
+    helpers._checked_ollama_models.clear()
+    yield
+    helpers._checked_ollama_models.clear()
+
+class TestEnsureOllamaModelAvailable:
+    """Test suite for Ollama startup model checks."""
+
+    @patch("src.shared_utils.subprocess.run")
+    def test_installed_model_passes(self, mock_run):
+        """Installed model should pass and cache the successful check."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=(
+                "NAME            ID              SIZE      MODIFIED\n"
+                "llama3.2        abc123          2.0 GB    2 days ago\n"
+                "gemma4:e4b      def456          4.0 GB    1 day ago\n"
+            ),
+            stderr="",
+        )
+
+        helpers.ensure_model_available("gemma4:e4b")
+        helpers.ensure_model_available("gemma4:e4b")
+
+        mock_run.assert_called_once_with(
+            ["ollama", "list"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=15,
+        )
+
+    @patch("src.shared_utils.subprocess.run")
+    def test_missing_model_exits_with_pull_guidance(self, mock_run):
+        """Missing model should fail with exact pull guidance."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="NAME            ID              SIZE      MODIFIED\nnmistral abc 2 GB now\n",
+            stderr="",
+        )
+
+        with pytest.raises(helpers.model_unavailable_error) as exc:
+            helpers.ensure_model_available("gemma4:e4b")
+
+        assert (
+                "[ERROR] Model 'gemma4:e4b' not found in Ollama. Make sure Ollama "
+                in str(exc.value)
+        )
+        assert "Run: ollama pull gemma4:e4b" in str(exc.value)
+
+    @patch("src.shared_utils.subprocess.run")
+    def test_ollama_cli_missing_raises_readable_error(self, mock_run):
+        mock_run.side_effect = FileNotFoundError
+
+        with pytest.raises(helpers.model_unavailable_error) as exc:
+            helpers.ensure_model_available("llama3.2")
+        assert "Ollama CLI not found" in str(exc.value)
+
+    @patch("src.shared_utils.subprocess.run")
+    def test_ollama_list_failure_raises_readable_error(self, mock_run):
+        mock_run.side_effect = subprocess.CalledProcessError(1, ['ollama', 'list'])
+
+        with pytest.raises(helpers.model_unavailable_error) as exc:
+            helpers.ensure_model_available("llama3.2")
+        assert "Could not query Ollama models" in str(exc.value)

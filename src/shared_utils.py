@@ -54,7 +54,6 @@ from bs4 import BeautifulSoup
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
-_VERIFIED_OLLAMA_MODELS: set[str] = set()
 
 # Anchor to the project root so this works both as `scrapers.shared_utils`
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -743,19 +742,13 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         )
 
 
-def _ollama_model_error(model: str, details: str | None = None) -> str:
-    message = (
-        f"[ERROR] Model '{model}' not found in Ollama. Make sure Ollama is "
-        "installed, on PATH, and running."
-    )
-    if details:
-        message = f"{message}\nDetails: {details}"
-    return f"{message}\nRun: ollama pull {model}"
+class model_unavailable_error(RuntimeError):
+    """Raised when configured Ollama model is unavailable"""
 
+_checked_ollama_models: set[str] = set()
 
 def ensure_model_available(model: str = AI_MODEL) -> None:
-    """Fail fast if the configured Ollama model is not installed locally."""
-    if model in _VERIFIED_OLLAMA_MODELS:
+    if model in _checked_ollama_models:
         return
 
     try:
@@ -766,12 +759,22 @@ def ensure_model_available(model: str = AI_MODEL) -> None:
             text=True,
             timeout=15,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        raise SystemExit(_ollama_model_error(model)) from exc
+    except FileNotFoundError as exc:
+        raise model_unavailable_error(
+            "[ERROR] Ollama CLI not found.\n"
+            "Install and make sure 'ollama' is on PATH"
+        ) from exc
+    except subprocess.SubprocessError as exc:
+        raise model_unavailable_error(
+            "[ERROR] Could not query Ollama models.\n"
+            "Make sure Ollama is running, then try again"
+        ) from exc
 
     if result.returncode != 0:
-        details = (result.stderr or result.stdout or "").strip()
-        raise SystemExit(_ollama_model_error(model, details))
+        raise model_unavailable_error(
+            "[ERROR] Could not query Ollama models.\n"
+            "Make sure Ollama is running, then try again"
+        )
 
     installed_models = {
         line.split()[0]
@@ -779,6 +782,9 @@ def ensure_model_available(model: str = AI_MODEL) -> None:
         if line.strip() and line.split()
     }
     if model not in installed_models:
-        raise SystemExit(_ollama_model_error(model))
+        raise model_unavailable_error(
+            f"[ERROR] Model '{model}' not found in Ollama. Make sure Ollama is running.\n"
+            f"Run: ollama pull {model}"
+        )
 
-    _VERIFIED_OLLAMA_MODELS.add(model)
+    _checked_ollama_models.add(model)

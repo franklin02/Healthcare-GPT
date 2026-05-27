@@ -27,6 +27,7 @@ from src.shared_utils import (  # noqa: E402
     ensure_model_available,
     extract_fields,
     get_body,
+    model_unavailable_error
 )
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 
@@ -237,7 +238,12 @@ def run(
         )
         return []
 
-    ensure_model_available()
+    try:
+        ensure_model_available()
+    except model_unavailable_error as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
+
     ensure_raw_dirs()
 
     # Load seen URLs once at the start

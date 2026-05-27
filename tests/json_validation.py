@@ -17,6 +17,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from geography_constants import (
+    STATE_ABBREVIATION_TO_NAME,
+    US_TERRITORIES,
+    US_DOMESTIC_HINTS,
+    CITY_NAMES,
+    INTERNATIONAL_HINTS,
+    COUNTRIES_AND_CODE,
+)
+
 
 ALLOWED_SUBSECTORS = {
     "drug_shortage",
@@ -27,109 +36,6 @@ ALLOWED_SUBSECTORS = {
     "none",
 }
 
-STATE_ABBREVIATION_TO_NAME = {
-    "AL": "Alabama",
-    "AK": "Alaska",
-    "AZ": "Arizona",
-    "AR": "Arkansas",
-    "CA": "California",
-    "CO": "Colorado",
-    "CT": "Connecticut",
-    "DE": "Delaware",
-    "FL": "Florida",
-    "GA": "Georgia",
-    "HI": "Hawaii",
-    "ID": "Idaho",
-    "IL": "Illinois",
-    "IN": "Indiana",
-    "IA": "Iowa",
-    "KS": "Kansas",
-    "KY": "Kentucky",
-    "LA": "Louisiana",
-    "ME": "Maine",
-    "MD": "Maryland",
-    "MA": "Massachusetts",
-    "MI": "Michigan",
-    "MN": "Minnesota",
-    "MS": "Mississippi",
-    "MO": "Missouri",
-    "MT": "Montana",
-    "NE": "Nebraska",
-    "NV": "Nevada",
-    "NH": "New Hampshire",
-    "NJ": "New Jersey",
-    "NM": "New Mexico",
-    "NY": "New York",
-    "NC": "North Carolina",
-    "ND": "North Dakota",
-    "OH": "Ohio",
-    "OK": "Oklahoma",
-    "OR": "Oregon",
-    "PA": "Pennsylvania",
-    "RI": "Rhode Island",
-    "SC": "South Carolina",
-    "SD": "South Dakota",
-    "TN": "Tennessee",
-    "TX": "Texas",
-    "UT": "Utah",
-    "VT": "Vermont",
-    "VA": "Virginia",
-    "WA": "Washington",
-    "WV": "West Virginia",
-    "WI": "Wisconsin",
-    "WY": "Wyoming",
-}
-
-US_TERRITORIES = (
-    "american samoa",
-    "commonwealth of the northern mariana islands",
-    "guam",
-    "northern mariana islands",
-    "puerto rico",
-    "u.s. virgin islands",
-    "us virgin islands",
-    "virgin islands",
-)
-
-US_DOMESTIC_HINTS = (
-    "northeast",
-    "midwest",
-    "south",
-    "southeast",
-    "southwest",
-    "west",
-    "new england",
-    "mid-atlantic",
-    "pacific northwest",
-    "u.s.",
-    "us",
-    "united states",
-    "nationwide",
-    "national",
-    "domestic",
-)
-
-INTERNATIONAL_HINTS = (
-    "africa",
-    "asia",
-    "australia",
-    "canada",
-    "china",
-    "europe",
-    "france",
-    "germany",
-    "india",
-    "international",
-    "ireland",
-    "japan",
-    "latin america",
-    "mexico",
-    "overseas",
-    "south america",
-    "united kingdom",
-    "uk",
-    "worldwide",
-)
 
 DATE_PATTERNS = (
     re.compile(r"^\d{4}-\d{2}-\d{2}$"),
@@ -187,6 +93,16 @@ def _normalize_geography_scope(value: Any) -> str | None:
         if _contains_hint(state_name.lower()):
             return state_name
 
+    # Recognize major US city names as an indicator that the scope is within the US.
+    for city_name in CITY_NAMES:
+        if _contains_hint(city_name.lower()):
+            return "US"
+
+    # If a known country name (from COUNTRIES_AND_CODE) appears, treat as outside US
+    for country in COUNTRIES_AND_CODE.keys():
+        if _contains_hint(country.lower()):
+            return "Outside US"
+
     # Check for US territories before general US hints, as they are also more specific
     for territory in US_TERRITORIES:
         if _contains_hint(territory):
@@ -198,7 +114,7 @@ def _normalize_geography_scope(value: Any) -> str | None:
     if any(_contains_hint(hint) for hint in US_DOMESTIC_HINTS):
         return "US"
 
-    return "US"
+    return None
 
 
 def validate_source(source: dict[str, Any], index: int) -> list[str]:
@@ -247,9 +163,7 @@ def validate_source(source: dict[str, Any], index: int) -> list[str]:
         normalized_scope = _normalize_geography_scope(geography_scope)
         source["geography_scope"] = normalized_scope
         if normalized_scope == "Outside US":
-            errors.append(
-                f"{prefix}: geography_scope normalized to Outside US; delete this record"
-            )
+            errors.append(f"{prefix}: geography_scope is Outside US")
 
     subsector = source.get("subsector")
     if subsector not in ALLOWED_SUBSECTORS:
@@ -323,16 +237,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("json_file", help="Path to the JSON file to validate")
     parser.add_argument(
-        "--remove-outside-us",
-        "-d",
+        "--normalize",
+        "-n",
         action="store_true",
-        help="Remove records normalized to 'Outside US' and write the cleaned file back",
+        help=(
+            "Normalize geography_scope in place. When present, also remove records "
+            "normalized to 'Outside US' and write the cleaned file back. Without "
+            "this flag the validator only reports issues."
+        ),
     )
     args = parser.parse_args(argv)
 
-    errors = validate_json_file(
-        Path(args.json_file), remove_outside_us=args.remove_outside_us
-    )
+    errors = validate_json_file(Path(args.json_file), remove_outside_us=args.normalize)
     if errors:
         for error in errors:
             print(error)

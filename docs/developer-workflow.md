@@ -65,6 +65,31 @@ python -m src.orchestrator --skip-gdelt --html-start-page 1 --html-page-cap 0 --
 Expected result: each configured HTML site reaches `page cap (0)`, and the
 summary reports zero processed records and zero errors.
 
+For an optional LLM-backed smoke test of field extraction, keep Ollama running
+and confirm the configured model appears in `ollama list` first:
+
+```bash
+python3 -c "
+from src.shared_utils import extract_fields
+
+title = 'Ransomware attack hits Ascension Health hospitals, disrupts patient records'
+body = '''Ascension Health confirmed a ransomware attack on May 8 affecting 140 hospitals across 19 states.
+Electronic health records were taken offline. The attack encrypted systems affecting radiology, lab results,
+and pharmacy. Approximately 500,000 patient records may have been exposed. The FBI has been contacted.
+Staff diverted ambulances to nearby facilities. Systems restored after 12 days of downtime.'''
+
+sector, subsector = extract_fields('cyber_attack', title, body)
+print('\\n=== sector_data ===')
+print(sector)
+print('\\n=== subsector_data ===')
+print(subsector)
+"
+```
+
+Expected result: `sector_data` contains only shared extraction fields, and
+`subsector_data` contains only `cyber_attack` fields. Missing values should be
+`None`/`null`, not boilerplate examples.
+
 The same docs build runs in GitHub Actions on pull requests. Pushes to `main`
 also publish the built HTML to GitHub Pages.
 

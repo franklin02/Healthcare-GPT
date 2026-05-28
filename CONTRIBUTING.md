@@ -185,6 +185,37 @@ python -c "from src.shared_utils import AI_MODEL; print(AI_MODEL)"
 
 Expected result: it prints the configured model name, currently `llama3.2`.
 
+### Optional extraction-only LLM smoke
+
+Run this when you specifically need to confirm that `extract_fields()` returns
+typed `sector_data` and `subsector_data` for a known subsector. Keep Ollama
+running first and confirm the configured model appears in `ollama list`.
+
+```bash
+python3 -c "
+from src.shared_utils import extract_fields
+
+title = 'Ransomware attack hits Ascension Health hospitals, disrupts patient records'
+body = '''Ascension Health confirmed a ransomware attack on May 8 affecting 140 hospitals across 19 states.
+Electronic health records were taken offline. The attack encrypted systems affecting radiology, lab results,
+and pharmacy. Approximately 500,000 patient records may have been exposed. The FBI has been contacted.
+Staff diverted ambulances to nearby facilities. Systems restored after 12 days of downtime.'''
+
+sector, subsector = extract_fields('cyber_attack', title, body)
+print('\\n=== sector_data ===')
+print(sector)
+print('\\n=== subsector_data ===')
+print(subsector)
+"
+```
+
+Expected result: `sector_data` contains only the shared fields
+(`exec_summary`, `geography_scope`, dates, and mitigation), and
+`subsector_data` contains only `cyber_attack` fields such as `attack_type`,
+`systems_affected`, `downtime_days`, and related breach metadata. Fields not
+explicitly supported by the text should be `None`/`null` rather than copied
+boilerplate.
+
 ### Optional slower integration smoke
 
 Only run this when you specifically need to test live GDELT downloads and local

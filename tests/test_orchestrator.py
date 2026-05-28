@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from src.cli_reporter import PipelineStats
 from src import orchestrator
 
@@ -50,3 +52,25 @@ def test_orchestrator_forwards_html_limit_overrides():
     assert result == 0
     assert mock_scraper.call_args.kwargs["starting_page"] == 4
     assert mock_scraper.call_args.kwargs["page_cap"] == 20
+
+
+def test_orchestrator_help_documents_html_limit_overrides(capsys):
+    with pytest.raises(SystemExit) as exc_info:
+        orchestrator.main(["--help"])
+
+    assert exc_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert "--html-start-page" in help_text
+    assert "--html-page-cap" in help_text
+
+
+def test_orchestrator_detects_equals_style_gdelt_options():
+    with (
+        patch("src.GDELT.runner.run") as mock_run,
+        patch("src.cli_reporter.CliReporter.summary"),
+    ):
+        result = orchestrator.main(["--skip-html", "--num-files=5"])
+
+    assert result == 0
+    assert mock_run.call_args.kwargs["num_files"] == 5
+    assert mock_run.call_args.kwargs["limit"] is None

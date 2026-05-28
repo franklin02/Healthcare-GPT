@@ -1,4 +1,9 @@
-"""Unified runner for GDELT and configured HTML/Scooper scrapers."""
+"""Unified runner for GDELT and configured HTML/Scooper scrapers.
+
+The orchestrator owns cross-pipeline CLI concerns so operators can run small
+smoke tests or larger backfills from one command while each pipeline keeps its
+source-specific defaults and implementation details.
+"""
 
 from __future__ import annotations
 
@@ -13,8 +18,25 @@ if str(_GDELT_DIR) not in sys.path:
     sys.path.insert(0, str(_GDELT_DIR))
 
 
+def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
+    """Return whether any CLI option was supplied, including --option=value."""
+    return any(
+        arg == option or arg.startswith(f"{option}=")
+        for arg in raw_args
+        for option in options
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
-    """Parse CLI options and run the selected pipeline stages."""
+    """Parse CLI options, run selected pipeline stages, and report summaries.
+
+    Args:
+        argv: Optional argument list for tests and programmatic callers. When
+            omitted, argparse reads from the process command line.
+
+    Returns:
+        Process exit code. A successful orchestrated run returns ``0``.
+    """
     raw_args = sys.argv[1:] if argv is None else argv
     parser = argparse.ArgumentParser(
         description="Unified runner for GDELT and HTML scrapers"
@@ -113,8 +135,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_gdelt:
         from src.GDELT import runner
 
-        n_provided = any(opt in raw_args for opt in ("-n", "--num-files"))
-        l_provided = any(opt in raw_args for opt in ("-l", "--limit"))
+        n_provided = _option_provided(raw_args, ("-n", "--num-files"))
+        l_provided = _option_provided(raw_args, ("-l", "--limit"))
         effective_limit = args.limit
         if not l_provided:
             effective_limit = None if n_provided else 3

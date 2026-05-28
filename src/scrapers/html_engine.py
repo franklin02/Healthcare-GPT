@@ -1,3 +1,10 @@
+"""Configured HTML scraper runner for healthcare disruption sources.
+
+Each site keeps its own selectors and pagination defaults in ``HTML_SITES``.
+The runner accepts optional pagination overrides so the orchestrator can expand
+or shrink HTML runs without changing source configuration.
+"""
+
 import time
 import datetime
 import uuid
@@ -48,6 +55,7 @@ def _live_site_status(
 
 
 def _bert_status() -> str:
+    """Return a human-readable description of the optional BERT pre-filter."""
     try:
         from src.GDELT.BERT_filter import describe_model
 
@@ -176,7 +184,13 @@ def fetch_html_page(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ):
-    """Fetch one listing page and return article payloads plus a stop flag."""
+    """Fetch one listing page and return article payloads plus a stop flag.
+
+    The listing page is parsed with the site's configured selectors, then each
+    candidate link is fetched to collect article body text and publication date.
+    The stop flag is set when a previously processed article is encountered so
+    pagination can end early.
+    """
     reporter = reporter or CliReporter(verbose=True)
     response = get_page(page_url)
     soup = BeautifulSoup(response.content, "html.parser")
@@ -298,7 +312,25 @@ def run_html_scraper(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ) -> PipelineStats:
-    """Run one configured HTML scraper and return its run statistics."""
+    """Run one configured HTML scraper and return its run statistics.
+
+    Args:
+        site_config: One entry from ``HTML_SITES`` containing URL, selector,
+            and pagination configuration.
+        use_bert: Whether to report that the optional BERT pre-filter is
+            enabled for this run.
+        verbose: Whether to print per-article progress details when a reporter
+            is not supplied.
+        starting_page: Optional override for the site's configured first page.
+            ``None`` preserves the site's default.
+        page_cap: Optional override for the site's configured maximum page.
+            ``None`` preserves the site's default; ``-1`` means unlimited.
+        reporter: Optional shared CLI reporter supplied by the orchestrator.
+        stats: Optional stats object to update for the site.
+
+    Returns:
+        The populated ``PipelineStats`` for the site.
+    """
     local_reporter = reporter is None
     reporter = reporter or CliReporter(verbose=verbose)
     stats = stats or PipelineStats(site_config["name"])

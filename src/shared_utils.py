@@ -28,7 +28,8 @@ Functions:
     - `build_page_url`: Constructs URLs for web pages based on given parameters.
     - `ai_check_validation`: Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach
        at a named healthcare entity based on strict, predefined criteria.
-    - `find_subsector_fields`: Extracts specific fields for a given healthcare subsector by utilizing an AI-based metadata extraction process from the provided article title and body.
+    - `get_extraction_template`: Builds a typed JSON extraction template scoped to a single subsector, mapping each field to its expected primitive type.
+    - `extract_fields`: Extracts subsector-specific metadata from a confirmed disruption article by prompting the LLM with a typed, subsector-scoped template.
 
 
 Possible subsectors:

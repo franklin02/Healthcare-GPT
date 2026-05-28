@@ -23,6 +23,10 @@ from src.shared_utils import (  # noqa: E402
 )  # noqa: E402
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
+from src.logging_utils import get_file_logger  # noqa: E402
+
+LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "html_engine.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
 
 
 def _live_site_status(
@@ -66,10 +70,9 @@ try:
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:
         LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
-
 except Exception as e:
     LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
-SUPABASE_AVAILABLE = False
+    SUPABASE_AVAILABLE = False
 
 
 SUBSECTOR_FIELDS = [
@@ -440,6 +443,7 @@ def run_html_scraper(
                         ]
                     )
                     new_vulns.append(vuln)
+                    stats.validated += 1
                     print(f"[VALID] ({vuln.subsector}): {vuln.title}")
 
                     if SUPABASE_AVAILABLE:
@@ -450,6 +454,7 @@ def run_html_scraper(
                                 f"[WARNING] insert_vuln failed for {vuln.title!r}: {e}"
                             )
                 else:
+                    stats.rejected += 1
                     body_preview = (article["body"] or "")[:250].replace("\n", " ")
                     new_noise_rows.append(
                         [

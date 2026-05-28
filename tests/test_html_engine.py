@@ -30,6 +30,7 @@ def test_run_html_scraper_counts_validated_and_rejected_articles():
     ]
 
     with (
+        patch("src.scrapers.html_engine.SUPABASE_AVAILABLE", False),
         patch("src.scrapers.html_engine.check_valid_file"),
         patch(
             "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)

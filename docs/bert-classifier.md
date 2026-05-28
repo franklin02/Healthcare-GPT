@@ -66,7 +66,7 @@ This keeps BERT inputs small and consistent across news sites.
 ## Current Entry Points
 
 - `run_bert_inference({"title": "...", "body": "..."})` classifies one article.
-- `src/GDELT/helpers.py` can call BERT before LLM validation when
+- `src/shared_utils.py` can call BERT before LLM validation when
   `ai_check_validation(..., use_bert=True)` is used.
 - `src/ingest.py --use-bert` enables the same pre-screen before ingestion-time
   LLM validation.

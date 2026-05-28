@@ -39,7 +39,7 @@ The current work emphasizes:
   enabled.
 - `src/ingest.py` loads processed JSON records, chunks them, detects
   duplicates, and writes them to ChromaDB.
-- `src/main.py` serves the local FastAPI chat app over the vector store.
+- `src/RAG/server.py` serves the local FastAPI chat app over the vector store.
 - `docs/api.rst` publishes API documentation from selected Python docstrings.
 
 ## What Is Legacy

@@ -62,7 +62,7 @@ from src.logging_utils import get_file_logger  # noqa E402
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa E402
 
 AI_URL = "http://localhost:11434/api/generate"
-AI_MODEL = "llama3.2"
+AI_MODEL = "llama3.2:latest"
 MIN_BODY_CHARS_FOR_LLM = 150
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "shared_utils.log"

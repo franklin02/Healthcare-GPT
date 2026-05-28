@@ -8,7 +8,78 @@ Functions:
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from pathlib import Path
+
+
+LOG_TIMESTAMP_FORMATS = (
+    "%Y-%m-%d %H:%M:%S,%f",
+    "%Y-%m-%d %H:%M:%S",
+)
+
+
+class RetentionFileHandler(logging.FileHandler):
+    """File handler that keeps only the last 24 hours of log lines."""
+
+    retention_period = timedelta(hours=24)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._next_prune_at = datetime.now()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        if datetime.now() >= self._next_prune_at:
+            self._prune_expired_entries()
+            self._next_prune_at = datetime.now() + self.retention_period
+
+    def _prune_expired_entries(self) -> None:
+        log_path = Path(self.baseFilename)
+        if not log_path.exists():
+            return
+
+        cutoff = datetime.now() - self.retention_period
+        temp_path = log_path.with_name(f"{log_path.name}.retention")
+
+        with (
+            log_path.open("r", encoding=self.encoding or "utf-8") as source,
+            temp_path.open("w", encoding=self.encoding or "utf-8") as destination,
+        ):
+            keeping_lines = False
+            wrote_anything = False
+            for line in source:
+                if not keeping_lines and self._is_expired_line(
+                    line.rstrip("\r\n"), cutoff
+                ):
+                    continue
+
+                keeping_lines = True
+                destination.write(line)
+                wrote_anything = True
+
+        if not wrote_anything:
+            temp_path.unlink(missing_ok=True)
+            return
+
+        temp_path.replace(log_path)
+
+    def _is_expired_line(self, line: str, cutoff: datetime) -> bool:
+        if not line:
+            return False
+
+        timestamp_text = line.split(" ", 2)[:2]
+        if len(timestamp_text) < 2:
+            return False
+
+        timestamp = " ".join(timestamp_text)
+        for fmt in LOG_TIMESTAMP_FORMATS:
+            try:
+                parsed = datetime.strptime(timestamp, fmt)
+            except ValueError:
+                continue
+            return parsed < cutoff
+
+        return False
 
 
 def get_file_logger(name: str, log_file: Path) -> logging.Logger:
@@ -33,7 +104,7 @@ def get_file_logger(name: str, log_file: Path) -> logging.Logger:
         and getattr(handler, "baseFilename", "") == log_path
         for handler in logger.handlers
     ):
-        handler = logging.FileHandler(log_file, encoding="utf-8")
+        handler = RetentionFileHandler(log_file, encoding="utf-8")
         handler.setLevel(logging.DEBUG)
         handler.setFormatter(
             logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")

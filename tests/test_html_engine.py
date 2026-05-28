@@ -60,3 +60,76 @@ def test_run_html_scraper_counts_validated_and_rejected_articles():
     mock_vuln_csv.assert_called_once()
     mock_noise_csv.assert_called_once()
     mock_json.assert_called_once()
+
+
+def test_run_html_scraper_allows_page_cap_override():
+    site_config = {
+        "name": "TestSite",
+        "url": "https://example.com/page-1",
+        "pagination_url": "https://example.com/page-{page}",
+        "map": {
+            "starting_page": 1,
+            "cap": 1,
+        },
+    }
+    article = {
+        "title": "Routine update",
+        "link": "https://example.com/article",
+        "body": "No disruption",
+        "date": "2026-01-01",
+    }
+
+    with (
+        patch("src.scrapers.html_engine.check_valid_file"),
+        patch(
+            "src.scrapers.html_engine.fetch_html_page",
+            return_value=([article], False),
+        ) as mock_fetch,
+        patch(
+            "src.scrapers.html_engine.ai_check_validation",
+            return_value=(False, "No impact"),
+        ),
+        patch("src.scrapers.html_engine.prepend_vuln_csv"),
+        patch("src.scrapers.html_engine.prepend_noise_csv"),
+        patch("src.scrapers.html_engine.prepend_json_sources"),
+        patch("src.scrapers.html_engine.time.sleep"),
+    ):
+        html_engine.run_html_scraper(
+            site_config,
+            page_cap=2,
+            reporter=CliReporter(stream=io.StringIO()),
+            stats=PipelineStats("TestSite"),
+        )
+
+    assert mock_fetch.call_count == 2
+    first_url = mock_fetch.call_args_list[0].args[1]
+    second_url = mock_fetch.call_args_list[1].args[1]
+    assert first_url == "https://example.com/page-1"
+    assert second_url == "https://example.com/page-2"
+
+
+def test_run_html_scraper_start_page_override_can_skip_run():
+    site_config = {
+        "name": "TestSite",
+        "url": "https://example.com/page-1",
+        "map": {
+            "starting_page": 1,
+            "cap": 1,
+        },
+    }
+
+    with (
+        patch("src.scrapers.html_engine.check_valid_file"),
+        patch("src.scrapers.html_engine.fetch_html_page") as mock_fetch,
+        patch("src.scrapers.html_engine.prepend_vuln_csv"),
+        patch("src.scrapers.html_engine.prepend_noise_csv"),
+        patch("src.scrapers.html_engine.prepend_json_sources"),
+    ):
+        html_engine.run_html_scraper(
+            site_config,
+            starting_page=2,
+            reporter=CliReporter(stream=io.StringIO()),
+            stats=PipelineStats("TestSite"),
+        )
+
+    mock_fetch.assert_not_called()

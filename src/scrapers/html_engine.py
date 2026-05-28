@@ -1,6 +1,7 @@
 import time
 import datetime
 import uuid
+import logging
 from pathlib import Path
 import sys as _sys
 from urllib.parse import urlparse
@@ -23,6 +24,8 @@ from src.shared_utils import (  # noqa: E402
 )  # noqa: E402
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _live_site_status(
@@ -69,7 +72,7 @@ try:
 
 except Exception as e:
     LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
-SUPABASE_AVAILABLE = False
+    SUPABASE_AVAILABLE = False
 
 
 SUBSECTOR_FIELDS = [
@@ -290,6 +293,8 @@ def run_html_scraper(
     site_config,
     use_bert: bool = False,
     verbose: bool = False,
+    starting_page: int | None = None,
+    page_cap: int | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ) -> PipelineStats:
@@ -311,8 +316,12 @@ def run_html_scraper(
         except Exception as e:
             reporter.warn(f"load_cite failed for {site_config['name']}: {e}", stats)
 
-    starting_page = site_config["map"]["starting_page"]
-    cap = site_config["map"]["cap"]
+    starting_page = (
+        starting_page
+        if starting_page is not None
+        else site_config["map"]["starting_page"]
+    )
+    cap = page_cap if page_cap is not None else site_config["map"]["cap"]
     current_page = starting_page
 
     """
@@ -394,6 +403,7 @@ def run_html_scraper(
                             f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
                         )
                         continue
+                    stats.validated += 1
                     sector_data, ss_data = extract_fields(
                         detail, article["title"], article["body"]
                     )
@@ -450,6 +460,7 @@ def run_html_scraper(
                                 f"[WARNING] insert_vuln failed for {vuln.title!r}: {e}"
                             )
                 else:
+                    stats.rejected += 1
                     body_preview = (article["body"] or "")[:250].replace("\n", " ")
                     new_noise_rows.append(
                         [
@@ -523,7 +534,25 @@ if __name__ == "__main__":
         default=False,
         help="Show detailed per-article scraper output",
     )
+    parser.add_argument(
+        "--start-page",
+        type=int,
+        default=None,
+        help="Override configured starting page for every HTML site",
+    )
+    parser.add_argument(
+        "--page-cap",
+        type=int,
+        default=None,
+        help="Override configured max page number for every HTML site (-1 for unlimited)",
+    )
     args = parser.parse_args()
 
     for site in HTML_SITES:
-        run_html_scraper(site, use_bert=args.use_bert, verbose=args.verbose)
+        run_html_scraper(
+            site,
+            use_bert=args.use_bert,
+            verbose=args.verbose,
+            starting_page=args.start_page,
+            page_cap=args.page_cap,
+        )

@@ -15,6 +15,7 @@ if str(_GDELT_DIR) not in sys.path:
 
 def main(argv: list[str] | None = None) -> int:
     """Parse CLI options and run the selected pipeline stages."""
+    raw_args = sys.argv[1:] if argv is None else argv
     parser = argparse.ArgumentParser(
         description="Unified runner for GDELT and HTML scrapers"
     )
@@ -89,6 +90,21 @@ def main(argv: list[str] | None = None) -> int:
         default="all",
         help="Comma-separated subsectors to scan, or 'all'",
     )
+    parser.add_argument(
+        "--html-start-page",
+        type=int,
+        default=None,
+        help="Override configured starting page for every HTML scraper site",
+    )
+    parser.add_argument(
+        "--html-page-cap",
+        type=int,
+        default=None,
+        help=(
+            "Override configured max page number for every HTML scraper site "
+            "(-1 for unlimited)"
+        ),
+    )
 
     args = parser.parse_args(argv)
     reporter = CliReporter(verbose=args.verbose)
@@ -97,8 +113,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_gdelt:
         from src.GDELT import runner
 
-        n_provided = any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
-        l_provided = any(opt in sys.argv[1:] for opt in ("-l", "--limit"))
+        n_provided = any(opt in raw_args for opt in ("-n", "--num-files"))
+        l_provided = any(opt in raw_args for opt in ("-l", "--limit"))
         effective_limit = args.limit
         if not l_provided:
             effective_limit = None if n_provided else 3
@@ -130,6 +146,8 @@ def main(argv: list[str] | None = None) -> int:
                 site,
                 use_bert=args.use_bert,
                 verbose=args.verbose,
+                starting_page=args.html_start_page,
+                page_cap=args.html_page_cap,
                 reporter=reporter,
                 stats=PipelineStats(site["name"]),
             )

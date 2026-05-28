@@ -6,7 +6,7 @@ from src.scrapers import html_engine
 
 
 def test_run_html_scraper_counts_validated_and_rejected_articles():
-    """Validated and rejected articles update counters and output writers."""
+    """One valid and one rejected article should update stats and outputs."""
     site_config = {
         "name": "TestSite",
         "url": "https://example.com",
@@ -64,7 +64,7 @@ def test_run_html_scraper_counts_validated_and_rejected_articles():
 
 
 def test_run_html_scraper_allows_page_cap_override():
-    """A larger page_cap override lets the scraper fetch additional pages."""
+    """A page_cap override of 2 should fetch page 1 and page 2."""
     site_config = {
         "name": "TestSite",
         "url": "https://example.com/page-1",
@@ -111,7 +111,7 @@ def test_run_html_scraper_allows_page_cap_override():
 
 
 def test_run_html_scraper_start_page_override_can_skip_run():
-    """A start page beyond the page cap exits before any page fetch."""
+    """Starting after the cap should exit without fetching any pages."""
     site_config = {
         "name": "TestSite",
         "url": "https://example.com/page-1",

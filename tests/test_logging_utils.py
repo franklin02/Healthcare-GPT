@@ -4,7 +4,7 @@ from src.logging_utils import get_file_logger
 
 
 def test_get_file_logger_writes_to_log_file(tmp_path):
-    """Logger creates the configured file and writes a warning record."""
+    """Logger should create the file and write the warning marker."""
     log_file = tmp_path / "logs" / "smoke.log"
     logger = get_file_logger("tests.logging_smoke", log_file)
 
@@ -19,7 +19,7 @@ def test_get_file_logger_writes_to_log_file(tmp_path):
 
 
 def test_get_file_logger_reuses_existing_file_handler(tmp_path):
-    """Repeated setup reuses the same file handler instead of duplicating it."""
+    """Repeated setup should not add duplicate file handlers."""
     log_file = tmp_path / "logs" / "dedupe.log"
     logger = get_file_logger("tests.logging_dedupe", log_file)
     before = [

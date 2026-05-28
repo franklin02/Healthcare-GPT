@@ -8,7 +8,6 @@ or shrink HTML runs without changing source configuration.
 import time
 import datetime
 import uuid
-import logging
 from pathlib import Path
 import sys as _sys
 from urllib.parse import urlparse
@@ -31,8 +30,10 @@ from src.shared_utils import (  # noqa: E402
 )  # noqa: E402
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
+from src.logging_utils import get_file_logger  # noqa: E402
 
-LOGGER = logging.getLogger(__name__)
+LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "html_engine.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
 
 
 def _live_site_status(

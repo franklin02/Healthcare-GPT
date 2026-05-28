@@ -32,6 +32,7 @@ def test_orchestrator_forwards_verbose_to_html_scraper():
 
 
 def test_orchestrator_forwards_html_limit_overrides():
+    """HTML pagination CLI flags are passed to every HTML scraper run."""
     sites = [{"name": "TestSite"}]
     with (
         patch("src.scrapers.html_engine.HTML_SITES", sites),
@@ -55,6 +56,7 @@ def test_orchestrator_forwards_html_limit_overrides():
 
 
 def test_orchestrator_help_documents_html_limit_overrides(capsys):
+    """CLI help documents the HTML pagination override flags."""
     with pytest.raises(SystemExit) as exc_info:
         orchestrator.main(["--help"])
 
@@ -65,6 +67,7 @@ def test_orchestrator_help_documents_html_limit_overrides(capsys):
 
 
 def test_orchestrator_detects_equals_style_gdelt_options():
+    """Equals-style GDELT options are detected as explicitly provided."""
     with (
         patch("src.GDELT.runner.run") as mock_run,
         patch("src.cli_reporter.CliReporter.summary"),

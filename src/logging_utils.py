@@ -24,15 +24,35 @@ class RetentionFileHandler(logging.FileHandler):
     retention_period = timedelta(hours=24)
     _pruned_files: set[str] = set()
 
-    def emit(self, record: logging.LogRecord) -> None:
-        super().emit(record)
-        normalized_path = str(Path(self.baseFilename).resolve())
+    def __init__(self, filename, mode="a", encoding=None, delay=False, errors=None):
+        """
+        Initialize the handler and prune expired log entries from the file.
+
+        Parameters:
+            filename (str | Path): The log file path.
+            mode (str): The file mode to use when opening the log file (default: "a").
+            encoding (str | None): The encoding to use when writing to the log file (default: None, which means the system default).
+            delay (bool): If True, the file will not be opened until the first log message is emitted (default: False).
+            errors (str | None): The error handling scheme to use when encoding the log messages (default: None, which means "strict").
+        """
+        log_path = Path(filename).resolve()
+        normalized_path = str(log_path)
         if normalized_path not in self._pruned_files:
-            self._prune_expired_entries()
+            self._prune_expired_entries(log_path, encoding)
             self._pruned_files.add(normalized_path)
 
-    def _prune_expired_entries(self) -> None:
-        log_path = Path(self.baseFilename)
+        super().__init__(
+            filename, mode=mode, encoding=encoding, delay=delay, errors=errors
+        )
+
+    def _prune_expired_entries(self, log_path: Path, encoding: str | None) -> None:
+        """
+        Remove log lines from the file that are older than the retention period.
+
+        Parameters:
+            log_path (Path): The path to the log file to prune.
+            encoding (str | None): The encoding to use when reading and writing the log file (default: None, which means the system default).
+        """
         if not log_path.exists():
             return
 
@@ -40,8 +60,8 @@ class RetentionFileHandler(logging.FileHandler):
         temp_path = log_path.with_name(f"{log_path.name}.retention")
 
         with (
-            log_path.open("r", encoding=self.encoding or "utf-8") as source,
-            temp_path.open("w", encoding=self.encoding or "utf-8") as destination,
+            log_path.open("r", encoding=encoding or "utf-8") as source,
+            temp_path.open("w", encoding=encoding or "utf-8") as destination,
         ):
             keeping_lines = False
             wrote_anything = False
@@ -62,6 +82,16 @@ class RetentionFileHandler(logging.FileHandler):
         temp_path.replace(log_path)
 
     def _is_expired_line(self, line: str, cutoff: datetime) -> bool:
+        """
+        Determine if a log line is expired based on its timestamp.
+
+        Parameters:
+            line (str): The log line to check.
+            cutoff (datetime): The cutoff date for determining expiration.
+
+        Returns:
+            bool: True if the line is expired, False otherwise.
+        """
         if not line:
             return False
 

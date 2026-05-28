@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.json_validation import validate_source
+from tests.json_normilization.json_validation import validate_source
 
 
 def _make_source(geography_scope: str) -> dict[str, str]:

@@ -23,7 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from tests.geography_constants import (  # noqa: E402
+from tests.json_normilization.geography_constants import (  # noqa: E402
     STATE_ABBREVIATION_TO_NAME,
     US_TERRITORIES,
     US_DOMESTIC_HINTS,

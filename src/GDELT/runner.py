@@ -63,7 +63,15 @@ BODY_CHAR_LIMIT = 4000
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
 try:
-    from src.supabase_function import has_supabase_creds, insert_vuln
+    from src.supabase_function import (
+        has_supabase_creds,
+        insert_vuln,
+        find_nearest_vulnerability,
+        find_vuln_by_canonical_url,
+        find_vuln_by_normalized_title,
+        get_vuln_by_id,
+        update_vuln,
+    )
 
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:
@@ -71,6 +79,20 @@ try:
 except Exception as e:
     LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
     SUPABASE_AVAILABLE = False
+
+
+def _log_dedup_decision(action, vuln) -> None:
+    """Write a one-line dedup decision to the runner log."""
+    LOGGER.info(
+        "DEDUP %s id=%s subsector=%s distance=%s reason=%s existing_id=%s title=%r",
+        action.kind,
+        vuln.id,
+        vuln.subsector,
+        f"{action.distance:.4f}" if action.distance is not None else "n/a",
+        action.reason or "n/a",
+        action.existing_id or "n/a",
+        vuln.title,
+    )
 
 
 def _bert_status() -> str:
@@ -493,11 +515,7 @@ def run(
             persist_stage(VALIDATED_DIR, article_id, "validated", url, rec.to_dict())
             persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
             records.append(rec)
-            if SUPABASE_AVAILABLE:
-                try:
-                    insert_vuln(rec)
-                except Exception as e:
-                    LOGGER.warning("insert_vuln failed for %r: %s", rec.title, e)
+            # Supabase inserts are deferred to a batched dedup pass at end of run.
         else:
             LOGGER.debug("Seed skipped url=%s", url)
         if not reporter.verbose:
@@ -564,6 +582,64 @@ def run(
     LOGGER.debug("Wrote %s records to %s", len(combined), out_file)
     stats.output_records = len(out_recs)
     reporter.info(f"Wrote {len(out_recs)} GDELT records to {out_file}")
+
+    # Batched dedup + Supabase insert. Runs once at end of pipeline so the
+    # nearest-neighbor pass sees the full prior DB state, not a row inserted
+    # earlier in this same run.
+    if SUPABASE_AVAILABLE and records:
+        from src.dedup import (
+            dedupe_records,
+            embed_fingerprint,
+            merge_records,
+            record_to_fingerprint_text,
+        )
+
+        decisions = dedupe_records(
+            [v.to_dict() for v in records],
+            find_neighbor=find_nearest_vulnerability,
+            find_by_url=find_vuln_by_canonical_url,
+            find_by_title=find_vuln_by_normalized_title,
+        )
+        for vuln, (_record, action) in zip(records, decisions):
+            if action.kind == "merge_into":
+                _log_dedup_decision(action, vuln)
+                # After merge, source_name/direct_link become concatenated
+                # ("a.com/x | b.com/y"); future URL pre-filter lookups will
+                # miss those originals and fall through to the embedding
+                # tier (still correct, just slower). Atomic-URL preservation
+                # would need a sidecar table or normalized links column —
+                # follow-up ticket if desired.
+                try:
+                    existing = get_vuln_by_id(action.existing_id)
+                    if existing is None:
+                        LOGGER.warning(
+                            "merge_into target id=%s missing; skipping merge",
+                            action.existing_id,
+                        )
+                        continue
+                    merged = merge_records(existing, vuln.to_dict())
+                    new_emb = embed_fingerprint(record_to_fingerprint_text(merged))
+                    update_payload = {
+                        k: v
+                        for k, v in merged.items()
+                        if k not in ("id", "date_accessed")
+                    }
+                    update_vuln(action.existing_id, update_payload, embedding=new_emb)
+                    stats.merged += 1
+                except Exception as e:
+                    LOGGER.warning(
+                        "merge failed for %r against id=%s: %s",
+                        vuln.title,
+                        action.existing_id,
+                        e,
+                    )
+                continue
+            if action.kind == "log_conflict_and_insert":
+                _log_dedup_decision(action, vuln)
+            try:
+                insert_vuln(vuln, embedding=action.embedding)
+            except Exception as e:
+                LOGGER.warning("insert_vuln failed for %r: %s", vuln.title, e)
 
     # Clear the seed files after a successful pipeline run
     clear_directory(SEEDS_DIR)

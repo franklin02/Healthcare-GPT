@@ -145,6 +145,7 @@ def test_run_html_scraper_start_page_override_can_skip_run():
 
 
 def test_run_html_scraper_logs_model_failure_before_setup_or_fetching():
+    """Model availability check should fail before any scraping."""
     site_config = {
         "name": "TestSite",
         "url": "https://example.com",

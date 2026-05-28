@@ -11,6 +11,7 @@ from src.classes import Vulnerability
 
 @pytest.fixture(autouse=True)
 def skip_model_availability_check():
+    """Skip model availability check during tests."""
     with patch("src.GDELT.runner.ensure_model_available"):
         yield
 

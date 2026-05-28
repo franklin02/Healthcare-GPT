@@ -8,6 +8,7 @@ from src import orchestrator
 
 
 def test_orchestrator_forwards_verbose_to_gdelt_runner():
+    """Verbose flag should be forwarded to the GDELT runner."""
     with (
         patch("src.orchestrator.ensure_model_available"),
         patch("src.GDELT.runner.run") as mock_run,
@@ -20,6 +21,7 @@ def test_orchestrator_forwards_verbose_to_gdelt_runner():
 
 
 def test_orchestrator_forwards_verbose_to_html_scraper():
+    """Verbose flag should be forwarded to the HTML scraper."""
     sites = [{"name": "TestSite"}]
     with (
         patch("src.orchestrator.ensure_model_available"),
@@ -85,6 +87,7 @@ def test_orchestrator_detects_equals_style_gdelt_options():
 
 
 def test_orchestrator_logs_model_availability_failure_before_pipelines():
+    """Model availability check should fail before any scraping."""
     with (
         patch(
             "src.orchestrator.ensure_model_available",
@@ -108,6 +111,7 @@ def test_orchestrator_logs_model_availability_failure_before_pipelines():
 
 
 def test_orchestrator_skips_model_check_when_all_model_pipelines_are_skipped():
+    """Model availability check should be skipped when all pipelines are skipped."""
     with patch("src.orchestrator.ensure_model_available") as mock_model_check:
         result = orchestrator.main(["--skip-gdelt", "--skip-html"])
 

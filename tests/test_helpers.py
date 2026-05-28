@@ -867,6 +867,7 @@ class TestEnsureOllamaModelAvailable:
 
     @patch("src.shared_utils.subprocess.run")
     def test_ollama_cli_missing_raises_readable_error(self, mock_run):
+        """Missing ollama CLI should raise an error to help users install it."""
         mock_run.side_effect = FileNotFoundError
 
         with pytest.raises(helpers.model_unavailable_error) as exc:
@@ -875,6 +876,7 @@ class TestEnsureOllamaModelAvailable:
 
     @patch("src.shared_utils.subprocess.run")
     def test_ollama_list_timeout_raises_readable_error(self, mock_run):
+        """Timeout on ollama list should raise an error to help users install it."""
         mock_run.side_effect = subprocess.TimeoutExpired(
             cmd=["ollama", "list"],
             timeout=15,

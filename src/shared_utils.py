@@ -817,7 +817,7 @@ def ai_check_validation(
             AI_URL,
             json={
                 "model": AI_MODEL,
-                "prompt": active_prompt,
+                "prompt": prompt,
                 "stream": False,
                 "format": "json",
                 "options": {"temperature": 0.1},

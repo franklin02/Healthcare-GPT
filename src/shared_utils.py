@@ -859,24 +859,25 @@ def ai_check_validation(
 
 
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
-    """
-    This function is called once we know an article classifies as a true vulnerability. We pass in the artile information
-    to AI (currently Ollama) to get all of the sector and subsector fields to build the 'Vulnerability' shape, this will
-    later be used to make a JSON structure to be ingested.
+    """Extract universal and subsector fields for a validated article.
+
+    This function is called after an article classifies as a true vulnerability.
+    It sends the article title and body to Ollama to populate the universal
+    sector fields and the fields specific to the selected subsector.
 
     Args:
-        subsector (string): this is obtained by ai_check_validation
-        title (string): title of the current article
-        body (string): full body of the current article
+        subsector: Subsector returned by ``ai_check_validation``.
+        title: Title of the current article.
+        body: Full body text of the current article.
 
-    Returns: A tuple with 2 dicts
-        - First dict: contains all the universal LLM_SECTOR_FIELDS applicable (decided by AI)
-        - Second dict: contains all the SUBSECTOR_FIELDS applicable (also decided by AI)
+    Returns:
+        A tuple with the universal ``LLM_SECTOR_FIELDS`` values first and the
+        matching ``SUBSECTOR_FIELDS`` values second.
 
     Note:
-        - We should find an alternative to this function, currently the AI decided which fields can be grabbed given the current article,
-        this is not ideal for the long term.
-
+        The AI currently decides which values can be extracted from the article.
+        That keeps extraction flexible, but it is not ideal as a long-term
+        structured-data contract.
     """
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)
     if not subsector_fields:
@@ -903,7 +904,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
 
         FIELD-SPECIFIC GUIDANCE (sector fields, applied to ALL subsectors):
         - "exec_summary": a 1-2 sentence factual summary of the disruption, naming the entity and the impact. Lift facts only from the article. Empty string allowed if the article is too vague to summarize.
-        - "geography_scope": the U.S. state, region, or "US Territory" the disruption affects, only if stated. Otherwise null.
+        - "geography_scope": The full name of the US state, city, or county. "US" if no specific state is specified, "US Territory" for US territories, out "Outside US" for non-US events, or null if not explicit.
         - "start_date" / "end_date": ISO YYYY-MM-DD; null if not explicit.
         - "resilience_or_mitigation_observed": any specific mitigation, workaround, or response action stated in the article (e.g. "diverted ambulances to nearby hospital", "restored systems within 48 hours"). Null if none stated.
         <</SYS>>

@@ -48,6 +48,18 @@ Run from the repository root:
 python src/GDELT/runner.py --num-files 2 --limit 3
 ```
 
+Run both active pipelines through the orchestrator:
+
+```bash
+python -m src.orchestrator --num-files 2 --limit 3
+```
+
+Run a small HTML-only pagination smoke test:
+
+```bash
+python -m src.orchestrator --skip-gdelt --html-start-page 1 --html-page-cap 0 --verbose
+```
+
 For a bounded historical run:
 
 ```bash
@@ -76,6 +88,21 @@ uvicorn main:app --reload
 - `data/seen_urls.json`: URL history used to avoid duplicate processing.
 - `chroma_db/`: local vector store created by `src/ingest.py`.
 
+## HTML Pagination Controls
+
+Configured HTML sources keep their selector and pagination defaults in
+`src/scrapers/html_engine.py` because each site starts and paginates
+differently. The orchestrator exposes `--html-start-page` and
+`--html-page-cap` as run-time overrides so larger HTML runs do not require
+source edits. When those arguments are omitted, each source uses its configured
+`starting_page` and `cap`, preserving the previous behavior. A page cap of
+`-1` means unlimited pagination, matching the HTML scraper's direct CLI.
+
+The overrides are intentionally global across HTML sites. That keeps the
+orchestrator interface small and mirrors the GDELT runner's coarse controls:
+operators can choose a quick smoke test, a bounded scan, or an unrestricted
+backfill without needing to know each site's internal config shape.
+
 ## Current Supporting Modules
 
 - `src/GDELT/gdelt_seeds.py`: GDELT file discovery, theme matching, subsector
@@ -84,10 +111,10 @@ uvicorn main:app --reload
   subsector field extraction.
 - `src/GDELT/gemma.py`: focused Gemma URL filter for healthcare cyberattack
   article experiments.
-- `src/scrapers/bert_scraper.py`: compact article scraper used by the BERT
-  classifier.
+- `src/GDELT/BERT_filter.py`: optional BERT classifier used to pre-screen
+  candidate articles before LLM validation.
 - `src/orchestrator.py`: top-level command that runs GDELT first, then all
-    configured HTML scrapers.
+  configured HTML scrapers.
 - `src/ingest.py`: JSON loading, chunking, duplicate detection, and ChromaDB
   indexing.
 - `src/main.py`: FastAPI endpoints and local chat UI.

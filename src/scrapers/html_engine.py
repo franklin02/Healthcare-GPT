@@ -1,3 +1,10 @@
+"""Configured HTML scraper runner for healthcare disruption sources.
+
+Each site keeps its own selectors and pagination defaults in ``HTML_SITES``.
+The runner accepts optional pagination overrides so the orchestrator can expand
+or shrink HTML runs without changing source configuration.
+"""
+
 import time
 import datetime
 import uuid
@@ -24,6 +31,10 @@ from src.shared_utils import (  # noqa: E402
 )  # noqa: E402
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
+from src.logging_utils import get_file_logger  # noqa: E402
+
+LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "html_engine.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
 
 
 def _live_site_status(
@@ -46,6 +57,7 @@ def _live_site_status(
 
 
 def _bert_status() -> str:
+    """Return a human-readable description of the optional BERT pre-filter."""
     try:
         from src.GDELT.BERT_filter import describe_model
 
@@ -70,7 +82,7 @@ try:
 
 except Exception as e:
     LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
-SUPABASE_AVAILABLE = False
+    SUPABASE_AVAILABLE = False
 
 
 SUBSECTOR_FIELDS = [
@@ -174,7 +186,13 @@ def fetch_html_page(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ):
-    """Fetch one listing page and return article payloads plus a stop flag."""
+    """Fetch one listing page and return article payloads plus a stop flag.
+
+    The listing page is parsed with the site's configured selectors, then each
+    candidate link is fetched to collect article body text and publication date.
+    The stop flag is set when a previously processed article is encountered so
+    pagination can end early.
+    """
     reporter = reporter or CliReporter(verbose=True)
     response = get_page(page_url)
     soup = BeautifulSoup(response.content, "html.parser")
@@ -291,10 +309,30 @@ def run_html_scraper(
     site_config,
     use_bert: bool = False,
     verbose: bool = False,
+    starting_page: int | None = None,
+    page_cap: int | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ) -> PipelineStats:
-    """Run one configured HTML scraper and return its run statistics."""
+    """Run one configured HTML scraper and return its run statistics.
+
+    Args:
+        site_config: One entry from ``HTML_SITES`` containing URL, selector,
+            and pagination configuration.
+        use_bert: Whether to report that the optional BERT pre-filter is
+            enabled for this run.
+        verbose: Whether to print per-article progress details when a reporter
+            is not supplied.
+        starting_page: Optional override for the site's configured first page.
+            ``None`` preserves the site's default.
+        page_cap: Optional override for the site's configured maximum page.
+            ``None`` preserves the site's default; ``-1`` means unlimited.
+        reporter: Optional shared CLI reporter supplied by the orchestrator.
+        stats: Optional stats object to update for the site.
+
+    Returns:
+        The populated ``PipelineStats`` for the site.
+    """
     local_reporter = reporter is None
     reporter = reporter or CliReporter(verbose=verbose)
     stats = stats or PipelineStats(site_config["name"])
@@ -312,8 +350,12 @@ def run_html_scraper(
         except Exception as e:
             reporter.warn(f"load_cite failed for {site_config['name']}: {e}", stats)
 
-    starting_page = site_config["map"]["starting_page"]
-    cap = site_config["map"]["cap"]
+    starting_page = (
+        starting_page
+        if starting_page is not None
+        else site_config["map"]["starting_page"]
+    )
+    cap = page_cap if page_cap is not None else site_config["map"]["cap"]
     ensure_model_available()
     current_page = starting_page
 
@@ -396,6 +438,7 @@ def run_html_scraper(
                             f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
                         )
                         continue
+                    stats.validated += 1
                     sector_data, ss_data = extract_fields(
                         detail, article["title"], article["body"]
                     )
@@ -452,6 +495,7 @@ def run_html_scraper(
                                 f"[WARNING] insert_vuln failed for {vuln.title!r}: {e}"
                             )
                 else:
+                    stats.rejected += 1
                     body_preview = (article["body"] or "")[:250].replace("\n", " ")
                     new_noise_rows.append(
                         [
@@ -525,7 +569,25 @@ if __name__ == "__main__":
         default=False,
         help="Show detailed per-article scraper output",
     )
+    parser.add_argument(
+        "--start-page",
+        type=int,
+        default=None,
+        help="Override configured starting page for every HTML site",
+    )
+    parser.add_argument(
+        "--page-cap",
+        type=int,
+        default=None,
+        help="Override configured max page number for every HTML site (-1 for unlimited)",
+    )
     args = parser.parse_args()
 
     for site in HTML_SITES:
-        run_html_scraper(site, use_bert=args.use_bert, verbose=args.verbose)
+        run_html_scraper(
+            site,
+            use_bert=args.use_bert,
+            verbose=args.verbose,
+            starting_page=args.start_page,
+            page_cap=args.page_cap,
+        )

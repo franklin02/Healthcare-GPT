@@ -26,11 +26,15 @@ Install runtime dependencies based on what you are changing:
 Ollama is required for LLM validation and extraction paths:
 
 ```bash
-ollama pull gemma4:e4b
+ollama list
 ```
 
 Keep the Ollama app or `ollama serve` running before commands that validate or
-extract article fields.
+extract article fields. Pull only the model needed for the path you are
+testing: current shared validation uses `src.shared_utils.AI_MODEL`
+(`llama3.2`), while the RAG app and Gemma experiment use `gemma4:e4b`.
+Confirm the needed model appears in `ollama list` before relying on LLM-backed
+validation results.
 
 ## Local Checks
 
@@ -51,6 +55,15 @@ Build the Sphinx documentation locally:
 ```bash
 sphinx-build -b html -E docs docs/_build/html
 ```
+
+For a quick no-network smoke test of the orchestrator and HTML scraper wiring:
+
+```bash
+python -m src.orchestrator --skip-gdelt --html-start-page 1 --html-page-cap 0 --verbose
+```
+
+Expected result: each configured HTML site reaches `page cap (0)`, and the
+summary reports zero processed records and zero errors.
 
 The same docs build runs in GitHub Actions on pull requests. Pushes to `main`
 also publish the built HTML to GitHub Pages.

@@ -45,10 +45,12 @@ Possible subsectors:
 import json
 import csv
 import os
+import subprocess
 import tempfile
 import requests
 import sys
 from pathlib import Path
+import sys as _sys
 import re
 from bs4 import BeautifulSoup
 
@@ -1020,3 +1022,52 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
             {k: None for k in LLM_SECTOR_FIELDS},
             {k: None for k in subsector_fields},
         )
+
+
+class model_unavailable_error(RuntimeError):
+    """Raised when configured Ollama model is unavailable"""
+
+
+checked_ollama_models: set[str] = set()
+
+
+def ensure_model_available(model: str = AI_MODEL) -> None:
+    if model in checked_ollama_models:
+        return
+
+    try:
+        result = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=15,
+        )
+    except FileNotFoundError as exc:
+        raise model_unavailable_error(
+            "[ERROR] Ollama CLI not found.\nInstall and make sure 'ollama' is on PATH"
+        ) from exc
+    except subprocess.SubprocessError as exc:
+        raise model_unavailable_error(
+            "[ERROR] Could not query Ollama models.\n"
+            "Make sure Ollama is running, then try again"
+        ) from exc
+
+    if result.returncode != 0:
+        raise model_unavailable_error(
+            "[ERROR] Could not query Ollama models.\n"
+            "Make sure Ollama is running, then try again"
+        )
+
+    installed_models = {
+        line.split()[0]
+        for line in result.stdout.splitlines()[1:]
+        if line.strip() and line.split()
+    }
+    if model not in installed_models:
+        raise model_unavailable_error(
+            f"[ERROR] Model '{model}' not found in Ollama. Make sure Ollama is running.\n"
+            f"Run: ollama pull {model}"
+        )
+
+    checked_ollama_models.add(model)

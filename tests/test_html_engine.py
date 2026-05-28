@@ -1,7 +1,10 @@
 import io
 from unittest.mock import patch
 
+import pytest
+
 from src.cli_reporter import CliReporter, PipelineStats
+from src.shared_utils import model_unavailable_error
 from src.scrapers import html_engine
 
 
@@ -31,6 +34,7 @@ def test_run_html_scraper_counts_validated_and_rejected_articles():
     ]
 
     with (
+        patch("src.scrapers.html_engine.ensure_model_available"),
         patch("src.scrapers.html_engine.check_valid_file"),
         patch(
             "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)
@@ -82,6 +86,7 @@ def test_run_html_scraper_allows_page_cap_override():
     }
 
     with (
+        patch("src.scrapers.html_engine.ensure_model_available"),
         patch("src.scrapers.html_engine.check_valid_file"),
         patch(
             "src.scrapers.html_engine.fetch_html_page",
@@ -122,6 +127,7 @@ def test_run_html_scraper_start_page_override_can_skip_run():
     }
 
     with (
+        patch("src.scrapers.html_engine.ensure_model_available"),
         patch("src.scrapers.html_engine.check_valid_file"),
         patch("src.scrapers.html_engine.fetch_html_page") as mock_fetch,
         patch("src.scrapers.html_engine.prepend_vuln_csv"),
@@ -135,4 +141,40 @@ def test_run_html_scraper_start_page_override_can_skip_run():
             stats=PipelineStats("TestSite"),
         )
 
+    mock_fetch.assert_not_called()
+
+
+def test_run_html_scraper_logs_model_failure_before_setup_or_fetching():
+    """Model availability check should fail before any scraping."""
+    site_config = {
+        "name": "TestSite",
+        "url": "https://example.com",
+        "map": {
+            "starting_page": 1,
+            "cap": 1,
+        },
+    }
+
+    with (
+        patch(
+            "src.scrapers.html_engine.ensure_model_available",
+            side_effect=model_unavailable_error("model unavailable"),
+        ) as mock_model_check,
+        patch("src.scrapers.html_engine.LOGGER.error") as mock_log_error,
+        patch("src.scrapers.html_engine.check_valid_file") as mock_check_file,
+        patch("src.scrapers.html_engine.fetch_html_page") as mock_fetch,
+    ):
+        with pytest.raises(model_unavailable_error):
+            html_engine.run_html_scraper(
+                site_config,
+                reporter=CliReporter(stream=io.StringIO()),
+                stats=PipelineStats("TestSite"),
+            )
+
+    mock_model_check.assert_called_once_with()
+    mock_log_error.assert_called_once_with(
+        "Model availability check failed: %s",
+        mock_model_check.side_effect,
+    )
+    mock_check_file.assert_not_called()
     mock_fetch.assert_not_called()

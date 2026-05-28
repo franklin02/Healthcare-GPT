@@ -746,6 +746,7 @@ class TestRunBertAndUseBert:
         mock_run_bert_inference.assert_called_once_with(
             {"title": "Ransomware hits hospital", "body": LONG_BODY},
             mock_classifier,
+            verbose=False,
         )
 
     @patch("src.shared_utils.requests.post")

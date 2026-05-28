@@ -1,16 +1,45 @@
-.venv/
+# --- Python ---
 __pycache__/
 *.pyc
+*.coverage
+.pytest_cache/
+.ruff_cache/
+
+# --- Virtualenv ---
+.venv/
+
+# --- OS / editor scratch ---
 .DS_Store
+*.bak
+*.tmp
+*.swp
+*~
+
+# --- Secrets / local agent state ---
 .env
+CLAUDE.md
+.claude/
+
+# --- Local pipeline data & artifacts ---
+data/
 chroma_db/
-src/tests/train-bert/.ipynb_checkpoints
-src/tests/train-bert/.jupyter
 src/models/
-src/tests/train-bert/*.csv
+*.log
+
+# --- SQL scratch (real schema lives in src/config/) ---
+sql/
+**/sql/
+*.sqlite
+*.sqlite3
+*.db
+*.sql.bak
+*.sql.tmp
+
+# --- Docs build output ---
 docs/_build/
 docs/_autosummary/
-CLAUDE.md
-*.coverage
-data/
-sql/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+.jupyter/
+src/tests/train-bert/*.csv

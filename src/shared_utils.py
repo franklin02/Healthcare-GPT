@@ -52,7 +52,7 @@ from pathlib import Path
 import re
 from bs4 import BeautifulSoup
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
@@ -61,9 +61,7 @@ from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa E402
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
-
-# Anchor to the project root so this works both as `scrapers.shared_utils`
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+MIN_BODY_CHARS_FOR_LLM = 150
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "shared_utils.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
@@ -88,6 +86,12 @@ _NOISE_PATTERNS = (
 )
 _NOISE_RE = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 _NOISE_SELECTOR = ",".join(f'[class*="{p}"]' for p in _NOISE_PATTERNS)
+_BODY_BOILERPLATE_PATTERNS = re.compile(
+    r"skip to main content|copyright|terms of use|privacy policy|powered by|"
+    r"content management system|blox digital|subscribe|sign in|log in|search|menu|close",
+    re.IGNORECASE,
+)
+_TITLE_SITE_SUFFIX_RE = re.compile(r"(?:\s*[|–—]\s+[^|–—]+|\s-\s+[^-]+)$")
 
 HEADERS = {
     "User-Agent": (
@@ -451,6 +455,43 @@ def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None
         raise
 
 
+def get_title(url: str) -> str:
+    """Fetch and return the page title for a URL.
+
+    Extracts the HTML <title> tag and strips common site-name suffixes
+    (e.g. " | Reuters", " - NBC News").  Falls back to the raw URL if no
+    usable ``<title>`` tag is found or the request fails.
+
+    Args:
+        url (str): The URL to fetch.  ``https://`` is prepended if the scheme
+            is missing.
+
+    Returns:
+        str: Cleaned page title, or the URL on failure.
+    """
+    if not url:
+        return url
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
+        return url
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    title_tag = soup.find("title")
+    if title_tag:
+        raw = title_tag.get_text(strip=True)
+        if raw:
+            cleaned = _TITLE_SITE_SUFFIX_RE.sub("", raw).strip()
+            return cleaned if cleaned else raw
+    return url
+
+
 def get_body(url: str) -> str:
     """Fetch and return the main article text for a URL.
 
@@ -528,26 +569,60 @@ def get_body(url: str) -> str:
             break
 
     if main is None:
-        print("[WARNING] no body found")
+        print("[WARN] no body found")
         LOGGER.warning("No body found for URL %s", url)
         return ""
 
-    # Prefer paragraph text (gives cleaner article body across sites.)
-    # Fall back to all text if no <p> tags found.
-    paragraphs = [p.get_text(" ", strip=True) for p in main.find_all("p")]
-    paragraphs = [p for p in paragraphs if p]
+    def _filtered_text_chunks(node) -> list[str]:
+        """
+        Extract text chunks from a BeautifulSoup node, filtering out empty strings and boilerplate.
 
-    if paragraphs:
-        LOGGER.debug("Extracted %d paragraphs from URL %s", len(paragraphs), url)
-        return "\n\n".join(paragraphs)
-    LOGGER.debug("No paragraphs found, falling back to all text for URL %s", url)
-    return main.get_text(" ", strip=True)
+        Parameters:
+            node (BeautifulSoup): The BeautifulSoup node to extract text from.
+
+        Returns:
+            list[str]: A list of filtered text chunks.
+        """
+        chunks: list[str] = []
+        # Use stripped_strings to get text without extra whitespace, then filter out empty and boilerplate chunks
+        for chunk in node.stripped_strings:
+            normalized = chunk.strip()
+            if not normalized:
+                continue
+            if _BODY_BOILERPLATE_PATTERNS.search(normalized):
+                continue
+            chunks.append(normalized)
+        LOGGER.debug(
+            "Extracted %d filtered text chunks from node in URL %s", len(chunks), url
+        )
+        return chunks
+
+    # Prefer paragraph text (gives cleaner article body across sites.)
+    # Fall back to filtered descendant text when no <p> tags are present.
+    content_chunks = [
+        p.get_text(" ", strip=True)
+        for p in main.find_all("p")
+        if p.get_text(" ", strip=True)
+        and not _BODY_BOILERPLATE_PATTERNS.search(p.get_text(" ", strip=True))
+    ]
+
+    if not content_chunks:
+        content_chunks = _filtered_text_chunks(main)
+
+    if content_chunks:
+        LOGGER.debug(
+            "Extracted %d content chunks from URL %s", len(content_chunks), url
+        )
+        return "\n\n".join(content_chunks)
+
+    LOGGER.debug("No content chunks found after filtering for URL %s", url)
+    return ""
 
 
 _classifier = None
 
 
-def _run_bert(title: str, body: str) -> str:
+def _run_bert(title: str, body: str, verbose: bool = False) -> str:
     """
     Run BERT inference on an article. Returns the predicted subsector string or "none".
     Loads the classifier once on first call and reuses it for subsequent articles.
@@ -561,19 +636,17 @@ def _run_bert(title: str, body: str) -> str:
         raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
 
     if _classifier is None:
-        _classifier = load_model()
+        _classifier = load_model(verbose=verbose)
         if _classifier is None:
-            print("[WARN] BERT classifier failed to load, skipping.")
+            LOGGER.warning("BERT classifier failed to load, skipping")
             return "none"
 
-    else:
-        LOGGER.debug("Reusing cached BERT classifier for title %s", title)
-        pass
-
     try:
-        result = run_bert_inference({"title": title, "body": body}, _classifier)
+        result = run_bert_inference(
+            {"title": title, "body": body}, _classifier, verbose=verbose
+        )
     except Exception as e:
-        print(f"[ERROR] BERT inference failed: {e}")
+        LOGGER.warning("BERT inference failed: %s", e)
         return "none"
 
     if result == "potential_hit":
@@ -581,7 +654,9 @@ def _run_bert(title: str, body: str) -> str:
     return result
 
 
-def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
+def ai_check_validation(
+    title, body, use_bert=False, verbose: bool = False
+) -> tuple[bool, str]:
     """
     Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach at a named healthcare entity based on strict, predefined criteria.
 
@@ -600,13 +675,27 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     If an error occurs during the request or response parsing, the function catches the error, logs it, and returns False with "Parsing Error".
     """
 
+    body_text = body or ""
+    if len(body_text) < MIN_BODY_CHARS_FOR_LLM:
+        LOGGER.info(
+            "Skipping LLM validation for title %s because body length %d is below %d characters",
+            title,
+            len(body_text),
+            MIN_BODY_CHARS_FOR_LLM,
+        )
+        return False, "Body too short for LLM review"
+
     if use_bert:
-        bert_subsector = _run_bert(title, body)
+        bert_subsector = _run_bert(title, body, verbose=verbose)
         if bert_subsector == "none":
-            print("[BERT] rejected skipping LLM")
+            if verbose:
+                print("[BERT] rejected skipping LLM")
             LOGGER.info("BERT rejected article with title %s", title)
             return False, "BERT: unrelated news"
-        print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
+        if verbose:
+            print(
+                f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation"
+            )
         LOGGER.info("BERT flagged article with title %s as %s", title, bert_subsector)
 
     prompt = f"""
@@ -721,12 +810,14 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     EXCERPT: {body}
     """
 
+    active_prompt = promptG if AI_MODEL.lower().startswith("gemma") else prompt
+
     try:
         resp = requests.post(
             AI_URL,
             json={
                 "model": AI_MODEL,
-                "prompt": prompt,
+                "prompt": active_prompt,
                 "stream": False,
                 "format": "json",
                 "options": {"temperature": 0.1},
@@ -821,24 +912,25 @@ def get_extraction_template(subsector: str) -> dict:
 
 
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
-    """
-    This function is called once we know an article classifies as a true vulnerability. We pass in the artile information
-    to AI (currently Ollama) to get all of the sector and subsector fields to build the 'Vulnerability' shape, this will
-    later be used to make a JSON structure to be ingested.
+    """Extract universal and subsector fields for a validated article.
+
+    This function is called after an article classifies as a true vulnerability.
+    It sends the article title and body to Ollama to populate the universal
+    sector fields and the fields specific to the selected subsector.
 
     Args:
-        subsector (string): this is obtained by ai_check_validation
-        title (string): title of the current article
-        body (string): full body of the current article
+        subsector: Subsector returned by ``ai_check_validation``.
+        title: Title of the current article.
+        body: Full body text of the current article.
 
-    Returns: A tuple with 2 dicts
-        - First dict: contains all the universal LLM_SECTOR_FIELDS applicable (decided by AI)
-        - Second dict: contains all the SUBSECTOR_FIELDS applicable (also decided by AI)
+    Returns:
+        A tuple with the universal ``LLM_SECTOR_FIELDS`` values first and the
+        matching ``SUBSECTOR_FIELDS`` values second.
 
     Note:
-        - We should find an alternative to this function, currently the AI decided which fields can be grabbed given the current article,
-        this is not ideal for the long term.
-
+        The AI currently decides which values can be extracted from the article.
+        That keeps extraction flexible, but it is not ideal as a long-term
+        structured-data contract.
     """
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)
     if not subsector_fields:
@@ -865,7 +957,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
 
         FIELD-SPECIFIC GUIDANCE (sector fields, applied to ALL subsectors):
         - "exec_summary": a 1-2 sentence factual summary of the disruption, naming the entity and the impact. Lift facts only from the article. Empty string allowed if the article is too vague to summarize.
-        - "geography_scope": the U.S. state, region, or "US Territory" the disruption affects, only if stated. Otherwise null.
+        - "geography_scope": The full name of the US state, city, or county. "US" if no specific state is specified, "US Territory" for US territories, out "Outside US" for non-US events, or null if not explicit.
         - "start_date" / "end_date": ISO YYYY-MM-DD; null if not explicit.
         - "resilience_or_mitigation_observed": any specific mitigation, workaround, or response action stated in the article (e.g. "diverted ambulances to nearby hospital", "restored systems within 48 hours"). Null if none stated.
         <</SYS>>

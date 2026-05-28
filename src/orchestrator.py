@@ -1,10 +1,16 @@
-"""Unified runner for GDELT and configured HTML/Scooper scrapers."""
+"""Unified runner for GDELT and configured HTML/Scooper scrapers.
+
+The orchestrator owns cross-pipeline CLI concerns so operators can run small
+smoke tests or larger backfills from one command while each pipeline keeps its
+source-specific defaults and implementation details.
+"""
 
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
+from src.cli_reporter import CliReporter, PipelineStats
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _GDELT_DIR = _PROJECT_ROOT / "src" / "GDELT"
@@ -12,7 +18,26 @@ if str(_GDELT_DIR) not in sys.path:
     sys.path.insert(0, str(_GDELT_DIR))
 
 
-if __name__ == "__main__":
+def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
+    """Return whether any CLI option was supplied, including --option=value."""
+    return any(
+        arg == option or arg.startswith(f"{option}=")
+        for arg in raw_args
+        for option in options
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Parse CLI options, run selected pipeline stages, and report summaries.
+
+    Args:
+        argv: Optional argument list for tests and programmatic callers. When
+            omitted, argparse reads from the process command line.
+
+    Returns:
+        Process exit code. A successful orchestrated run returns ``0``.
+    """
+    raw_args = sys.argv[1:] if argv is None else argv
     parser = argparse.ArgumentParser(
         description="Unified runner for GDELT and HTML scrapers"
     )
@@ -36,6 +61,13 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
         help="Skip the HTML scraper pipeline",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Show detailed per-article pipeline output",
     )
 
     # GDELT-specific
@@ -80,19 +112,37 @@ if __name__ == "__main__":
         default="all",
         help="Comma-separated subsectors to scan, or 'all'",
     )
+    parser.add_argument(
+        "--html-start-page",
+        type=int,
+        default=None,
+        help="Override configured starting page for every HTML scraper site",
+    )
+    parser.add_argument(
+        "--html-page-cap",
+        type=int,
+        default=None,
+        help=(
+            "Override configured max page number for every HTML scraper site "
+            "(-1 for unlimited)"
+        ),
+    )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    reporter = CliReporter(verbose=args.verbose)
+    summaries: list[PipelineStats] = []
 
     if not args.skip_gdelt:
         from src.GDELT import runner
 
-        n_provided = any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
-        l_provided = any(opt in sys.argv[1:] for opt in ("-l", "--limit"))
+        n_provided = _option_provided(raw_args, ("-n", "--num-files"))
+        l_provided = _option_provided(raw_args, ("-l", "--limit"))
         effective_limit = args.limit
         if not l_provided:
             effective_limit = None if n_provided else 3
 
-        print("=== Running GDELT pipeline ===")
+        gdelt_stats = PipelineStats("GDELT")
+        reporter.phase("Running GDELT pipeline")
         runner.run(
             num_files=args.num_files,
             limit=effective_limit,
@@ -102,11 +152,34 @@ if __name__ == "__main__":
             end_date=args.end_date,
             seen_urls_file=args.seen_urls_file,
             use_bert=args.use_bert,
+            verbose=args.verbose,
+            reporter=reporter,
+            stats=gdelt_stats,
         )
+        summaries.append(gdelt_stats)
 
     if not args.skip_html:
         from src.scrapers import html_engine
 
-        print("\n=== Running HTML/Scooper pipeline ===")
+        html_stats = PipelineStats("HTML")
+        reporter.phase("Running HTML/Scooper pipeline")
         for site in html_engine.HTML_SITES:
-            html_engine.run_html_scraper(site, use_bert=args.use_bert)
+            site_stats = html_engine.run_html_scraper(
+                site,
+                use_bert=args.use_bert,
+                verbose=args.verbose,
+                starting_page=args.html_start_page,
+                page_cap=args.html_page_cap,
+                reporter=reporter,
+                stats=PipelineStats(site["name"]),
+            )
+            html_stats.merge(site_stats)
+        summaries.append(html_stats)
+
+    if summaries:
+        reporter.summary(summaries)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -42,6 +42,13 @@ def test_get_device_returns_minus_1_when_no_devices_available():
         assert result == -1
 
 
+def test_device_label_maps_backend_values():
+    """Test that backend identifiers are shown as readable device labels."""
+    assert BERT_filter._device_label(0) == "cuda"
+    assert BERT_filter._device_label("mps") == "mps"
+    assert BERT_filter._device_label(-1) == "cpu"
+
+
 def test_load_model_uses_finetuned_model_when_present(pipeline_mock):
     """Test that load_model prefers the local finetuned model when present."""
     # Use mocks only; this test must not load a real transformer model.
@@ -52,16 +59,19 @@ def test_load_model_uses_finetuned_model_when_present(pipeline_mock):
         patch.object(BERT_filter, "FINETUNE_BERT_PATH", mock_finetuned_path),
         patch("src.GDELT.BERT_filter.get_device", return_value=-1) as mock_get_device,
         patch("transformers.AutoTokenizer") as mock_auto_tokenizer,
-        patch("builtins.print"),
+        patch("builtins.print") as mock_print,
     ):
         mock_auto_tokenizer.from_pretrained.return_value = mock_tokenizer
         mock_classifier = MagicMock(name="mock_classifier")
         pipeline_mock.return_value = mock_classifier
 
-        result = BERT_filter.load_model()
+        result = BERT_filter.load_model(verbose=True)
 
         assert result is mock_classifier
         mock_get_device.assert_called_once()
+        mock_print.assert_any_call(
+            f"[INFO] BERT model loaded from {BERT_filter.FINETUNE_BERT_PATH} using cpu"
+        )
         pipeline_mock.assert_called_once_with(
             "zero-shot-classification",
             model=BERT_filter.FINETUNE_BERT_PATH,
@@ -86,12 +96,15 @@ def test_load_model_falls_back_to_base_model_when_finetuned_missing(pipeline_moc
         mock_classifier = MagicMock(name="mock_classifier")
         pipeline_mock.return_value = mock_classifier
 
-        result = BERT_filter.load_model()
+        result = BERT_filter.load_model(verbose=True)
 
         assert result is mock_classifier
         mock_get_device.assert_called_once()
         mock_print.assert_any_call(
             "[WARN] Finetuned model not found, reverting to base model."
+        )
+        mock_print.assert_any_call(
+            f"[INFO] BERT model loaded from {BERT_filter.FALLBACK_MODEL_ID} using cuda"
         )
         pipeline_mock.assert_called_once_with(
             "zero-shot-classification",

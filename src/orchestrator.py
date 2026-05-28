@@ -6,6 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 from src.cli_reporter import CliReporter, PipelineStats
+from src.shared_utils import ensure_model_available, model_unavailable_error
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _GDELT_DIR = _PROJECT_ROOT / "src" / "GDELT"
@@ -93,6 +94,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
+
+    if not (args.skip_gdelt and args.skip_html):
+        try:
+            ensure_model_available()
+        except model_unavailable_error as exc:
+            print(exc, file=sys.stderr)
+            return 1
 
     if not args.skip_gdelt:
         from src.GDELT import runner

@@ -3,9 +3,16 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch, mock_open
 from datetime import datetime
+import pytest
 
 from src.GDELT import runner
 from src.classes import Vulnerability
+
+
+@pytest.fixture(autouse=True)
+def skip_model_availability_check():
+    with patch("src.GDELT.runner.ensure_model_available"):
+        yield
 
 
 def _make_vuln(
@@ -511,6 +518,23 @@ class TestProcessSeed:
 
 class TestRun:
     """Tests for the main run function."""
+
+    def test_run_checks_model_before_setup_or_seed_collection(self):
+        """run should fail fast when the configured Ollama model is unavailable."""
+        with (
+            patch(
+                "src.GDELT.runner.ensure_model_available",
+                side_effect=runner.model_unavailable_error("model unavailable"),
+            ) as mock_model_check,
+            patch("src.GDELT.runner.ensure_raw_dirs") as mock_ensure_dirs,
+            patch("src.GDELT.runner.backfill_cyber_seeds") as mock_backfill,
+        ):
+            with pytest.raises(SystemExit):
+                runner.run(num_files=1, limit=1, subsectors="all")
+
+        mock_model_check.assert_called_once_with()
+        mock_ensure_dirs.assert_not_called()
+        mock_backfill.assert_not_called()
 
     @patch("src.GDELT.runner.save_seen")
     @patch("src.GDELT.runner.load_seen")

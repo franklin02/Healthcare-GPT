@@ -955,10 +955,10 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
 class model_unavailable_error(RuntimeError):
     """Raised when configured Ollama model is unavailable"""
 
-_checked_ollama_models: set[str] = set()
+checked_ollama_models: set[str] = set()
 
 def ensure_model_available(model: str = AI_MODEL) -> None:
-    if model in _checked_ollama_models:
+    if model in checked_ollama_models:
         return
 
     try:
@@ -997,4 +997,4 @@ def ensure_model_available(model: str = AI_MODEL) -> None:
             f"Run: ollama pull {model}"
         )
 
-    _checked_ollama_models.add(model)
+    checked_ollama_models.add(model)

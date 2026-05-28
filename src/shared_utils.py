@@ -810,8 +810,6 @@ def ai_check_validation(
     EXCERPT: {body}
     """
 
-    active_prompt = promptG if AI_MODEL.lower().startswith("gemma") else prompt
-
     try:
         resp = requests.post(
             AI_URL,

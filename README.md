@@ -6,7 +6,7 @@ collects public healthcare-disruption signals, validates operational impact,
 and produces structured incident records for analysis and retrieval.
 
 The current implementation centers on a GDELT discovery pipeline, local
-Ollama-backed Gemma validation/extraction, optional BERT pre-screening, ChromaDB
+Ollama-backed validation/extraction, optional BERT pre-screening, ChromaDB
 ingestion, and a FastAPI chat interface over processed records.
 
 ## Pilot Scope
@@ -31,7 +31,7 @@ ingestion, and a FastAPI chat interface over processed records.
 3. **Local retrieval index**
    A ChromaDB vector store created by `src/ingest.py`.
 4. **FastAPI chat app**
-   A local UI and `/chat` API served from `src/main.py`.
+   A local UI and `/chat` API served from `src/RAG/server.py`.
 
 ## Repository Structure
 - `docs/` - project documentation and API reference sources

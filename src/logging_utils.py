@@ -22,16 +22,14 @@ class RetentionFileHandler(logging.FileHandler):
     """File handler that keeps only the last 24 hours of log lines."""
 
     retention_period = timedelta(hours=24)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._next_prune_at = datetime.now()
+    _pruned_files: set[str] = set()
 
     def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
-        if datetime.now() >= self._next_prune_at:
+        normalized_path = str(Path(self.baseFilename).resolve())
+        if normalized_path not in self._pruned_files:
             self._prune_expired_entries()
-            self._next_prune_at = datetime.now() + self.retention_period
+            self._pruned_files.add(normalized_path)
 
     def _prune_expired_entries(self) -> None:
         log_path = Path(self.baseFilename)

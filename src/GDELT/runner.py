@@ -4,6 +4,7 @@ GDELT end-to-end runner.
 Pipeline:
   gdelt_seeds.backfill_cyber_seeds     -- collect candidate seeds from GDELT GKG
   src.shared_utils.get_body            -- scrape page body
+  src.shared_utils.get_title           -- scrape page title (skipped on empty body)
   src.shared_utils.ai_check_validation -- LLM validates as active disruption
   src.shared_utils.extract_fields      -- LLM extracts schema-specific fields
 

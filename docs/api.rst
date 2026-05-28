@@ -36,10 +36,6 @@ GDELT Pipeline
    :members:
    :undoc-members:
 
-.. automodule:: src.GDELT.helpers
-   :members:
-   :undoc-members:
-
 .. automodule:: src.GDELT.ollama_filter
    :members:
    :undoc-members:
@@ -55,18 +51,10 @@ GDELT Pipeline
 Scraper Utilities
 -----------------
 
-.. automodule:: src.scrapers.ask_llm
-   :members:
-   :undoc-members:
-
-.. automodule:: src.scrapers.bert_scraper
-   :members:
-   :undoc-members:
-
 .. automodule:: src.scrapers.html_engine
    :members:
    :undoc-members:
 
-.. automodule:: src.scrapers.shared_utils
+.. automodule:: src.shared_utils
    :members:
    :undoc-members:

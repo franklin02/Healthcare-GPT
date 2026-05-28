@@ -45,6 +45,8 @@ from src.shared_utils import (  # noqa: E402
     extract_fields,
     get_body,
     get_title,
+    ensure_model_available,
+    model_unavailable_error,
 )
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
@@ -442,6 +444,13 @@ def run(
         if local_reporter:
             reporter.summary(stats)
         return []
+
+    try:
+        ensure_model_available()
+    except model_unavailable_error as exc:
+        LOGGER.error("Model availability check failed: %s", exc)
+        print(exc, file=sys.stderr)
+        sys.exit(1)
 
     ensure_raw_dirs()
 

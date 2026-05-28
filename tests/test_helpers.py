@@ -900,7 +900,8 @@ class TestEnsureOllamaModelAvailable:
         assert "Could not query Ollama models" in str(exc.value)
         assert f"Run: ollama pull {helpers.AI_MODEL}" not in str(exc.value)
         assert helpers.AI_MODEL not in helpers.checked_ollama_models
-        
+
+
 class TestGetExtractionTemplate:
     """Tests for get_extraction_template().
 
@@ -1026,4 +1027,3 @@ class TestGetExtractionTemplate:
         monkeypatch.setitem(helpers.SUBSECTOR_FIELDS, "orphan_sub", ["alpha"])
         result = helpers.get_extraction_template("orphan_sub")
         assert self._BASE_FIELDS.issubset(set(result.keys()))
-

@@ -66,29 +66,38 @@ After activation your prompt should start with `(.venv)`. If it doesn't, the ven
 
 ## 4. Install Python dependencies
 
-There are two install profiles. **Pick one based on what part of the codebase you'll be working on.**
+There are three install profiles. **Pick based on what part of the codebase
+you'll be working on.**
 
-### 4a. Minimal (GDELT-only contributors)
+### 4a. Development tools
 
-If you're only working in `src/GDELT/`, you don't need the RAG/vector-DB stack. Install just the four packages GDELT uses:
+Install these if you plan to run tests, format code, or build docs:
 
 ```bash
-pip install requests pandas beautifulsoup4 lxml
+python -m pip install -r requirements-dev.txt
+```
+
+### 4b. Minimal runtime (GDELT-only contributors)
+
+If you're only working in `src/GDELT/`, you don't need the RAG/vector-DB stack. Install just the packages GDELT uses:
+
+```bash
+python -m pip install requests pandas beautifulsoup4 lxml
 ```
 
 This is fast and avoids C++ build issues on Windows (see below).
 
-### 4b. Full install (anyone touching ingest, main, scrapers, or RAG)
+### 4c. Full runtime (anyone touching ingest, scrapers, or RAG)
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 > **Windows gotcha:** `chromadb==0.5.3` pulls in `chroma-hnswlib`, which compiles native C++ code. If you see:
 > ```
 > error: Microsoft Visual C++ 14.0 or greater is required.
 > ```
-> install **Microsoft C++ Build Tools** from https://visualstudio.microsoft.com/visual-cpp-build-tools/. During install, check the "Desktop development with C++" workload. Then re-run `pip install -r requirements.txt`. macOS and Linux already have working C compilers and don't hit this.
+> install **Microsoft C++ Build Tools** from https://visualstudio.microsoft.com/visual-cpp-build-tools/. During install, check the "Desktop development with C++" workload. Then re-run `python -m pip install -r requirements.txt`. macOS and Linux already have working C compilers and don't hit this.
 
 ### Verify packages installed
 
@@ -108,13 +117,23 @@ After installing Ollama from ollama.com (or the Linux script above), start it:
 - **macOS:** Launch the Ollama app from Applications. Same tray icon behavior.
 - **Linux:** `ollama serve` (or it runs as a systemd service depending on install).
 
-Pull the model the project uses:
+Then confirm the service is visible:
 
 ```bash
-ollama pull gemma4:e4b
+ollama list
 ```
 
-This downloads ~2 GB. One-time.
+Model pulls are path-specific:
+
+- Current validation/extraction helpers use the model in `src/shared_utils.py`
+  (`AI_MODEL`, currently `llama3.2`).
+- The RAG app and Gemma experiment use `gemma4:e4b`.
+
+You do not need to pull every model for every contribution. If you are running
+an LLM-backed path, check `ollama list` first and pull the model for that path
+if it is missing. Missing models can produce misleading validation results.
+`gemma4:e4b` has been observed around 9.6 GB, so expect a large one-time
+download rather than the previous estimate.
 
 ---
 
@@ -124,7 +143,7 @@ If `ollama --version` says "command not found" even though the app is installed 
 
 **Quick fix — call the full path:**
 ```bash
-"/c/Users/<you>/AppData/Local/Programs/Ollama/ollama.exe" pull gemma4:e4b
+"/c/Users/<you>/AppData/Local/Programs/Ollama/ollama.exe" list
 ```
 
 **Permanent fix — add to PATH:**
@@ -134,40 +153,65 @@ If `ollama --version` says "command not found" even though the app is installed 
 
 ---
 
-## 7. Smoke test — confirm everything works end-to-end
+## 7. Smoke tests
 
-With the venv activated and Ollama running, from the repo root:
+Run the quick checks from the repo root with the venv activated.
+
+### No-network sanity checks
+
+These checks should finish quickly and do not call live websites or the LLM:
 
 ```bash
-cd src/GDELT
-python
+python -m pytest tests/test_orchestrator.py tests/test_html_engine.py tests/test_logging_utils.py -q
+python -m src.orchestrator --skip-gdelt --html-start-page 1 --html-page-cap 0 --verbose
 ```
 
-At the `>>>` prompt:
+Expected result:
 
-```python
-from helpers import get_body, ai_check_validation
-b = get_body("https://www.bleepingcomputer.com/news/security/")
-print(len(b))                                  # expect a few thousand chars
-print(ai_check_validation("test", b[:2000]))   # expect a (bool, str) tuple after ~5–10s
+- The focused tests pass.
+- The orchestrator scans the configured HTML sites but stops each one at
+  `Reached page cap (0)`.
+- The run summary shows `Sites scanned: 5`, `Processed: 0`, `Errors: 0`, and
+  `Output records: 0`.
+
+### Ollama configuration check
+
+This prints the model name configured for the current shared validation helper
+without starting a generation request:
+
+```bash
+python -c "from src.shared_utils import AI_MODEL; print(AI_MODEL)"
 ```
 
-If both work, your stack is fully functional. `exit()` to leave.
+Expected result: it prints the configured model name, currently `llama3.2`.
 
-(Skip URLs from CISA, GovInfo, and other government sites for testing — many block non-browser user-agents and return 403.)
+### Optional slower integration smoke
+
+Only run this when you specifically need to test live GDELT downloads and local
+LLM validation. Keep Ollama running first. The first run can take several
+minutes if the model is not already installed.
+
+```bash
+python -m src.orchestrator --skip-html --num-files 1 --limit 1 --verbose
+```
+
+If this fails with a missing-model message, pull the model named in the error
+and rerun the command. If it returns only negative validation results, confirm
+the configured model appears in `ollama list` before trusting the smoke result.
 
 ---
 
 ## 8. Running the application (full install only)
 
-If you did the full install (§4b), you can run the RAG chat app end-to-end.
+If you did the full runtime install (§4c), you can run the RAG chat app
+end-to-end.
 
 ### Generate or choose processed JSON
 
 Use an existing file under `data/processed/`, or generate a new GDELT file with:
 
 ```bash
-python src/GDELT/runner.py --num-files 2 --limit 3
+python -m src.GDELT.runner --num-files 2 --limit 3
 ```
 
 With the orchestrator:
@@ -182,8 +226,7 @@ The runner writes final records to `data/processed/GDELT.json` by default.
 
 ```bash
 python src/ingest.py --file data/processed/AHA.json --force
-cd src
-uvicorn main:app --reload
+uvicorn src.RAG.server:app --reload
 ```
 
 Open http://127.0.0.1:8000 and ask a question.
@@ -200,7 +243,7 @@ Open http://127.0.0.1:8000 and ask a question.
   - `--use-bert` (optional) — runs BERT before ingestion-time LLM validation.
 - Default behavior is additive and checks exact IDs plus semantic duplicates.
 
-### API reference (`src/main.py`)
+### API reference (`src/RAG/server.py`)
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -236,9 +279,8 @@ Source documents in `/chat` responses follow the shape `{ id, title, source_name
 ```
 Healthcare-GPT/
 ├── src/
-│   ├── main.py              # FastAPI backend + RAG chain
 │   ├── ingest.py            # JSON → embeddings → ChromaDB
-│   ├── index.html           # Chat UI
+│   ├── RAG/                 # FastAPI chat server and frontend assets
 │   ├── GDELT/               # GDELT seeds, validation, extraction, runner
 │   ├── scrapers/            # Shared scraper and LLM helper utilities
 │   ├── classes/             # Dataclass models for disruption records
@@ -259,6 +301,8 @@ Healthcare-GPT/
 | `error: Microsoft Visual C++ 14.0 or greater is required` | `chroma-hnswlib` needs a C++ compiler | Install MS C++ Build Tools, or use the minimal install (§4a) if you don't need ChromaDB |
 | `ollama: command not found` | Ollama installed but not in PATH | §6 |
 | `Warning: could not connect to a running Ollama instance` | Ollama installed but service not started | Launch the Ollama app (Windows/macOS) or run `ollama serve` (Linux) |
+| Ollama returns a missing-model error | Required model is not installed locally | Run `ollama pull <model-name-from-error>` |
+| LLM smoke test appears to hang on first run | Ollama may be downloading/loading the model or using CPU-only inference | Confirm `ollama list`, wait for the first model load, or use the no-network smoke checks for basic setup |
 | `python -c "..."` silently does nothing in Git Bash | Quoting / MSYS path conversion mangling | Use `python` interactive REPL or save the snippet to a `.py` file |
 | `[ERROR] Status is unexpected: 403` from `get_body` | Target site blocks non-browser user-agents | Try a different test URL (e.g. bleepingcomputer.com, healthcaredive.com) |
 | Prompt doesn't show `(.venv)` after activation | Venv command path wrong for your shell, or venv wasn't created | Re-check §3 table; recreate with `python -m venv .venv` |

@@ -22,16 +22,17 @@ events and extract structured metadata.
 
 ## End-to-End Run Command
 
-Run the pipeline from the repository root. You must have Ollama running locally
-with the `gemma4:e4b` model.
+Run the pipeline from the repository root. Keep Ollama running locally before
+commands that perform LLM validation or extraction. The current shared
+validation model is configured in `src/shared_utils.py` as `AI_MODEL`.
 
 Basic run (to process 2 recent GDELT files, test with 3 URLs):
 
-`python src/GDELT/runner.py --num-files 2 --limit 3`
+`python -m src.GDELT.runner --num-files 2 --limit 3`
 
 Targeted historical run (Jan 01 - 31, cyberattacks and drug shortages):
 
-`python src/GDELT/runner.py --start-date 20260101 --end-date 20260131 --subsectors cyber_attack,drug_shortage`
+`python -m src.GDELT.runner --start-date 20260101 --end-date 20260131 --subsectors cyber_attack,drug_shortage`
 
 Command arguments:
 

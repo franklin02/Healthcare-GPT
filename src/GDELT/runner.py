@@ -45,7 +45,7 @@ from src.shared_utils import (  # noqa: E402
     get_body,
     get_title,
     ensure_model_available,
-    model_unavailable_error
+    model_unavailable_error,
 )
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402

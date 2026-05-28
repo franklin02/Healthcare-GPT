@@ -20,7 +20,7 @@ from src.shared_utils import (  # noqa: E402
     prepend_vuln_csv,
     prepend_noise_csv,
     prepend_json_sources,
-    ensure_model_available
+    ensure_model_available,
 )  # noqa: E402
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402

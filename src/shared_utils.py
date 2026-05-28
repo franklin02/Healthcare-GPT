@@ -955,7 +955,9 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
 class model_unavailable_error(RuntimeError):
     """Raised when configured Ollama model is unavailable"""
 
+
 checked_ollama_models: set[str] = set()
+
 
 def ensure_model_available(model: str = AI_MODEL) -> None:
     if model in checked_ollama_models:
@@ -971,8 +973,7 @@ def ensure_model_available(model: str = AI_MODEL) -> None:
         )
     except FileNotFoundError as exc:
         raise model_unavailable_error(
-            "[ERROR] Ollama CLI not found.\n"
-            "Install and make sure 'ollama' is on PATH"
+            "[ERROR] Ollama CLI not found.\nInstall and make sure 'ollama' is on PATH"
         ) from exc
     except subprocess.SubprocessError as exc:
         raise model_unavailable_error(

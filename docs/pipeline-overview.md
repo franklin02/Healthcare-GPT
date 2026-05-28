@@ -13,11 +13,11 @@ analysis and retrieval.
      hints, noise themes, and URL quality rules.
 
 2. **Article scraping**
-   - `src/GDELT/helpers.py` fetches candidate article pages.
+   - `src/shared_utils.py` fetches candidate article pages.
    - It removes common page noise and extracts article body text.
 
 3. **Classification and validation**
-   - `src/GDELT/helpers.py` calls a local Ollama endpoint to validate active
+   - `src/shared_utils.py` calls a local Ollama endpoint to validate active
      operational disruptions.
    - `src/GDELT/BERT_filter.py` can be used as an optional pre-screen before
      LLM validation.
@@ -38,14 +38,14 @@ analysis and retrieval.
 
 6. **Optional retrieval app**
    - `src/ingest.py` loads processed JSON records into ChromaDB.
-   - `src/main.py` serves the FastAPI chat app over the local vector store.
+   - `src/RAG/server.py` serves the FastAPI chat app over the local vector store.
 
 ## Typical Command
 
 Run from the repository root:
 
 ```bash
-python src/GDELT/runner.py --num-files 2 --limit 3
+python -m src.GDELT.runner --num-files 2 --limit 3
 ```
 
 Run both active pipelines through the orchestrator:
@@ -63,7 +63,7 @@ python -m src.orchestrator --skip-gdelt --html-start-page 1 --html-page-cap 0 --
 For a bounded historical run:
 
 ```bash
-python src/GDELT/runner.py --start-date 20260101 --end-date 20260131 --subsectors cyber_attack,drug_shortage
+python -m src.GDELT.runner --start-date 20260101 --end-date 20260131 --subsectors cyber_attack,drug_shortage
 ```
 
 After reviewing processed records, index them for the local chat app:
@@ -75,8 +75,7 @@ python src/ingest.py --file data/processed/GDELT.json
 Then run the app:
 
 ```bash
-cd src
-uvicorn main:app --reload
+uvicorn src.RAG.server:app --reload
 ```
 
 ## Outputs
@@ -107,7 +106,7 @@ backfill without needing to know each site's internal config shape.
 
 - `src/GDELT/gdelt_seeds.py`: GDELT file discovery, theme matching, subsector
   detection, date bounds, and URL quality filtering.
-- `src/GDELT/helpers.py`: article body extraction, LLM validation, and
+- `src/shared_utils.py`: article body extraction, LLM validation, and
   subsector field extraction.
 - `src/GDELT/gemma.py`: focused Gemma URL filter for healthcare cyberattack
   article experiments.
@@ -117,13 +116,13 @@ backfill without needing to know each site's internal config shape.
   configured HTML scrapers.
 - `src/ingest.py`: JSON loading, chunking, duplicate detection, and ChromaDB
   indexing.
-- `src/main.py`: FastAPI endpoints and local chat UI.
+- `src/RAG/server.py`: FastAPI endpoints and local chat UI.
 
 ## Notes For Contributors
 
 - Use small `--limit` values for smoke tests.
 - Keep Ollama running when using the LLM validation and extraction path.
-- Prefer adding new pipeline behavior to the existing GDELT helpers and runner
+- Prefer adding new pipeline behavior to `src/shared_utils.py` and the GDELT runner
   rather than creating one-off scripts.
 - Treat prompt-pack and source-pack documents as historical unless they are
   explicitly pulled into the current Sphinx toctree.

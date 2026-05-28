@@ -17,21 +17,56 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES  # noqa: E402
+from src.GDELT.gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES  # noqa: E402
 from src.shared_utils import (  # noqa: E402
+    AI_MODEL,
     ai_check_validation,
-    ensure_model_available,
     extract_fields,
     get_body,
+    get_title,
+    ensure_model_available,
     model_unavailable_error
 )
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
+from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
+from src.logging_utils import get_file_logger  # noqa: E402
+
+# intermediate stages directory constants + helper functions
+RAW_GDELT_DIR = PROJECT_ROOT / "data" / "raw" / "gdelt"
+SEEDS_DIR = RAW_GDELT_DIR / "seeds"
+VALIDATED_DIR = RAW_GDELT_DIR / "validated"
+ENRICHED_DIR = RAW_GDELT_DIR / "enriched"
+
+LOG_DIR = PROJECT_ROOT / "data" / "logs"
+LOG_FILE = LOG_DIR / "gdelt_runner.log"
 
 BODY_CHAR_LIMIT = 4000
+LOGGER = get_file_logger(__name__, LOG_FILE)
+
+try:
+    from src.supabase_function import has_supabase_creds, insert_vuln
+
+    SUPABASE_AVAILABLE = has_supabase_creds()
+    if not SUPABASE_AVAILABLE:
+        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
+except Exception as e:
+    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
+    SUPABASE_AVAILABLE = False
+
+
+def _bert_status() -> str:
+    try:
+        from src.GDELT.BERT_filter import describe_model
+
+        model_id, device_label = describe_model()
+        return f"BERT pre-filter: {model_id} using {device_label}"
+    except Exception as exc:
+        LOGGER.warning("Failed to describe BERT model: %s", exc)
+        return "BERT pre-filter: enabled"
 
 
 def stable_id(url: str) -> str:
@@ -40,37 +75,36 @@ def stable_id(url: str) -> str:
 
 def fmt_dt(value: str) -> str:
     try:
+        LOGGER.debug("Formatting date value: %s", value)
         return datetime.strptime(value, "%Y%m%d%H%M%S").strftime("%Y-%m-%d %H:%M")
     except Exception:
+        LOGGER.warning("Failed to parse date value %s", value)
         try:
+            LOGGER.debug("Trying alternative date format for value: %s", value)
             return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime(
                 "%Y-%m-%d %H:%M"
             )
         except Exception:
+            LOGGER.warning("Failed to parse date value %s", value)
             return value
-
-
-# intermediate stages directory constants + helper functions
-PROJECT_ROOT = Path(__file__).parents[2]
-RAW_GDELT_DIR = PROJECT_ROOT / "data" / "raw" / "gdelt"
-SEEDS_DIR = RAW_GDELT_DIR / "seeds"
-VALIDATED_DIR = RAW_GDELT_DIR / "validated"
-ENRICHED_DIR = RAW_GDELT_DIR / "enriched"
 
 
 def ensure_raw_dirs() -> None:
     for directory in (SEEDS_DIR, VALIDATED_DIR, ENRICHED_DIR):
         directory.mkdir(parents=True, exist_ok=True)
+    LOGGER.debug("Ensured raw directories: %s", RAW_GDELT_DIR)
 
 
 def save_json(path: Path, data: dict) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+    LOGGER.debug("Wrote JSON: %s", path)
 
 
 def clear_directory(directory: Path) -> None:
     """Delete all files and subdirectories inside a directory."""
     if not directory.exists():
+        LOGGER.debug("Directory does not exist, skipping clear: %s", directory)
         return
     for item in directory.iterdir():
         try:
@@ -79,10 +113,11 @@ def clear_directory(directory: Path) -> None:
             elif item.is_dir():
                 shutil.rmtree(item)
         except Exception as exc:
-            print(f"Warning: failed to remove {item}: {exc}")
+            LOGGER.warning("Failed to remove %s: %s", item, exc)
 
 
 def persist_raw_seeds(raw_seeds: list[dict]) -> None:
+    LOGGER.debug("Persisting %s raw seeds", len(raw_seeds))
     for seed in raw_seeds:
         article_id = stable_id(seed["url"])
 
@@ -105,6 +140,7 @@ def persist_stage(
     url: str,
     data: dict,
 ) -> None:
+    LOGGER.debug("Persisting stage=%s id=%s url=%s", stage, article_id, url)
     save_json(
         directory / f"{article_id}.json",
         {
@@ -123,8 +159,10 @@ def load_seen(seen_file: Path | None = None) -> set:
         seen_file = PROJECT_ROOT / "data" / "seen_urls.json"
     try:
         with open(seen_file, "r", encoding="utf-8") as sf:
+            LOGGER.debug("Loaded seen URLs from %s", seen_file)
             return set(json.load(sf) or [])
     except Exception:
+        LOGGER.debug("No seen URLs file found at %s", seen_file)
         return set()
 
 
@@ -135,36 +173,60 @@ def save_seen(seen: set, seen_file: Path | None = None) -> None:
     try:
         with open(seen_file, "w", encoding="utf-8") as sf:
             json.dump(sorted(list(seen)), sf, ensure_ascii=False, indent=2)
+        LOGGER.debug("Saved %s seen URLs to %s", len(seen), seen_file)
     except Exception:
+        LOGGER.warning("Failed to save seen URLs to %s", seen_file)
         pass
 
 
-def process_seed(seed: dict, seen: set) -> Vulnerability | None:
+def process_seed(
+    seed: dict,
+    seen: set,
+    use_bert: bool = False,
+    reporter: CliReporter | None = None,
+    stats: PipelineStats | None = None,
+) -> Vulnerability | None:
     """
     Run a single seed through validation + extraction.
     Returns a Vulnerability if validated as a disruption, else None.
     """
+    reporter = reporter or CliReporter()
     url = seed["url"]
+    LOGGER.debug("Processing seed url=%s", url)
 
     if url in seen:
-        print(f"  -> [skip] already seen by LLM {url[:90]}")
+        if stats is not None:
+            stats.skipped += 1
+        reporter.detail(f"  -> [skip] already seen by LLM {url[:90]}")
+        LOGGER.debug("Skipping seen url=%s", url)
         return None
 
-    print(f"  -> fetching {url[:90]}")
+    reporter.detail(f"  -> fetching {url[:90]}")
     body = get_body(url)
     if not body:
-        print("     [skip] empty body")
+        if stats is not None:
+            stats.skipped += 1
+        reporter.detail("     [skip] empty body")
+        LOGGER.debug("Empty body for url=%s", url)
         return None
 
-    title = url
+    title = get_title(url)
     excerpt = body[:BODY_CHAR_LIMIT]
 
-    is_disruption, detail = ai_check_validation(title, excerpt)
+    is_disruption, detail = ai_check_validation(
+        title, excerpt, use_bert=use_bert, verbose=reporter.verbose
+    )
+    LOGGER.debug(
+        "LLM validation url=%s disruption=%s detail=%s", url, is_disruption, detail
+    )
 
     seen.add(url)
 
     if not is_disruption:
-        print(f"     [skip] not a disruption: {detail}")
+        if stats is not None:
+            stats.rejected += 1
+        reporter.detail(f"     [skip] not a disruption: {detail}")
+        LOGGER.debug("Not a disruption url=%s detail=%s", url, detail)
         return None
 
     subsector = detail
@@ -178,12 +240,24 @@ def process_seed(seed: dict, seen: set) -> Vulnerability | None:
         "other",
     }
     if subsector not in valid_subsectors:
-        print(f"     [skip] invalid subsector: {subsector}")
+        if stats is not None:
+            stats.skipped += 1
+        reporter.warn(f"Invalid subsector '{subsector}' for {url[:90]}", stats)
+        LOGGER.debug("Invalid subsector url=%s subsector=%s", url, subsector)
         return None
 
-    print(f"     OK  disruption confirmed: {subsector}")
+    if stats is not None:
+        stats.validated += 1
+    reporter.detail(f"     OK  disruption confirmed: {subsector}")
+    LOGGER.debug("Disruption confirmed url=%s subsector=%s", url, subsector)
 
     sector_data, subsector_data_dict = extract_fields(subsector, title, excerpt)
+    LOGGER.debug(
+        "Extracted fields url=%s sector_keys=%s subsector_keys=%s",
+        url,
+        list(sector_data.keys()),
+        list(subsector_data_dict.keys()),
+    )
     subsector_cls = SUBSECTOR_DATA_CLASSES[subsector]
 
     return Vulnerability(
@@ -214,7 +288,29 @@ def run(
     start_date: str | None = None,
     end_date: str | None = None,
     seen_urls_file: str | None = None,
+    use_bert: bool = False,
+    verbose: bool = False,
+    reporter: CliReporter | None = None,
+    stats: PipelineStats | None = None,
 ) -> list[dict]:
+    LOGGER.debug(
+        "Run started num_files=%s limit=%s subsectors=%s start_date=%s end_date=%s output_path=%s",
+        num_files,
+        limit,
+        subsectors,
+        start_date,
+        end_date,
+        output_path,
+    )
+    local_reporter = reporter is None
+    reporter = reporter or CliReporter(verbose=verbose)
+    stats = stats or PipelineStats("GDELT")
+    if local_reporter:
+        reporter.phase("GDELT pipeline")
+    reporter.status(f"LLM model: {AI_MODEL}")
+    if use_bert:
+        reporter.status(_bert_status())
+
     subsector_list = (
         ["all"]
         if subsectors == "all"
@@ -232,10 +328,14 @@ def run(
     valid_subsectors = set(SUBSECTOR_THEMES.keys()) | {"all"}
     invalid = [s for s in subsector_list if s not in valid_subsectors]
     if invalid:
-        print(f"Error: Invalid subsector(s): {', '.join(invalid)}")
-        print(
-            "Valid subsectors are: cyber_attack, drug_shortage, medical_device_shortage, natural_disaster, or all"
+        reporter.error(f"Invalid subsector(s): {', '.join(invalid)}", stats)
+        reporter.info(
+            "Valid subsectors are: cyber_attack, drug_shortage, "
+            "medical_device_shortage, natural_disaster, or all"
         )
+        LOGGER.warning("Invalid subsectors requested: %s", invalid)
+        if local_reporter:
+            reporter.summary(stats)
         return []
 
     try:
@@ -257,8 +357,12 @@ def run(
             subsector=subsector,
             start_date=start_date,
             end_date=end_date,
+            reporter=reporter,
+            stats=stats,
         )
     ]
+    LOGGER.debug("Collected %s raw seeds", len(raw_seeds))
+    stats.discovered = len(raw_seeds)
     persist_raw_seeds(raw_seeds)
 
     # Date-bounded runs should always process the full matched seed set.
@@ -268,33 +372,53 @@ def run(
     seeds = raw_seeds
     if limit:
         seeds = seeds[:limit]
+    LOGGER.debug("Processing %s seeds after limit", len(seeds))
 
-    print(f"\nProcessing {len(seeds)} seeds...\n")
+    reporter.info(f"Processing {len(seeds)} GDELT seeds")
     records = []
     for i, seed in enumerate(seeds, start=1):
-        print(f"[{i}/{len(seeds)}]")
+        stats.processed += 1
+        if reporter.verbose:
+            reporter.detail(f"[{i}/{len(seeds)}]")
+        LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
         url = seed["url"]
         article_id = stable_id(url)
-        rec = process_seed(seed, seen)
+        rec = process_seed(
+            seed,
+            seen,
+            use_bert=use_bert,
+            reporter=reporter,
+            stats=stats,
+        )
         if rec:
             persist_stage(VALIDATED_DIR, article_id, "validated", url, rec.to_dict())
             persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
             records.append(rec)
+            if SUPABASE_AVAILABLE:
+                try:
+                    insert_vuln(rec)
+                except Exception as e:
+                    LOGGER.warning("insert_vuln failed for %r: %s", rec.title, e)
+        else:
+            LOGGER.debug("Seed skipped url=%s", url)
+        if not reporter.verbose:
+            reporter.progress(i, len(seeds), "GDELT articles")
 
     # Save seen URLs once at the end
     save_seen(seen, seen_urls_path)
 
-    print("\n" + "=" * 60)
-    print(f"Seeds in:  {len(seeds)}")
-    print(f"Validated: {len(records)}")
-    print(f"Skipped:   {len(seeds) - len(records)}")
-    print("=" * 60)
+    LOGGER.debug(
+        "Summary seeds_in=%s validated=%s skipped=%s",
+        len(seeds),
+        len(records),
+        len(seeds) - len(records),
+    )
 
     for rec in records:
-        print(f"\n--- {rec.id} ({rec.subsector}) ---")
-        print(f"URL: {rec.direct_link}")
-        print(f"Source: {rec.source_name}")
-        print(f"Fields: {rec.subsector_data}")
+        reporter.detail(f"\n--- {rec.id} ({rec.subsector}) ---")
+        reporter.detail(f"URL: {rec.direct_link}")
+        reporter.detail(f"Source: {rec.source_name}")
+        reporter.detail(f"Fields: {rec.subsector_data}")
 
     default_out_dir = PROJECT_ROOT / "data" / "processed"
     if output_path:
@@ -304,6 +428,7 @@ def run(
         )
     else:
         out_file = default_out_dir / "GDELT.json"
+    LOGGER.debug("Output file resolved to %s", out_file)
 
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_recs = []
@@ -329,15 +454,24 @@ def run(
         else:
             combined = out_recs
     except Exception:
+        LOGGER.warning(
+            "Failed to read existing output file %s", out_file, exc_info=True
+        )
         combined = out_recs
 
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump({"sources": combined}, f, ensure_ascii=False, indent=2)
-    print(f"Appended {len(out_recs)} records to {out_file} (total: {len(combined)})")
+    LOGGER.debug("Wrote %s records to %s", len(combined), out_file)
+    stats.output_records = len(out_recs)
+    reporter.info(f"Wrote {len(out_recs)} GDELT records to {out_file}")
 
     # Clear the seed files after a successful pipeline run
     clear_directory(SEEDS_DIR)
-    print(f"Cleared seed staging directory: {SEEDS_DIR}")
+    reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")
+    LOGGER.debug("Cleared seeds directory: %s", SEEDS_DIR)
+
+    if local_reporter:
+        reporter.summary(stats)
 
     return records
 
@@ -385,6 +519,19 @@ if __name__ == "__main__":
         default="all",
         help="Comma-separated subsectors to scan, or all",
     )
+    parser.add_argument(
+        "--use-bert",
+        action="store_true",
+        default=False,
+        help="Run BERT pre-filter before LLM validation to skip unrelated articles early",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=False,
+        help="Show detailed per-article pipeline output",
+    )
     args = parser.parse_args()
 
     # If --num-files/-n is explicitly provided without --limit/-l, process all
@@ -403,4 +550,6 @@ if __name__ == "__main__":
         start_date=args.start_date,
         end_date=args.end_date,
         seen_urls_file=args.seen_urls_file,
+        use_bert=args.use_bert,
+        verbose=args.verbose,
     )

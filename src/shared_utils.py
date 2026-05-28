@@ -47,20 +47,25 @@ import os
 import subprocess
 import tempfile
 import requests
+import sys
 from pathlib import Path
 import sys as _sys
 import re
 from bs4 import BeautifulSoup
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from src.logging_utils import get_file_logger  # noqa: E402
+from src.classes import Vulnerability  # noqa: E402
+
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2"
+MIN_BODY_CHARS_FOR_LLM = 150
 
-# Anchor to the project root so this works both as `scrapers.shared_utils`
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-if str(_PROJECT_ROOT) not in _sys.path:
-    _sys.path.insert(0, str(_PROJECT_ROOT))
-from src.classes import Vulnerability  # noqa: E402
+LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "shared_utils.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
 
 # temporary for now, to be removed later
 READY_FOR_RAG_DIR = _PROJECT_ROOT / "data" / "processed"
@@ -82,6 +87,12 @@ _NOISE_PATTERNS = (
 )
 _NOISE_RE = re.compile("|".join(_NOISE_PATTERNS), re.IGNORECASE)
 _NOISE_SELECTOR = ",".join(f'[class*="{p}"]' for p in _NOISE_PATTERNS)
+_BODY_BOILERPLATE_PATTERNS = re.compile(
+    r"skip to main content|copyright|terms of use|privacy policy|powered by|"
+    r"content management system|blox digital|subscribe|sign in|log in|search|menu|close",
+    re.IGNORECASE,
+)
+_TITLE_SITE_SUFFIX_RE = re.compile(r"(?:\s*[|–—]\s+[^|–—]+|\s-\s+[^-]+)$")
 
 HEADERS = {
     "User-Agent": (
@@ -199,6 +210,7 @@ def get_page(url):
     """
     resp = requests.get(url, timeout=15, headers=HEADERS)
     resp.raise_for_status()
+    LOGGER.debug("Successfully fetched URL: %s", url)
     return resp
 
 
@@ -241,18 +253,25 @@ def check_valid_file(site_name):
     if not json_path.exists():
         json_path.write_text(json.dumps({"sources": []}, indent=4), encoding="utf-8")
         print(f"Created {json_path}")
+        LOGGER.debug("Created JSON file for site %s at %s", site_name, json_path)
 
     noise_path = NOISE_DIR / f"{stem}.csv"
     if not noise_path.exists():
         with open(noise_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(NOISE_CSV_HEADER)
         print(f"Created {noise_path}")
+        LOGGER.debug("Created noise CSV file for site %s at %s", site_name, noise_path)
 
     vulnerabilities_path = VULNERABILITIES_DIR / f"{stem}.csv"
     if not vulnerabilities_path.exists():
         with open(vulnerabilities_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(VULN_CSV_HEADER)
         print(f"Created {vulnerabilities_path}")
+        LOGGER.debug(
+            "Created vulnerabilities CSV file for site %s at %s",
+            site_name,
+            vulnerabilities_path,
+        )
 
 
 def _content_preview(body: str | None) -> str:
@@ -277,6 +296,7 @@ def _top_row_matches(
     """
 
     if not csv_path.exists():
+        LOGGER.debug("CSV file %s does not exist, cannot match top row", csv_path)
         return False
 
     with open(csv_path, "r", newline="", encoding="utf-8") as f:
@@ -284,9 +304,16 @@ def _top_row_matches(
         try:
             first_row = next(reader)
         except StopIteration:
+            LOGGER.debug("CSV file %s is empty, cannot match top row", csv_path)
             return False
 
     if first_row.get("title", "") != title:
+        LOGGER.debug(
+            "Top row title %s does not match incoming title %s in file %s",
+            first_row.get("title", ""),
+            title,
+            csv_path,
+        )
         return False
 
     incoming_preview = _content_preview(body_snippet)
@@ -295,6 +322,7 @@ def _top_row_matches(
             f"[WARN] Title matched but body preview differs for {title!r} "
             f"— stopping anyway"
         )
+        LOGGER.warning("Body preview differs for title %s", title)
     return True
 
 
@@ -343,6 +371,11 @@ def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
             writer.writerows(existing_data_rows)
         os.replace(tmp_path, csv_path)
     except Exception:
+        LOGGER.error(
+            "Failed to prepend to vulnerabilities CSV for site %s: %s",
+            site_name,
+            exc_info=True,
+        )
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
@@ -379,6 +412,9 @@ def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
             writer.writerows(existing_data_rows)
         os.replace(tmp_path, csv_path)
     except Exception:
+        LOGGER.error(
+            "Failed to prepend to noise CSV for site %s: %s", site_name, exc_info=True
+        )
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
@@ -410,9 +446,51 @@ def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None
             json.dump(data, f, indent=4, ensure_ascii=False)
         os.replace(tmp_path, json_path)
     except Exception:
+        LOGGER.error(
+            "Failed to prepend to JSON sources for site %s: %s",
+            site_name,
+            exc_info=True,
+        )
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
+
+
+def get_title(url: str) -> str:
+    """Fetch and return the page title for a URL.
+
+    Extracts the HTML <title> tag and strips common site-name suffixes
+    (e.g. " | Reuters", " - NBC News").  Falls back to the raw URL if no
+    usable ``<title>`` tag is found or the request fails.
+
+    Args:
+        url (str): The URL to fetch.  ``https://`` is prepended if the scheme
+            is missing.
+
+    Returns:
+        str: Cleaned page title, or the URL on failure.
+    """
+    if not url:
+        return url
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
+        return url
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    title_tag = soup.find("title")
+    if title_tag:
+        raw = title_tag.get_text(strip=True)
+        if raw:
+            cleaned = _TITLE_SITE_SUFFIX_RE.sub("", raw).strip()
+            return cleaned if cleaned else raw
+    return url
 
 
 def get_body(url: str) -> str:
@@ -436,6 +514,7 @@ def get_body(url: str) -> str:
         - The returned body may be long; callers should truncate if needed.
     """
     if not url:
+        LOGGER.warning("Empty URL provided to get_body()")
         return ""
 
     # Normalize URL
@@ -448,6 +527,7 @@ def get_body(url: str) -> str:
         resp.raise_for_status()
     except requests.RequestException as e:
         print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
+        LOGGER.error("Failed to fetch URL %s: %s", url, e)
         return ""
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -490,32 +570,94 @@ def get_body(url: str) -> str:
             break
 
     if main is None:
-        print("[WARNING] no body found")
+        print("[WARN] no body found")
+        LOGGER.warning("No body found for URL %s", url)
         return ""
 
+    def _filtered_text_chunks(node) -> list[str]:
+        """
+        Extract text chunks from a BeautifulSoup node, filtering out empty strings and boilerplate.
+
+        Parameters:
+            node (BeautifulSoup): The BeautifulSoup node to extract text from.
+
+        Returns:
+            list[str]: A list of filtered text chunks.
+        """
+        chunks: list[str] = []
+        # Use stripped_strings to get text without extra whitespace, then filter out empty and boilerplate chunks
+        for chunk in node.stripped_strings:
+            normalized = chunk.strip()
+            if not normalized:
+                continue
+            if _BODY_BOILERPLATE_PATTERNS.search(normalized):
+                continue
+            chunks.append(normalized)
+        LOGGER.debug(
+            "Extracted %d filtered text chunks from node in URL %s", len(chunks), url
+        )
+        return chunks
+
     # Prefer paragraph text (gives cleaner article body across sites.)
-    # Fall back to all text if no <p> tags found.
-    paragraphs = [p.get_text(" ", strip=True) for p in main.find_all("p")]
-    paragraphs = [p for p in paragraphs if p]
+    # Fall back to filtered descendant text when no <p> tags are present.
+    content_chunks = [
+        p.get_text(" ", strip=True)
+        for p in main.find_all("p")
+        if p.get_text(" ", strip=True)
+        and not _BODY_BOILERPLATE_PATTERNS.search(p.get_text(" ", strip=True))
+    ]
 
-    if paragraphs:
-        return "\n\n".join(paragraphs)
-    return main.get_text(" ", strip=True)
+    if not content_chunks:
+        content_chunks = _filtered_text_chunks(main)
+
+    if content_chunks:
+        LOGGER.debug(
+            "Extracted %d content chunks from URL %s", len(content_chunks), url
+        )
+        return "\n\n".join(content_chunks)
+
+    LOGGER.debug("No content chunks found after filtering for URL %s", url)
+    return ""
 
 
-def _run_bert(title: str, body: str) -> str:
+_classifier = None
+
+
+def _run_bert(title: str, body: str, verbose: bool = False) -> str:
     """
     Run BERT inference on an article. Returns the predicted subsector string or "none".
+    Loads the classifier once on first call and reuses it for subsequent articles.
+    "potential_hit" from the base model fallback is normalized to "other".
     """
+    global _classifier
     try:
-        from src.GDELT.BERT_filter import run_bert_inference
+        from src.GDELT.BERT_filter import run_bert_inference, load_model
     except ImportError as exc:
+        LOGGER.error("Failed to import BERT_filter module: %s", exc)
         raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
 
-    return run_bert_inference({"title": title, "body": body})
+    if _classifier is None:
+        _classifier = load_model(verbose=verbose)
+        if _classifier is None:
+            LOGGER.warning("BERT classifier failed to load, skipping")
+            return "none"
+
+    try:
+        result = run_bert_inference(
+            {"title": title, "body": body}, _classifier, verbose=verbose
+        )
+    except Exception as e:
+        LOGGER.warning("BERT inference failed: %s", e)
+        return "none"
+
+    if result == "potential_hit":
+        return "other"
+    return result
 
 
-def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
+def ai_check_validation(
+    title, body, use_bert=False, verbose: bool = False
+) -> tuple[bool, str]:
     """
     Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach at a named healthcare entity based on strict, predefined criteria.
 
@@ -534,12 +676,28 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
     If an error occurs during the request or response parsing, the function catches the error, logs it, and returns False with "Parsing Error".
     """
 
+    body_text = body or ""
+    if len(body_text) < MIN_BODY_CHARS_FOR_LLM:
+        LOGGER.info(
+            "Skipping LLM validation for title %s because body length %d is below %d characters",
+            title,
+            len(body_text),
+            MIN_BODY_CHARS_FOR_LLM,
+        )
+        return False, "Body too short for LLM review"
+
     if use_bert:
-        bert_subsector = _run_bert(title, body)
+        bert_subsector = _run_bert(title, body, verbose=verbose)
         if bert_subsector == "none":
-            print("[BERT] rejected skipping LLM")
+            if verbose:
+                print("[BERT] rejected skipping LLM")
+            LOGGER.info("BERT rejected article with title %s", title)
             return False, "BERT: unrelated news"
-        print(f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation")
+        if verbose:
+            print(
+                f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation"
+            )
+        LOGGER.info("BERT flagged article with title %s as %s", title, bert_subsector)
 
     prompt = f"""
         [INST] <<SYS>>
@@ -619,22 +777,66 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
         [/INST]
     """
 
+    promptG = f"""
+    You are a strict Healthcare Operations Auditor. Your ONLY job is to flag articles that describe a REAL, ALREADY-OCCURRING healthcare disruption or a CONFIRMED breach at a named healthcare entity.
+
+    DEFAULT TO NO. Reject the article unless the evidence is explicit, named, and concrete. The vast majority of healthcare news is NOT a disruption.
+
+    ===== ACCEPT (mark YES) ONLY IF (A) OR (B) IS TRUE =====
+
+    (A) ACTIVE CARE DISRUPTION — the article states that a NAMED facility (hospital, clinic, pharmacy, lab, healthcare network) is CURRENTLY or RECENTLY:
+        - Diverting ambulances, cancelling surgeries, or turning patients away
+        - Operating on downtime / paper procedures because EHR is offline
+        - Suspending services or evacuating due to fire, flood, storm, or other physical event
+        - Physically out of a specific drug or medical device that patients need now (real supply outage, not pricing or formulary debate)
+        - Cut off from operations by a workforce strike, power outage, or other concrete event
+
+    (B) CONFIRMED HEALTHCARE BREACH / CYBERATTACK — both must be true:
+        Part 1: Named healthcare entity (hospitals, clinics, pharmacies, insurers, device manufacturers, EHR vendors, labs)
+        Part 2: Incident already confirmed (ransomware, PHI exposed, breach disclosed, systems impacted)
+
+    ===== REJECT (mark NO) =====
+    - Earnings, funding, IPOs, partnerships, product launches
+    - Policy, legislation, regulation, research, clinical trials
+    - Drug pricing without actual supply outage
+    - Cyber threats/advisories not yet exploited
+    - Op-eds, interviews, wellness articles, anything hedged with "could" or "may"
+
+    ===== OUTPUT =====
+    Respond with EXACTLY this JSON and nothing else:
+    {{
+    "analysis": "One factual sentence: name the entity and impact, OR reason for rejection.",
+    "is_operational_disruption": true or false,
+    "subsector": "drug_shortage" | "medical_device_shortage" | "cyber_attack" | "natural_disaster" | "other" | "none"
+    }}
+
+    TITLE: {title}
+    EXCERPT: {body}
+    """
+
+    active_prompt = promptG if AI_MODEL.lower().startswith("gemma") else prompt
+
     try:
         resp = requests.post(
             AI_URL,
             json={
                 "model": AI_MODEL,
-                "prompt": prompt,
+                "prompt": active_prompt,
                 "stream": False,
                 "format": "json",
                 "options": {"temperature": 0.1},
             },
             timeout=60,
         )
-
+        LOGGER.debug("HTTP status %d", resp.status_code)
         raw_response = resp.json().get("response", "{}")
+        LOGGER.debug(
+            "Validation LLM raw response title=%s raw_response=%s",
+            title,
+            raw_response,
+        )
         data = json.loads(raw_response)
-
+        LOGGER.debug("Parsed JSON for title %s: %s", title, data)
         is_threat = data.get("is_operational_disruption", False)
 
         # Use subsector if it's a threat, otherwise use the analysis as the "reason"
@@ -648,11 +850,11 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
             if is_threat
             else data.get("analysis", "No impact detected")
         )
-
         return is_threat, detail
 
     except Exception as e:
         print(f"Error parsing AI response: {e}")
+        LOGGER.error("Error parsing AI response for title %s: %s", title, e)
         return False, "Parsing Error"
 
 
@@ -679,6 +881,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)
     if not subsector_fields:
         print(f"No fields found for subsector: {subsector}")
+        LOGGER.error("No fields found for subsector %s", subsector)
         exit(1)
 
     all_fields = LLM_SECTOR_FIELDS + subsector_fields
@@ -728,6 +931,12 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         )
 
         raw_response = resp.json().get("response", "{}")
+        LOGGER.debug(
+            "Extraction LLM raw response subsector=%s title=%s raw_response=%s",
+            subsector,
+            title,
+            raw_response,
+        )
         raw = json.loads(raw_response)
 
         sector_data = {k: raw.get(k) for k in LLM_SECTOR_FIELDS}
@@ -736,6 +945,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
 
     except Exception as e:
         print(f"Error extracting fields: {e}")
+        LOGGER.error("Error extracting fields for title %s: %s", title, e)
         return (
             {k: None for k in LLM_SECTOR_FIELDS},
             {k: None for k in subsector_fields},

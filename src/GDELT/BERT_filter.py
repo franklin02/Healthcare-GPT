@@ -16,11 +16,22 @@ Example:
 """
 
 from pathlib import Path
-from transformers import pipeline
+
 import torch
+import sys
+import os
+from transformers import pipeline
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.logging_utils import get_file_logger  # noqa: E402
 
 _MODULE_DIR = Path(__file__).resolve().parent
-FINETUNE_BERT_PATH = _MODULE_DIR.parent.parent / "models" / "healthcare_bert_v2"
+LOG_FILE = _MODULE_DIR.parent.parent / "data" / "logs" / "bert_filter.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
+FINETUNE_BERT_PATH = _MODULE_DIR.parent / "models" / "healthcare_bert_v2"
 FALLBACK_MODEL_ID = "typeform/distilbert-base-uncased-mnli"
 
 _FINETUNED_CANDIDATES = [
@@ -66,7 +77,40 @@ def get_device():
         return -1
 
 
-def load_model():
+def _device_label(device) -> str:
+    if device == 0:
+        return "cuda"
+    if device == "mps":
+        return "mps"
+    return "cpu"
+
+
+def _selected_model_id():
+    return FINETUNE_BERT_PATH if FINETUNE_BERT_PATH.exists() else FALLBACK_MODEL_ID
+
+
+def describe_model() -> tuple[str, str]:
+    """Return the BERT model identifier and device label without loading weights."""
+    return str(_selected_model_id()), _device_label(get_device())
+
+
+def _quiet_transformers_output() -> None:
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    try:
+        from huggingface_hub.utils import disable_progress_bars
+
+        disable_progress_bars()
+    except Exception:
+        pass
+    try:
+        from transformers.utils import logging as transformers_logging
+
+        transformers_logging.set_verbosity_error()
+    except Exception:
+        pass
+
+
+def load_model(verbose: bool = False):
     """Load the zero-shot classification pipeline.
 
     Checks for a local finetuned model at FINETUNE_BERT_PATH. If found,
@@ -75,16 +119,40 @@ def load_model():
     Returns:
         transformers.Pipeline: Loaded zero-shot classification pipeline.
     """
+    if not verbose:
+        _quiet_transformers_output()
+
     device = get_device()
-    if FINETUNE_BERT_PATH.exists():
-        MODEL_ID = FINETUNE_BERT_PATH
-    else:
+    device_label = _device_label(device)
+    if verbose:
+        print(f"[DEBUG] Looking for finetuned model at: {FINETUNE_BERT_PATH}")
+    MODEL_ID = _selected_model_id()
+    if MODEL_ID == FALLBACK_MODEL_ID and verbose:
         print("[WARN] Finetuned model not found, reverting to base model.")
-        MODEL_ID = FALLBACK_MODEL_ID
-    return pipeline("zero-shot-classification", model=MODEL_ID, device=device)
+
+    try:
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+        tokenizer.model_input_names = ["input_ids", "attention_mask"]
+        model = pipeline(
+            "zero-shot-classification",
+            model=MODEL_ID,
+            tokenizer=tokenizer,
+            device=device,
+        )
+        if verbose:
+            print(f"[INFO] BERT model loaded from {MODEL_ID} using {device_label}")
+        LOGGER.info("BERT model loaded from %s using %s", MODEL_ID, device_label)
+        return model
+    except Exception as e:
+        if verbose:
+            print(f"[WARN] Failed to load BERT model: {e}")
+        LOGGER.warning("Failed to load BERT model: %s", e)
+        return None
 
 
-def run_bert_inference(data: dict, classifier=None) -> str:
+def run_bert_inference(data: dict, classifier=None, verbose: bool = False) -> str:
     """Classify a single article as a potential healthcare-related hit.
 
     If the finetuned model is present, uses the model's trained candidate
@@ -108,7 +176,9 @@ def run_bert_inference(data: dict, classifier=None) -> str:
             "potential_hit" or "none".
     """
     if classifier is None:
-        classifier = load_model()
+        classifier = load_model(verbose=verbose)
+        if classifier is None:
+            return "none"
 
     title = str(data.get("title") or "").strip()
     body = str(data.get("body") or "").strip()
@@ -121,9 +191,26 @@ def run_bert_inference(data: dict, classifier=None) -> str:
             multi_label=False,
             hypothesis_template="This healthcare news involves {}.",
         )
-        return _CANDIDATE_TO_SUBSECTOR.get(res["labels"][0], "none")
+
+        top_label = res["labels"][0]
+        top_score = res["scores"][0]
+
+        if verbose:
+            print(f"[BERT] top label: '{top_label}' (score: {top_score:.2f})")
+
+        if top_score < 0.15:
+            return "none"
+
+        return _CANDIDATE_TO_SUBSECTOR.get(top_label, "none")
     else:
-        print("[WARN] Running inference with base model, results may be less accurate.")
+        if verbose:
+            print(
+                "[WARN] Running inference with base model, results may be less accurate."
+            )
+        LOGGER.warning(
+            "Running inference with base model, results may be less accurate for title %s",
+            title,
+        )
         res = classifier(
             text,
             _FALLBACK_CANDIDATES,

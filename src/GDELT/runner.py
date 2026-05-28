@@ -448,6 +448,7 @@ def run(
     try:
         ensure_model_available()
     except model_unavailable_error as exc:
+        LOGGER.error("Model availability check failed: %s", exc)
         print(exc, file=sys.stderr)
         sys.exit(1)
 

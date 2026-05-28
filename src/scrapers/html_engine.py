@@ -28,6 +28,7 @@ from src.shared_utils import (  # noqa: E402
     prepend_noise_csv,
     prepend_json_sources,
     ensure_model_available,
+    model_unavailable_error,
 )  # noqa: E402
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
@@ -341,6 +342,11 @@ def run_html_scraper(
     reporter.status(f"LLM model: {AI_MODEL}")
     if use_bert:
         reporter.status(_bert_status())
+    try:
+        ensure_model_available()
+    except model_unavailable_error as exc:
+        LOGGER.error("Model availability check failed: %s", exc)
+        raise
     check_valid_file(site_config["name"])
 
     db_known: list[dict[str, str]] = []
@@ -348,7 +354,9 @@ def run_html_scraper(
         try:
             db_known = load_cite(site_config["name"])
         except Exception as e:
-            reporter.warn(f"load_cite failed for {site_config['name']}: {e}", stats)
+            message = f"load_cite failed for {site_config['name']}: {e}"
+            LOGGER.warning(message)
+            reporter.warn(message, stats)
 
     starting_page = (
         starting_page
@@ -356,7 +364,6 @@ def run_html_scraper(
         else site_config["map"]["starting_page"]
     )
     cap = page_cap if page_cap is not None else site_config["map"]["cap"]
-    ensure_model_available()
     current_page = starting_page
 
     """

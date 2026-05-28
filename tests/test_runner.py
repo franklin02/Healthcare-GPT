@@ -526,6 +526,7 @@ class TestRun:
                 "src.GDELT.runner.ensure_model_available",
                 side_effect=runner.model_unavailable_error("model unavailable"),
             ) as mock_model_check,
+            patch("src.GDELT.runner.LOGGER.error") as mock_log_error,
             patch("src.GDELT.runner.ensure_raw_dirs") as mock_ensure_dirs,
             patch("src.GDELT.runner.backfill_cyber_seeds") as mock_backfill,
         ):
@@ -533,6 +534,10 @@ class TestRun:
                 runner.run(num_files=1, limit=1, subsectors="all")
 
         mock_model_check.assert_called_once_with()
+        mock_log_error.assert_called_once_with(
+            "Model availability check failed: %s",
+            mock_model_check.side_effect,
+        )
         mock_ensure_dirs.assert_not_called()
         mock_backfill.assert_not_called()
 

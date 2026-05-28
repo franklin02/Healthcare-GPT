@@ -609,7 +609,6 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
         LOGGER.info("BERT flagged article with title %s as %s", title, bert_subsector)
 
     prompt = f"""
-        [INST] <<SYS>>
         You are a strict Healthcare Operations Auditor. Your ONLY job is to flag articles that describe a REAL, ALREADY-OCCURRING healthcare disruption or a CONFIRMED breach at a named healthcare entity.
 
         DEFAULT TO NO. Reject the article unless the evidence is explicit, named, and concrete. The vast majority of healthcare news is NOT a disruption.
@@ -678,12 +677,10 @@ def ai_check_validation(title, body, use_bert=False) -> tuple[bool, str]:
 
         DECISION CHECK before you answer:
         If your analysis sentence describes a confirmed cyberattack, ransomware, breach, PHI exposure, drug shortage, device shortage, evacuation, or care stoppage at a NAMED healthcare entity, you MUST set is_operational_disruption to true and pick a non-"none" subsector. Your boolean MUST match the facts in your analysis sentence — never say "confirmed breach" in analysis and false in the boolean.
-        <</SYS>>
 
         TITLE: {title}
         EXCERPT: {body}
 
-        [/INST]
     """
 
     prompt = f"""
@@ -783,8 +780,16 @@ def get_extraction_template(subsector: str) -> dict:
     subsector_cls = SUBSECTOR_DATA_CLASSES.get(subsector)
     subsector_fields = SUBSECTOR_FIELDS.get(subsector, [])
 
+    LOGGER.debug(
+        "get_extraction_template subsector=%s dataclass=%s fields=%s",
+        subsector,
+        subsector_cls,
+        subsector_fields,
+    )
+
     if subsector_cls:
         annotations = subsector_cls.__annotations__
+        LOGGER.debug("get_extraction_template annotations=%s", annotations)
         for field in subsector_fields:
             if field in annotations:
                 type_str = str(annotations[field]).lower()
@@ -797,11 +802,20 @@ def get_extraction_template(subsector: str) -> dict:
                 else:
                     template[field] = "string"
             else:
+                LOGGER.debug(
+                    "get_extraction_template field=%s not in annotations, defaulting to string",
+                    field,
+                )
                 template[field] = "string"
     else:
+        LOGGER.debug(
+            "get_extraction_template no dataclass for subsector=%s, all fields default to string",
+            subsector,
+        )
         for field in subsector_fields:
             template[field] = "string"
 
+    LOGGER.debug("get_extraction_template final template=%s", template)
     return template
 
 
@@ -827,16 +841,15 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
     """
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)
     if not subsector_fields:
-        print(f"No fields found for subsector: {subsector}")
         LOGGER.error("No fields found for subsector %s", subsector)
         exit(1)
 
     # generate typed json template for the LLM
     template_dict = get_extraction_template(subsector)
     template_json = json.dumps(template_dict, indent=2)
+    LOGGER.debug("extract_fields subsector=%s template=%s", subsector, template_json)
 
     prompt = f"""
-        [INST] <<SYS>>
         You are a Healthcare Data Extractor. Extract specific metadata from a confirmed healthcare disruption article. Be conservative — when in doubt, return null.
 
         STRICT RULES:
@@ -863,7 +876,6 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         {template_json}
 
         JSON RESPONSE:
-        [/INST]
     """
 
     try:
@@ -887,13 +899,31 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
             raw_response,
         )
         raw = json.loads(raw_response)
+        LOGGER.debug(
+            "extract_fields parsed keys=%s sector_data keys=%s",
+            list(raw.keys()),
+            LLM_SECTOR_FIELDS,
+        )
 
         sector_data = {k: raw.get(k) for k in LLM_SECTOR_FIELDS}
         subsector_data = {k: raw.get(k) for k in subsector_fields}
+        LOGGER.debug(
+            "extract_fields sector_data=%s subsector_data=%s",
+            sector_data,
+            subsector_data,
+        )
+        # check for unexpected keys from other subsectors
+        expected_keys = set(LLM_SECTOR_FIELDS) | set(subsector_fields)
+        unexpected = set(raw.keys()) - expected_keys
+        if unexpected:
+            LOGGER.warning(
+                "extract_fields unexpected keys from LLM not in template subsector=%s keys=%s",
+                subsector,
+                unexpected,
+            )
         return sector_data, subsector_data
 
     except Exception as e:
-        print(f"Error extracting fields: {e}")
         LOGGER.error("Error extracting fields for title %s: %s", title, e)
         return (
             {k: None for k in LLM_SECTOR_FIELDS},

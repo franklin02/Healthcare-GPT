@@ -4,9 +4,6 @@
 -- src/dedup.py can be preserved without polluting the primary table or
 -- contaminating nearest-neighbor lookups. Each row points back to the
 -- vulnerability it duplicates via original_vulnerability_id.
---
--- Apply after src/config/schema.sql (the pgvector extension is declared
--- there).
 
 create table public.duplicates (
   id uuid primary key default gen_random_uuid(),

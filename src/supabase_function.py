@@ -18,9 +18,7 @@ def has_supabase_creds() -> bool:
     return bool(os.environ.get("SUPABASE_URL")) and bool(os.environ.get("SUPABASE_KEY"))
 
 
-# Module imports cleanly even when creds are missing — callers must gate every
-# DB operation behind has_supabase_creds() (the helper functions below will
-# AttributeError on None if invoked without creds, by design).
+# Module imports cleanly even when creds are missing 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if has_supabase_creds() else None
 
 
@@ -112,19 +110,43 @@ def insert_vuln(
     return response.data[0]
 
 
+def insert_duplicate(
+    vuln: Vulnerability,
+    embedding: list[float],
+    foreign_key: str
+) -> dict:
+    """Insert a duplicated vulnerability article into the 'duplicates' table
+
+    Args:
+        vuln: Vulnerability object to insert.
+        embedding: 384-dim embedding from the value produced by src/dedup.py
+        foreign_key: foreig key of the ORIGINAL Vulnerability object 
+
+    Returns:
+        Inserted record with generated ID and metadata.
+    """
+    payload = vuln.to_dict()
+    payload.pop("id", None)  # let Postgres generate it
+    payload["embedding"] = embedding
+    payload["original_vulnerability_id"] = foreign_key
+    response = supabase.table("duplicates").insert(payload).execute()
+    return response.data[0]
+
 def find_nearest_vulnerability(
     embedding: list[float],
 ) -> tuple[str, str, float] | None:
-    """Return the nearest existing vulnerability by cosine distance, if any.
-
-    Calls the ``match_vulnerability`` Postgres RPC (defined in
-    src/config/dedup_rpc.sql) because PostgREST does not expose pgvector's
-    ``<=>`` operator directly. Returns ``(id, subsector, distance)`` for the
-    single closest row, or ``None`` if the table is empty / no row has an
-    embedding / creds are missing.
     """
-    if not has_supabase_creds():
-        return None
+    Return the nearest existing vulnerability by cosine distance (if any).
+    Calls the "match_vulnerability" Postgres RPC (from src/config/dedup_rpc.sql) 
+    because PostgREST does not expose pgvector's operator (like "<=>"). 
+    
+    Returns:
+        id: UUID of closet Vulnerability
+        subsector: We want to make sure the subsectors match 
+        distance: Distance used to determine outcome
+    Or: 
+        "None" when table is empty / no row have embeddings
+    """
     resp = supabase.rpc("match_vulnerability", {"query_embedding": embedding}).execute()
     rows = resp.data or []
     if not rows:
@@ -189,8 +211,6 @@ def get_vuln_by_id(
     a new record into it. Returns None when creds are missing, ``row_id`` is
     empty, or no row matches.
     """
-    if not has_supabase_creds() or not row_id:
-        return None
     rows = supabase.table(table).select("*").eq("id", row_id).limit(1).execute().data
     return rows[0] if rows else None
 
@@ -207,8 +227,6 @@ def update_vuln(
     responsible for stripping immutable/server-managed fields (``id``,
     ``date_accessed``) before passing.
     """
-    if not has_supabase_creds() or not row_id:
-        return None
     body = dict(payload)
     if embedding is not None:
         body["embedding"] = embedding

@@ -27,6 +27,8 @@ from src.shared_utils import (  # noqa: E402
     prepend_vuln_csv,
     prepend_noise_csv,
     prepend_json_sources,
+    ensure_model_available,
+    model_unavailable_error,
 )  # noqa: E402
 from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
 from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
@@ -73,33 +75,15 @@ try:
         insert_vuln,
         insert_noise,
         has_supabase_creds,
-        find_nearest_vulnerability,
-        find_vuln_by_canonical_url,
-        find_vuln_by_normalized_title,
-        get_vuln_by_id,
-        update_vuln,
     )
 
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:
         LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
+
 except Exception as e:
     LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
     SUPABASE_AVAILABLE = False
-
-
-def _log_dedup_decision(action, vuln) -> None:
-    """Write a one-line dedup decision to the HTML engine log."""
-    LOGGER.info(
-        "DEDUP %s id=%s subsector=%s distance=%s reason=%s existing_id=%s title=%r",
-        action.kind,
-        vuln.id,
-        vuln.subsector,
-        f"{action.distance:.4f}" if action.distance is not None else "n/a",
-        action.reason or "n/a",
-        action.existing_id or "n/a",
-        vuln.title,
-    )
 
 
 SUBSECTOR_FIELDS = [
@@ -358,6 +342,11 @@ def run_html_scraper(
     reporter.status(f"LLM model: {AI_MODEL}")
     if use_bert:
         reporter.status(_bert_status())
+    try:
+        ensure_model_available()
+    except model_unavailable_error as exc:
+        LOGGER.error("Model availability check failed: %s", exc)
+        raise
     check_valid_file(site_config["name"])
 
     db_known: list[dict[str, str]] = []
@@ -365,7 +354,9 @@ def run_html_scraper(
         try:
             db_known = load_cite(site_config["name"])
         except Exception as e:
-            reporter.warn(f"load_cite failed for {site_config['name']}: {e}", stats)
+            message = f"load_cite failed for {site_config['name']}: {e}"
+            LOGGER.warning(message)
+            reporter.warn(message, stats)
 
     starting_page = (
         starting_page
@@ -501,10 +492,15 @@ def run_html_scraper(
                         ]
                     )
                     new_vulns.append(vuln)
-                    stats.validated += 1
                     print(f"[VALID] ({vuln.subsector}): {vuln.title}")
-                    # Vulnerability inserts are deferred to a batched dedup
-                    # pass at end of run (insert_noise still fires inline below).
+
+                    if SUPABASE_AVAILABLE:
+                        try:
+                            insert_vuln(vuln)
+                        except Exception as e:
+                            print(
+                                f"[WARNING] insert_vuln failed for {vuln.title!r}: {e}"
+                            )
                 else:
                     stats.rejected += 1
                     body_preview = (article["body"] or "")[:250].replace("\n", " ")
@@ -552,61 +548,6 @@ def run_html_scraper(
     prepend_noise_csv(site_config["name"], new_noise_rows)
     prepend_json_sources(site_config["name"], new_vulns)
     stats.output_records += len(new_vulns)
-
-    # Batched dedup + Supabase insert. Runs once per site at end of run so the
-    # nearest-neighbor pass sees the full prior DB state.
-    if SUPABASE_AVAILABLE and new_vulns:
-        from src.dedup import (
-            dedupe_records,
-            embed_fingerprint,
-            merge_records,
-            record_to_fingerprint_text,
-        )
-
-        decisions = dedupe_records(
-            [v.to_dict() for v in new_vulns],
-            find_neighbor=find_nearest_vulnerability,
-            find_by_url=find_vuln_by_canonical_url,
-            find_by_title=find_vuln_by_normalized_title,
-        )
-        for vuln, (_record, action) in zip(new_vulns, decisions):
-            if action.kind == "merge_into":
-                _log_dedup_decision(action, vuln)
-                # After merge, source_name/direct_link become concatenated
-                # ("a.com/x | b.com/y"); future URL pre-filter lookups will
-                # miss those originals and fall through to the embedding
-                # tier (still correct, just slower). Atomic-URL preservation
-                # would need a sidecar table or normalized links column —
-                # follow-up ticket if desired.
-                try:
-                    existing = get_vuln_by_id(action.existing_id)
-                    if existing is None:
-                        print(
-                            f"[WARNING] merge_into target id={action.existing_id} "
-                            f"missing; skipping merge"
-                        )
-                        continue
-                    merged = merge_records(existing, vuln.to_dict())
-                    new_emb = embed_fingerprint(record_to_fingerprint_text(merged))
-                    update_payload = {
-                        k: v
-                        for k, v in merged.items()
-                        if k not in ("id", "date_accessed")
-                    }
-                    update_vuln(action.existing_id, update_payload, embedding=new_emb)
-                    stats.merged += 1
-                except Exception as e:
-                    print(
-                        f"[WARNING] merge failed for {vuln.title!r} against "
-                        f"id={action.existing_id}: {e}"
-                    )
-                continue
-            if action.kind == "log_conflict_and_insert":
-                _log_dedup_decision(action, vuln)
-            try:
-                insert_vuln(vuln, embedding=action.embedding)
-            except Exception as e:
-                print(f"[WARNING] insert_vuln failed for {vuln.title!r}: {e}")
     reporter.info(
         f"Finished {site_config['name']}: "
         f"{len(new_vulns)} vuln(s), {len(new_noise_rows)} rejected"

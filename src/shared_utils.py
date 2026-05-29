@@ -28,7 +28,8 @@ Functions:
     - `build_page_url`: Constructs URLs for web pages based on given parameters.
     - `ai_check_validation`: Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach
        at a named healthcare entity based on strict, predefined criteria.
-    - `find_subsector_fields`: Extracts specific fields for a given healthcare subsector by utilizing an AI-based metadata extraction process from the provided article title and body.
+    - `get_extraction_template`: Builds a typed JSON extraction template scoped to a single subsector, mapping each field to its expected primitive type.
+    - `extract_fields`: Extracts subsector-specific metadata from a confirmed disruption article by prompting the LLM with a typed, subsector-scoped template.
 
 
 Possible subsectors:
@@ -44,10 +45,12 @@ Possible subsectors:
 import json
 import csv
 import os
+import subprocess
 import tempfile
 import requests
 import sys
 from pathlib import Path
+import sys as _sys
 import re
 from bs4 import BeautifulSoup
 
@@ -55,11 +58,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.logging_utils import get_file_logger  # noqa: E402
-from src.classes import Vulnerability  # noqa: E402
+from src.logging_utils import get_file_logger  # noqa E402
+from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa E402
 
 AI_URL = "http://localhost:11434/api/generate"
-AI_MODEL = "llama3.2"
+AI_MODEL = "llama3.2:latest"
 MIN_BODY_CHARS_FOR_LLM = 150
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "shared_utils.log"
@@ -698,7 +701,6 @@ def ai_check_validation(
         LOGGER.info("BERT flagged article with title %s as %s", title, bert_subsector)
 
     prompt = f"""
-        [INST] <<SYS>>
         You are a strict Healthcare Operations Auditor. Your ONLY job is to flag articles that describe a REAL, ALREADY-OCCURRING healthcare disruption or a CONFIRMED breach at a named healthcare entity.
 
         DEFAULT TO NO. Reject the article unless the evidence is explicit, named, and concrete. The vast majority of healthcare news is NOT a disruption.
@@ -767,15 +769,13 @@ def ai_check_validation(
 
         DECISION CHECK before you answer:
         If your analysis sentence describes a confirmed cyberattack, ransomware, breach, PHI exposure, drug shortage, device shortage, evacuation, or care stoppage at a NAMED healthcare entity, you MUST set is_operational_disruption to true and pick a non-"none" subsector. Your boolean MUST match the facts in your analysis sentence — never say "confirmed breach" in analysis and false in the boolean.
-        <</SYS>>
 
         TITLE: {title}
         EXCERPT: {body}
 
-        [/INST]
     """
 
-    promptG = f"""
+    prompt = f"""
     You are a strict Healthcare Operations Auditor. Your ONLY job is to flag articles that describe a REAL, ALREADY-OCCURRING healthcare disruption or a CONFIRMED breach at a named healthcare entity.
 
     DEFAULT TO NO. Reject the article unless the evidence is explicit, named, and concrete. The vast majority of healthcare news is NOT a disruption.
@@ -812,14 +812,12 @@ def ai_check_validation(
     EXCERPT: {body}
     """
 
-    active_prompt = promptG if AI_MODEL.lower().startswith("gemma") else prompt
-
     try:
         resp = requests.post(
             AI_URL,
             json={
                 "model": AI_MODEL,
-                "prompt": active_prompt,
+                "prompt": prompt,
                 "stream": False,
                 "format": "json",
                 "options": {"temperature": 0.1},
@@ -856,6 +854,63 @@ def ai_check_validation(
         return False, "Parsing Error"
 
 
+def get_extraction_template(subsector: str) -> dict:
+    """Builds a typed JSON extraction template for the LLM prompt.
+
+    Inspects the dataclass annotations for the given subsector and maps
+    each field to a stringified type hint (e.g., "string", "boolean", "integer",
+    "list of strings") to constrain the LLM output and prevent type hallucination.
+
+    Args:
+        subsector (str): The classification name of the healthcare subsector.
+
+    Returns:
+        dict: A mapping of required field names to their expected primitive types.
+    """
+    template = {f: "string" for f in LLM_SECTOR_FIELDS}
+
+    subsector_cls = SUBSECTOR_DATA_CLASSES.get(subsector)
+    subsector_fields = SUBSECTOR_FIELDS.get(subsector, [])
+
+    LOGGER.debug(
+        "get_extraction_template subsector=%s dataclass=%s fields=%s",
+        subsector,
+        subsector_cls,
+        subsector_fields,
+    )
+
+    if subsector_cls:
+        annotations = subsector_cls.__annotations__
+        LOGGER.debug("get_extraction_template annotations=%s", annotations)
+        for field in subsector_fields:
+            if field in annotations:
+                type_str = str(annotations[field]).lower()
+                if "list" in type_str:
+                    template[field] = "list of strings"
+                elif "bool" in type_str:
+                    template[field] = "boolean"
+                elif "int" in type_str or "float" in type_str:
+                    template[field] = "integer"
+                else:
+                    template[field] = "string"
+            else:
+                LOGGER.debug(
+                    "get_extraction_template field=%s not in annotations, defaulting to string",
+                    field,
+                )
+                template[field] = "string"
+    else:
+        LOGGER.debug(
+            "get_extraction_template no dataclass for subsector=%s, all fields default to string",
+            subsector,
+        )
+        for field in subsector_fields:
+            template[field] = "string"
+
+    LOGGER.debug("get_extraction_template final template=%s", template)
+    return template
+
+
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
     """Extract universal and subsector fields for a validated article.
 
@@ -879,15 +934,15 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
     """
     subsector_fields = SUBSECTOR_FIELDS.get(subsector)
     if not subsector_fields:
-        print(f"No fields found for subsector: {subsector}")
         LOGGER.error("No fields found for subsector %s", subsector)
         exit(1)
 
-    all_fields = LLM_SECTOR_FIELDS + subsector_fields
-    fields_string = ", ".join([f'"{f}"' for f in all_fields])
+    # generate typed json template for the LLM
+    template_dict = get_extraction_template(subsector)
+    template_json = json.dumps(template_dict, indent=2)
+    LOGGER.debug("extract_fields subsector=%s template=%s", subsector, template_json)
 
     prompt = f"""
-        [INST] <<SYS>>
         You are a Healthcare Data Extractor. Extract specific metadata from a confirmed healthcare disruption article. Be conservative — when in doubt, return null.
 
         STRICT RULES:
@@ -910,10 +965,10 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         ARTICLE TITLE: {title}
         ARTICLE BODY: {body}
 
-        EXTRACT THESE FIELDS (and ONLY these): {fields_string}
+        EXTRACTION TEMPLATE (replace the type placeholders with the extracted value, or null for any field not explicitly stated in the article text):
+        {template_json}
 
         JSON RESPONSE:
-        [/INST]
     """
 
     try:
@@ -937,15 +992,82 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
             raw_response,
         )
         raw = json.loads(raw_response)
+        LOGGER.debug(
+            "extract_fields parsed keys=%s sector_data keys=%s",
+            list(raw.keys()),
+            LLM_SECTOR_FIELDS,
+        )
 
         sector_data = {k: raw.get(k) for k in LLM_SECTOR_FIELDS}
         subsector_data = {k: raw.get(k) for k in subsector_fields}
+        LOGGER.debug(
+            "extract_fields sector_data=%s subsector_data=%s",
+            sector_data,
+            subsector_data,
+        )
+        # check for unexpected keys from other subsectors
+        expected_keys = set(LLM_SECTOR_FIELDS) | set(subsector_fields)
+        unexpected = set(raw.keys()) - expected_keys
+        if unexpected:
+            LOGGER.warning(
+                "extract_fields unexpected keys from LLM not in template subsector=%s keys=%s",
+                subsector,
+                unexpected,
+            )
         return sector_data, subsector_data
 
     except Exception as e:
-        print(f"Error extracting fields: {e}")
         LOGGER.error("Error extracting fields for title %s: %s", title, e)
         return (
             {k: None for k in LLM_SECTOR_FIELDS},
             {k: None for k in subsector_fields},
         )
+
+
+class model_unavailable_error(RuntimeError):
+    """Raised when configured Ollama model is unavailable"""
+
+
+checked_ollama_models: set[str] = set()
+
+
+def ensure_model_available(model: str = AI_MODEL) -> None:
+    if model in checked_ollama_models:
+        return
+
+    try:
+        result = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=15,
+        )
+    except FileNotFoundError as exc:
+        raise model_unavailable_error(
+            "[ERROR] Ollama CLI not found.\nInstall and make sure 'ollama' is on PATH"
+        ) from exc
+    except subprocess.SubprocessError as exc:
+        raise model_unavailable_error(
+            "[ERROR] Could not query Ollama models.\n"
+            "Make sure Ollama is running, then try again"
+        ) from exc
+
+    if result.returncode != 0:
+        raise model_unavailable_error(
+            "[ERROR] Could not query Ollama models.\n"
+            "Make sure Ollama is running, then try again"
+        )
+
+    installed_models = {
+        line.split()[0]
+        for line in result.stdout.splitlines()[1:]
+        if line.strip() and line.split()
+    }
+    if model not in installed_models:
+        raise model_unavailable_error(
+            f"[ERROR] Model '{model}' not found in Ollama. Make sure Ollama is running.\n"
+            f"Run: ollama pull {model}"
+        )
+
+    checked_ollama_models.add(model)

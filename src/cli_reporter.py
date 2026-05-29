@@ -48,7 +48,7 @@ class PipelineStats:
     def rejection_rate(self) -> float:
         if self.processed == 0:
             return 0.0
-        return self.rejected / self.processed
+        return self.rejected / (self.processed - self.skipped)
 
 
 class CliReporter:

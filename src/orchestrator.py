@@ -11,11 +11,16 @@ import argparse
 import sys
 from pathlib import Path
 from src.cli_reporter import CliReporter, PipelineStats
+from src.shared_utils import ensure_model_available, model_unavailable_error
+from src.logging_utils import get_file_logger
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _GDELT_DIR = _PROJECT_ROOT / "src" / "GDELT"
 if str(_GDELT_DIR) not in sys.path:
     sys.path.insert(0, str(_GDELT_DIR))
+
+LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
 
 
 def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
@@ -131,6 +136,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
+
+    if not (args.skip_gdelt and args.skip_html):
+        try:
+            ensure_model_available()
+        except model_unavailable_error as exc:
+            LOGGER.error("Model availability check failed: %s", exc)
+            print(exc, file=sys.stderr)
+            return 1
 
     if not args.skip_gdelt:
         from src.GDELT import runner

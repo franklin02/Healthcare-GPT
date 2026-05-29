@@ -23,7 +23,7 @@
                 "dosage_form": "",
                 "shortage_reason": "",
                 "estimated_resolution_date": "",
-                "affected_regions": "",
+                "affected_regions": [],
                 "domestic_vs_foreign_dependency": "NOTE: one of the following {domestic, foreign, both}"
             }
         },
@@ -111,7 +111,7 @@
                 "category_magnitude": "",
                 "affected_facilities_count": 10000,
                 "evacuation_ordered": true,
-                "field_hospitals": true, 
+                "field_hospitals": 0,
                 "beds_offline": 10000,
                 "facility_status": "",
                 "estimated_damage_usd": 10000,

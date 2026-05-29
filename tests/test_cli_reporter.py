@@ -113,3 +113,20 @@ def test_summary_prints_core_counts():
     assert "GDELT:" in output
     assert "Discovered:     4" in output
     assert "Rejection rate: 50%" in output
+
+
+def test_summary_treats_skipped_items_as_rejected():
+    """Skipped items are still rejected, they should be counted in the rejection rate."""
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+    stats = PipelineStats(
+        "GDELT",
+        processed=2,
+        rejected=1,
+        skipped=1,
+    )
+
+    reporter.summary(stats)
+
+    output = stream.getvalue()
+    assert "Rejection rate: 100%" in output

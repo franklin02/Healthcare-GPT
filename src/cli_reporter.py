@@ -26,7 +26,7 @@ class PipelineStats:
     validated: int = 0
     rejected: int = 0
     skipped: int = 0
-    merged: int = 0
+    duplicates: int = 0
     warnings: int = 0
     errors: int = 0
     output_records: int = 0
@@ -38,7 +38,7 @@ class PipelineStats:
         self.validated += other.validated
         self.rejected += other.rejected
         self.skipped += other.skipped
-        self.merged += other.merged
+        self.duplicates += other.duplicates
         self.warnings += other.warnings
         self.errors += other.errors
         self.output_records += other.output_records
@@ -139,7 +139,7 @@ class CliReporter:
             print(f"  Validated:      {item.validated}", file=self.stream)
             print(f"  Rejected:       {item.rejected}", file=self.stream)
             print(f"  Skipped:        {item.skipped}", file=self.stream)
-            print(f"  Merged:         {item.merged}", file=self.stream)
+            print(f"  Duplicates:     {item.duplicates}", file=self.stream)
             print(f"  Rejection rate: {item.rejection_rate:.0%}", file=self.stream)
             print(f"  Warnings:       {item.warnings}", file=self.stream)
             print(f"  Errors:         {item.errors}", file=self.stream)

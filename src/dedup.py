@@ -14,21 +14,36 @@ The fingerprint concatenates three high-signal components:
 """
 
 from __future__ import annotations
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from src.classes import Vulnerability
+from src.logging_utils import get_file_logger
+
+if TYPE_CHECKING:
+    from src.cli_reporter import CliReporter, PipelineStats
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "dedup.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
 
 _EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
 _LEAD_CHARS = 700
+_DEDUP_THRESHOLD = 0.44
 _model = None  # lazy-loaded SentenceTransformer instance
 
 
 def embed_vulnerability(vuln: Vulnerability) -> list[float]:
-    """384-dim MiniLM embedding tuned for 'same incident, different wording'.
+    """
+    Function called to make a unique embedding for a Vulnerability object
 
-    Concatenates three high-signal components and embeds the result:
+    Args: one Vulnerability object, we extract the following
       - Title
-      - Content (first 700 chars) 
+      - Content (first 700 chars)
       - subsector_data
+
+    Returns:
+        embedding variable (list[float])
     """
     parts: list[str] = []
 
@@ -62,3 +77,58 @@ def _embed(text: str) -> list[float]:
         _model = SentenceTransformer(_EMBED_MODEL_NAME, device="cpu")
     vec = _model.encode(text, normalize_embeddings=True)
     return vec.tolist()
+
+
+def handle_vuln(
+    vuln: Vulnerability,
+    reporter: "CliReporter | None" = None,
+    stats: "PipelineStats | None" = None,
+) -> None:
+    """Embed ``vuln`` and persist it to the right Supabase table.
+
+    Routes a validated vulnerability through nearest-neighbor lookup against
+    ``public.vulnerabilities`` and dispatches to one of four outcomes:
+
+    1. Empty table / no embedded rows — insert as the first canonical row.
+    2. Nearest row is close (cosine distance ≤ ``_DEDUP_THRESHOLD``) **and**
+       subsectors match — write to ``public.duplicates`` with ``original_vulnerability_id``
+       pointing at the canonical row. Bumps ``stats.duplicates`` and emits a
+       ``[DUPLICATE]`` detail line so the decision is visible at the CLI.
+    3. Nearest row is close but subsectors differ — log it (a human may want to
+       look) and insert as a new canonical row, since "same wording, different
+       subsector" usually means two distinct incidents that share vocabulary.
+    4. Nearest row is far (distance > ``_DEDUP_THRESHOLD``) — insert as a new
+       canonical row.
+
+    Imports ``supabase_function`` lazily so ``embed_vulnerability`` stays
+    importable in environments without Supabase configured (e.g. unit tests).
+    """
+    from src.supabase_function import (
+        insert_vuln,
+        insert_duplicate,
+        find_nearest_vulnerability,
+    )
+
+    embedding = embed_vulnerability(vuln)
+    result = find_nearest_vulnerability(embedding)
+
+    if result is not None:
+        nearest_id, nearest_subsector, distance = result
+        if distance <= _DEDUP_THRESHOLD:
+            if vuln.subsector == nearest_subsector:
+                LOGGER.info("Duplicate found, UUID: %s", nearest_id)
+                insert_duplicate(vuln, embedding, nearest_id)
+                if stats is not None:
+                    stats.duplicates += 1
+                if reporter is not None:
+                    reporter.detail(f"[DUPLICATE] {vuln.title}")
+                return
+            LOGGER.info(
+                "Near-duplicate but subsectors differ "
+                "(new=%s nearest=%s id=%s); inserting as new",
+                vuln.subsector,
+                nearest_subsector,
+                nearest_id,
+            )
+
+    insert_vuln(vuln, embedding)

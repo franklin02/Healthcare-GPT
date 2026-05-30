@@ -18,7 +18,7 @@ def has_supabase_creds() -> bool:
     return bool(os.environ.get("SUPABASE_URL")) and bool(os.environ.get("SUPABASE_KEY"))
 
 
-# Module imports cleanly even when creds are missing 
+# Module imports cleanly even when creds are missing
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if has_supabase_creds() else None
 
 
@@ -111,16 +111,14 @@ def insert_vuln(
 
 
 def insert_duplicate(
-    vuln: Vulnerability,
-    embedding: list[float],
-    foreign_key: str
+    vuln: Vulnerability, embedding: list[float], foreign_key: str
 ) -> dict:
     """Insert a duplicated vulnerability article into the 'duplicates' table
 
     Args:
         vuln: Vulnerability object to insert.
         embedding: 384-dim embedding from the value produced by src/dedup.py
-        foreign_key: foreig key of the ORIGINAL Vulnerability object 
+        foreign_key: foreig key of the ORIGINAL Vulnerability object
 
     Returns:
         Inserted record with generated ID and metadata.
@@ -132,19 +130,20 @@ def insert_duplicate(
     response = supabase.table("duplicates").insert(payload).execute()
     return response.data[0]
 
+
 def find_nearest_vulnerability(
     embedding: list[float],
 ) -> tuple[str, str, float] | None:
     """
     Return the nearest existing vulnerability by cosine distance (if any).
-    Calls the "match_vulnerability" Postgres RPC (from src/config/dedup_rpc.sql) 
-    because PostgREST does not expose pgvector's operator (like "<=>"). 
-    
+    Calls the "match_vulnerability" Postgres RPC (from src/config/dedup_rpc.sql)
+    because PostgREST does not expose pgvector's operator (like "<=>").
+
     Returns:
         id: UUID of closet Vulnerability
-        subsector: We want to make sure the subsectors match 
+        subsector: We want to make sure the subsectors match
         distance: Distance used to determine outcome
-    Or: 
+    Or:
         "None" when table is empty / no row have embeddings
     """
     resp = supabase.rpc("match_vulnerability", {"query_embedding": embedding}).execute()
@@ -153,86 +152,6 @@ def find_nearest_vulnerability(
         return None
     r = rows[0]
     return (r["id"], r["subsector"], float(r["distance"]))
-
-
-def find_vuln_by_canonical_url(
-    canonical_url: str,
-    table: str = "vulnerabilities",
-) -> tuple[str, str] | None:
-    """Exact-match lookup on direct_link. Cheap pre-filter for dedup."""
-    if not has_supabase_creds() or not canonical_url:
-        return None
-    rows = (
-        supabase.table(table)
-        .select("id,subsector")
-        .eq("direct_link", canonical_url)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not rows:
-        return None
-    return (rows[0]["id"], rows[0]["subsector"])
-
-
-def find_vuln_by_normalized_title(
-    normalized_title: str,
-    table: str = "vulnerabilities",
-) -> tuple[str, str] | None:
-    """Case-insensitive title lookup. Cheap pre-filter for dedup.
-
-    Stored titles are not normalized, so we use ``ilike`` against the raw
-    title; punctuation differences slip through this check, but the embedding
-    path catches what this misses. A normalized-title generated column would
-    tighten this — out of scope for the dedup PR (schema change).
-    """
-    if not has_supabase_creds() or not normalized_title:
-        return None
-    rows = (
-        supabase.table(table)
-        .select("id,subsector")
-        .ilike("title", normalized_title)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not rows:
-        return None
-    return (rows[0]["id"], rows[0]["subsector"])
-
-
-def get_vuln_by_id(
-    row_id: str,
-    table: str = "vulnerabilities",
-) -> dict | None:
-    """Fetch a single vulnerability row by id. Returns dict or None.
-
-    Used by the dedup merge path to load the existing row before deep-merging
-    a new record into it. Returns None when creds are missing, ``row_id`` is
-    empty, or no row matches.
-    """
-    rows = supabase.table(table).select("*").eq("id", row_id).limit(1).execute().data
-    return rows[0] if rows else None
-
-
-def update_vuln(
-    row_id: str,
-    payload: dict,
-    embedding: list[float] | None = None,
-    table: str = "vulnerabilities",
-) -> dict | None:
-    """UPDATE one vulnerability row by id with the given fields.
-
-    ``payload`` should contain only the columns to overwrite. The caller is
-    responsible for stripping immutable/server-managed fields (``id``,
-    ``date_accessed``) before passing.
-    """
-    body = dict(payload)
-    if embedding is not None:
-        body["embedding"] = embedding
-    resp = supabase.table(table).update(body).eq("id", row_id).execute()
-    rows = resp.data or []
-    return rows[0] if rows else None
 
 
 def insert_noise(

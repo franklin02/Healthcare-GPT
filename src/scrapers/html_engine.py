@@ -72,10 +72,10 @@ try:
     from src.supabase_function import (
         load_cite,
         is_known_db,
-        insert_vuln,
         insert_noise,
         has_supabase_creds,
     )
+    from src.dedup import handle_vuln
 
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:
@@ -496,10 +496,10 @@ def run_html_scraper(
 
                     if SUPABASE_AVAILABLE:
                         try:
-                            insert_vuln(vuln)
+                            handle_vuln(vuln, reporter=reporter, stats=stats)
                         except Exception as e:
-                            print(
-                                f"[WARNING] insert_vuln failed for {vuln.title!r}: {e}"
+                            LOGGER.warning(
+                                "dedup/insert failed for %r: %s", vuln.title, e
                             )
                 else:
                     stats.rejected += 1

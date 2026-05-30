@@ -84,24 +84,17 @@ def handle_vuln(
     reporter: "CliReporter | None" = None,
     stats: "PipelineStats | None" = None,
 ) -> None:
-    """Embed ``vuln`` and persist it to the right Supabase table.
+    """
+    This function handles in what table a Vulnerability object should go in
 
-    Routes a validated vulnerability through nearest-neighbor lookup against
-    ``public.vulnerabilities`` and dispatches to one of four outcomes:
+    The only case in which a Vulnerability is put into "duplicates":
+    - Nearest row is close (cosine distance ≤ _DEDUP_THRESHOLD) and subsectors match
 
-    1. Empty table / no embedded rows — insert as the first canonical row.
-    2. Nearest row is close (cosine distance ≤ ``_DEDUP_THRESHOLD``) **and**
-       subsectors match — write to ``public.duplicates`` with ``original_vulnerability_id``
-       pointing at the canonical row. Bumps ``stats.duplicates`` and emits a
-       ``[DUPLICATE]`` detail line so the decision is visible at the CLI.
-    3. Nearest row is close but subsectors differ — log it (a human may want to
-       look) and insert as a new canonical row, since "same wording, different
-       subsector" usually means two distinct incidents that share vocabulary.
-    4. Nearest row is far (distance > ``_DEDUP_THRESHOLD``) — insert as a new
-       canonical row.
+    How a Vulnerability is put into "vulnerabilities" table:
+    - Nearest row is far (distance > _DEDUP_THRESHOLD)
+    - Empty table / no embedded rows
+    - Nearest row is close but subsectors differ
 
-    Imports ``supabase_function`` lazily so ``embed_vulnerability`` stays
-    importable in environments without Supabase configured (e.g. unit tests).
     """
     from src.supabase_function import (
         insert_vuln,

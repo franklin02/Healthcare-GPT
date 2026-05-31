@@ -5,18 +5,18 @@ The runner accepts optional pagination overrides so the orchestrator can expand
 or shrink HTML runs without changing source configuration.
 """
 
-import time
 import datetime
+import time
 import uuid
 from pathlib import Path
 import sys as _sys
 from urllib.parse import urlparse
+
 from bs4 import BeautifulSoup
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(_PROJECT_ROOT) not in _sys.path:
-    _sys.path.insert(0, str(_PROJECT_ROOT))
-
+from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
+from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
+from src.logging_utils import get_file_logger  # noqa: E402
 from src.shared_utils import (  # noqa: E402
     AI_MODEL,
     ai_check_validation,
@@ -30,9 +30,10 @@ from src.shared_utils import (  # noqa: E402
     ensure_model_available,
     model_unavailable_error,
 )  # noqa: E402
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
-from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
-from src.logging_utils import get_file_logger  # noqa: E402
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(_PROJECT_ROOT) not in _sys.path:
+    _sys.path.insert(0, str(_PROJECT_ROOT))
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "html_engine.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)

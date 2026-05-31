@@ -15,18 +15,18 @@ Example:
     result = run_bert_inference({"title": "Hospital breach", "body": "..."}, classifier)
 """
 
+import os
+import sys
 from pathlib import Path
 
 import torch
-import sys
-import os
 from transformers import pipeline
+
+from src.logging_utils import get_file_logger
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-from src.logging_utils import get_file_logger  # noqa: E402
 
 _MODULE_DIR = Path(__file__).resolve().parent
 LOG_FILE = _MODULE_DIR.parent.parent / "data" / "logs" / "bert_filter.log"

@@ -10,9 +10,10 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+
 from src.cli_reporter import CliReporter, PipelineStats
-from src.shared_utils import ensure_model_available, model_unavailable_error
 from src.logging_utils import get_file_logger
+from src.shared_utils import ensure_model_available, model_unavailable_error
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _GDELT_DIR = _PROJECT_ROOT / "src" / "GDELT"

@@ -28,22 +28,23 @@ process_gkg_file(link, subsector="all", reporter=None, stats=None): Download and
 backfill_cyber_seeds(num_files=20, subsector="all", start_date=None, end_date=None, reporter=None, stats=None): Collect recent or date-bounded GDELT seeds for the requested subsector by scanning the master file list and processing relevant GKG files.
 """
 
-import requests
-import pandas as pd
-import zipfile
 import io
 import re
 import sys
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+import pandas as pd
+import requests
+
+from src.cli_reporter import CliReporter, PipelineStats # noqa: E402
+from src.logging_utils import get_file_logger # noqa: E402
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
-from src.logging_utils import get_file_logger  # noqa: E402
 
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "gdelt_seeds.log"

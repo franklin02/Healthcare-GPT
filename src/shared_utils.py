@@ -46,19 +46,16 @@ import json
 import os
 import re
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
 
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa E402
-from src.logging_utils import get_file_logger  # noqa E402
+from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
+from src.logging_utils import get_file_logger
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2:latest"

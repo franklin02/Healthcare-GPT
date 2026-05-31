@@ -16,9 +16,6 @@ from src.logging_utils import get_file_logger
 from src.shared_utils import ensure_model_available, model_unavailable_error
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_GDELT_DIR = _PROJECT_ROOT / "src" / "GDELT"
-if str(_GDELT_DIR) not in sys.path:
-    sys.path.insert(0, str(_GDELT_DIR))
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)

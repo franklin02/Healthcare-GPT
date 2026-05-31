@@ -30,7 +30,6 @@ backfill_cyber_seeds(num_files=20, subsector="all", start_date=None, end_date=No
 
 import io
 import re
-import sys
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -39,12 +38,10 @@ from urllib.parse import urlparse
 import pandas as pd
 import requests
 
-from src.cli_reporter import CliReporter, PipelineStats # noqa: E402
-from src.logging_utils import get_file_logger # noqa: E402
+from src.cli_reporter import CliReporter, PipelineStats
+from src.logging_utils import get_file_logger
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
 
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "gdelt_seeds.log"

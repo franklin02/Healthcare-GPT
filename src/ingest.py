@@ -428,12 +428,6 @@ def _is_valid_disruption(record: dict, *, use_bert: bool) -> bool:
     Skips classification and returns True when the classifier is not importable
     (e.g. Ollama not running), so ingestion can still proceed.
     """
-    import sys
-
-    scrapers_dir = str(Path(__file__).resolve().parent / "scrapers")
-    if scrapers_dir not in sys.path:
-        sys.path.insert(0, scrapers_dir)
-
     try:
         from src.shared_utils import ai_check_validation
     except ImportError:

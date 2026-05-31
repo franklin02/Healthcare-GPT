@@ -8,7 +8,6 @@ The shared utilities aim to simplify and streamline repetitive tasks or operatio
 Attributes:
     - `AI_URL`: The base URL for the AI service.
     - `AI_MODEL`: The specific model that the AI will use for processing.
-    - `_sys`: System-related functionality or constant.
     - `_PROJECT_ROOT`: Specifies the project's root directory.
     - `READY_FOR_RAG_DIR`: Directory designated for resources ready for retrieval-augmented generation (RAG).
     - `NOISE_DIR`: Directory for storing noise data.
@@ -45,10 +44,9 @@ Possible subsectors:
 import csv
 import json
 import os
-import sys
-import sys as _sys
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -635,8 +633,8 @@ def _run_bert(title: str, body: str, verbose: bool = False) -> str:
     try:
         from src.GDELT.BERT_filter import run_bert_inference, load_model
     except ImportError as exc:
-        LOGGER.error("Failed to import BERT_filter module: %s", exc)
-        raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
+        LOGGER.error("Failed to import src.GDELT.BERT_filter module: %s", exc)
+        raise RuntimeError("src.GDELT.BERT_filter module not found") from exc
 
     if _classifier is None:
         _classifier = load_model(verbose=verbose)

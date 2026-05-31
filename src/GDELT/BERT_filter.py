@@ -9,7 +9,7 @@ Dependencies:
     torch
 
 Example:
-    from BERT_filter import load_model, run_bert_inference
+    from src.GDELT.BERT_filter import load_model, run_bert_inference
 
     classifier = load_model()
     result = run_bert_inference({"title": "Hospital breach", "body": "..."}, classifier)

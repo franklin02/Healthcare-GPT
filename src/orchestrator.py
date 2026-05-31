@@ -147,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if not args.skip_gdelt:
-        from src.GDELT import runner
+        import src.GDELT.runner as runner
 
         n_provided = _option_provided(raw_args, ("-n", "--num-files"))
         l_provided = _option_provided(raw_args, ("-l", "--limit"))
@@ -173,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         summaries.append(gdelt_stats)
 
     if not args.skip_html:
-        from src.scrapers import html_engine
+        import src.scrapers.html_engine as html_engine
 
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")

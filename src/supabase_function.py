@@ -1,6 +1,11 @@
 import os
 from dotenv import load_dotenv
-from supabase import create_client
+
+try:
+    from supabase import create_client
+except ModuleNotFoundError:
+    create_client = None
+
 from src.classes import Vulnerability
 
 load_dotenv()
@@ -18,8 +23,11 @@ def has_supabase_creds() -> bool:
     return bool(os.environ.get("SUPABASE_URL")) and bool(os.environ.get("SUPABASE_KEY"))
 
 
-# Module imports cleanly even when creds are missing
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if has_supabase_creds() else None
+supabase = (
+    create_client(SUPABASE_URL, SUPABASE_KEY)
+    if create_client is not None and has_supabase_creds()
+    else None
+)
 
 
 def _norm(s: str) -> str:

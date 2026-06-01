@@ -1,3 +1,5 @@
+create extension if not exists vector;
+
 -- vulnerabilities table
 create table public.vulnerabilities (
   id uuid primary key default gen_random_uuid(),
@@ -16,6 +18,7 @@ create table public.vulnerabilities (
   end_date date,
   resilience_or_mitigation_observed text,
   subsector_data jsonb       not null default '{}'::jsonb,
+  embedding vector(384),
 
   constraint vulnerabilities_subsector_chk check (
     subsector in (
@@ -34,6 +37,10 @@ create table public.vulnerabilities (
   constraint vulnerabilities_source_link_uniq unique (source_name, direct_link)
 );
 alter table public.vulnerabilities enable row level security;
+
+create index if not exists vulnerabilities_embedding_hnsw_idx
+  on public.vulnerabilities
+  using hnsw (embedding vector_cosine_ops);
 
 -- noise table
 create table public.noise (

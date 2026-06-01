@@ -1,6 +1,11 @@
 import os
 from dotenv import load_dotenv
-from supabase import create_client
+
+try:
+    from supabase import create_client
+except ModuleNotFoundError:
+    create_client = None
+
 from src.classes import Vulnerability
 
 load_dotenv()
@@ -18,10 +23,11 @@ def has_supabase_creds() -> bool:
     return bool(os.environ.get("SUPABASE_URL")) and bool(os.environ.get("SUPABASE_KEY"))
 
 
-# Module imports cleanly even when creds are missing — callers must gate every
-# DB operation behind has_supabase_creds() (the helper functions below will
-# AttributeError on None if invoked without creds, by design).
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY) if has_supabase_creds() else None
+supabase = (
+    create_client(SUPABASE_URL, SUPABASE_KEY)
+    if create_client is not None and has_supabase_creds()
+    else None
+)
 
 
 def _norm(s: str) -> str:
@@ -87,11 +93,18 @@ def is_known_db(
     )
 
 
-def insert_vuln(vuln: Vulnerability, table: str = "vulnerabilities") -> dict:
+def insert_vuln(
+    vuln: Vulnerability,
+    embedding: list[float] | None = None,
+    table: str = "vulnerabilities",
+) -> dict:
     """Insert a vulnerability article into the database.
 
     Args:
         vuln: Vulnerability object to insert.
+        embedding: Optional 384-dim embedding to write to the ``embedding``
+            column. Pass the value produced by src/dedup.py so the new row is
+            usable for future nearest-neighbor dedup lookups.
         table: Table name (default: "vulnerabilities").
 
     Returns:
@@ -99,8 +112,54 @@ def insert_vuln(vuln: Vulnerability, table: str = "vulnerabilities") -> dict:
     """
     payload = vuln.to_dict()
     payload.pop("id", None)  # let Postgres generate it
+    if embedding is not None:
+        payload["embedding"] = embedding
     response = supabase.table(table).insert(payload).execute()
     return response.data[0]
+
+
+def insert_duplicate(
+    vuln: Vulnerability, embedding: list[float], foreign_key: str
+) -> dict:
+    """Insert a duplicated vulnerability article into the 'duplicates' table
+
+    Args:
+        vuln: Vulnerability object to insert.
+        embedding: 384-dim embedding from the value produced by src/dedup.py
+        foreign_key: foreig key of the ORIGINAL Vulnerability object
+
+    Returns:
+        Inserted record with generated ID and metadata.
+    """
+    payload = vuln.to_dict()
+    payload.pop("id", None)  # let Postgres generate it
+    payload["embedding"] = embedding
+    payload["original_vulnerability_id"] = foreign_key
+    response = supabase.table("duplicates").insert(payload).execute()
+    return response.data[0]
+
+
+def find_nearest_vulnerability(
+    embedding: list[float],
+) -> tuple[str, str, float] | None:
+    """
+    Return the nearest existing vulnerability by cosine distance (if any).
+    Calls the "match_vulnerability" Postgres RPC (from src/config/dedup_rpc.sql)
+    because PostgREST does not expose pgvector's operator (like "<=>").
+
+    Returns:
+        id: UUID of closet Vulnerability
+        subsector: We want to make sure the subsectors match
+        distance: Distance used to determine outcome
+    Or:
+        "None" when table is empty / no row have embeddings
+    """
+    resp = supabase.rpc("match_vulnerability", {"query_embedding": embedding}).execute()
+    rows = resp.data or []
+    if not rows:
+        return None
+    r = rows[0]
+    return (r["id"], r["subsector"], float(r["distance"]))
 
 
 def insert_noise(

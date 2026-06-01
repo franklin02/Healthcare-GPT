@@ -65,7 +65,8 @@ BODY_CHAR_LIMIT = 4000
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
 try:
-    from src.supabase_function import has_supabase_creds, insert_vuln
+    from src.supabase_function import has_supabase_creds
+    from src.dedup import handle_vuln
 
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:
@@ -503,9 +504,9 @@ def run(
             records.append(rec)
             if SUPABASE_AVAILABLE:
                 try:
-                    insert_vuln(rec)
+                    handle_vuln(rec, reporter=reporter, stats=stats)
                 except Exception as e:
-                    LOGGER.warning("insert_vuln failed for %r: %s", rec.title, e)
+                    LOGGER.warning("dedup/insert failed for %r: %s", rec.title, e)
         else:
             LOGGER.debug("Seed skipped url=%s", url)
         if not reporter.verbose:

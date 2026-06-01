@@ -8,6 +8,11 @@ from src.shared_utils import model_unavailable_error
 from src.scrapers import html_engine
 
 
+@pytest.fixture(autouse=True)
+def _disable_supabase(monkeypatch):
+    monkeypatch.setattr(html_engine, "SUPABASE_AVAILABLE", False)
+
+
 def test_run_html_scraper_counts_validated_and_rejected_articles():
     """One valid and one rejected article should update stats and outputs."""
     site_config = {

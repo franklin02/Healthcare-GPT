@@ -91,3 +91,16 @@ Validated data (articles confirmed as threats by the LLM):
 
 Extracted data (articles with fully extracted JSON metadata):
 - `data/raw/gdelt/enriched/`
+
+## Graceful Interrupts
+
+During GDELT seed processing, press `Ctrl-C` to stop the run cleanly. The runner
+marks the GDELT stage as paused, saves `data/seen_urls.json`, writes any
+completed records to the configured GDELT output file, and preserves
+`data/raw/gdelt/seeds/` so later recovery or stitching work can inspect the
+remaining staged seeds.
+
+This is a graceful stop with state preservation, not an automatic resume. The
+HTML scraper path does not yet have the same behavior because it buffers output
+until a site finishes; adding equivalent support there requires flushing accepted
+HTML records on interrupt.

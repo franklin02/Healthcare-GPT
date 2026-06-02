@@ -172,6 +172,11 @@ def main(argv: list[str] | None = None) -> int:
             stats=gdelt_stats,
         )
         summaries.append(gdelt_stats)
+        if gdelt_stats.paused:
+            reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
+            reporter.summary(summaries)
+            LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
+            return 0
 
     if not args.skip_html:
         import src.scrapers.html_engine as html_engine

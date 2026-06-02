@@ -115,6 +115,27 @@ def test_summary_prints_core_counts():
     assert "Rejection rate: 50%" in output
 
 
+def test_summary_prints_paused_state():
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+    stats = PipelineStats("GDELT", paused=True)
+
+    reporter.summary(stats)
+
+    output = stream.getvalue()
+    assert "GDELT:" in output
+    assert "Paused:         yes" in output
+
+
+def test_stats_merge_preserves_paused_state():
+    combined = PipelineStats("Combined")
+    gdelt = PipelineStats("GDELT", paused=True)
+
+    combined.merge(gdelt)
+
+    assert combined.paused is True
+
+
 def test_summary_treats_skipped_items_as_rejected():
     """Skipped items are still rejected, they should be counted in the rejection rate."""
     stream = io.StringIO()

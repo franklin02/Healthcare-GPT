@@ -255,6 +255,60 @@ def save_seen(seen: set, seen_file: Path | None = None) -> None:
         pass
 
 
+def write_output_records(
+    records: list[Vulnerability],
+    output_path: str | None,
+    reporter: CliReporter,
+    stats: PipelineStats,
+) -> Path:
+    """Write completed GDELT records to the configured processed JSON output."""
+    default_out_dir = PROJECT_ROOT / "data" / "processed"
+    if output_path:
+        out_path = Path(output_path)
+        out_file = (
+            out_path if out_path.suffix.lower() == ".json" else out_path / "GDELT.json"
+        )
+    else:
+        out_file = default_out_dir / "GDELT.json"
+    LOGGER.debug("Output file resolved to %s", out_file)
+
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_recs = []
+    for record in records:
+        data = record.to_dict()
+        data["date_published"] = fmt_dt(data.get("date_published", ""))
+        out_recs.append(data)
+
+    try:
+        if out_file.exists():
+            with open(out_file, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            if (
+                isinstance(existing, dict)
+                and "sources" in existing
+                and isinstance(existing["sources"], list)
+            ):
+                combined = existing["sources"] + out_recs
+            elif isinstance(existing, list):
+                combined = existing + out_recs
+            else:
+                combined = out_recs
+        else:
+            combined = out_recs
+    except Exception:
+        LOGGER.warning(
+            "Failed to read existing output file %s", out_file, exc_info=True
+        )
+        combined = out_recs
+
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump({"sources": combined}, f, ensure_ascii=False, indent=2)
+    LOGGER.info("Wrote %s records to %s", len(combined), out_file)
+    stats.output_records = len(out_recs)
+    reporter.info(f"Wrote {len(out_recs)} GDELT records to {out_file}")
+    return out_file
+
+
 def process_seed(
     seed: dict,
     seen: set,
@@ -484,31 +538,45 @@ def run(
     records = []
     for i, seed in enumerate(seeds, start=1):
         stats.processed += 1
-        if reporter.verbose:
-            reporter.detail(f"[{i}/{len(seeds)}]")
-        LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
-        url = seed["url"]
-        article_id = stable_id(url)
-        rec = process_seed(
-            seed,
-            seen,
-            use_bert=use_bert,
-            reporter=reporter,
-            stats=stats,
-        )
-        if rec:
-            persist_stage(VALIDATED_DIR, article_id, "validated", url, rec.to_dict())
-            persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
-            records.append(rec)
-            if SUPABASE_AVAILABLE:
-                try:
-                    handle_vuln(rec, reporter=reporter, stats=stats)
-                except Exception as e:
-                    LOGGER.warning("dedup/insert failed for %r: %s", rec.title, e)
-        else:
-            LOGGER.debug("Seed skipped url=%s", url)
-        if not reporter.verbose:
-            reporter.progress(i, len(seeds), "GDELT articles")
+        try:
+            if reporter.verbose:
+                reporter.detail(f"[{i}/{len(seeds)}]")
+            LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
+            url = seed["url"]
+            article_id = stable_id(url)
+            rec = process_seed(
+                seed,
+                seen,
+                use_bert=use_bert,
+                reporter=reporter,
+                stats=stats,
+            )
+            if rec:
+                persist_stage(
+                    VALIDATED_DIR, article_id, "validated", url, rec.to_dict()
+                )
+                persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
+                records.append(rec)
+                if SUPABASE_AVAILABLE:
+                    try:
+                        handle_vuln(rec, reporter=reporter, stats=stats)
+                    except Exception as e:
+                        LOGGER.warning("dedup/insert failed for %r: %s", rec.title, e)
+            else:
+                LOGGER.debug("Seed skipped url=%s", url)
+            if not reporter.verbose:
+                reporter.progress(i, len(seeds), "GDELT articles")
+        except KeyboardInterrupt:
+            stats.paused = True
+            reporter.finish_line()
+            reporter.info(
+                "GDELT pipeline paused by operator; saving completed records "
+                "and preserving seed staging."
+            )
+            LOGGER.info(
+                "GDELT pipeline paused by operator at seed %s/%s", i, len(seeds)
+            )
+            break
 
     # Save seen URLs once at the end
     save_seen(seen, seen_urls_path)
@@ -526,56 +594,16 @@ def run(
         reporter.detail(f"Source: {rec.source_name}")
         reporter.detail(f"Fields: {rec.subsector_data}")
 
-    default_out_dir = PROJECT_ROOT / "data" / "processed"
-    if output_path:
-        out_path = Path(output_path)
-        out_file = (
-            out_path if out_path.suffix.lower() == ".json" else out_path / "GDELT.json"
-        )
+    write_output_records(records, output_path, reporter, stats)
+
+    if stats.paused:
+        reporter.detail(f"Preserved seed staging directory: {SEEDS_DIR}")
+        LOGGER.debug("Preserved seeds directory after pause: %s", SEEDS_DIR)
     else:
-        out_file = default_out_dir / "GDELT.json"
-    LOGGER.debug("Output file resolved to %s", out_file)
-
-    out_file.parent.mkdir(parents=True, exist_ok=True)
-    out_recs = []
-    # Convert records to dicts and format date_published before saving, to ensure consistent output formatting regardless of how dates are represented in the Vulnerability objects.
-    for r in records:
-        d = r.to_dict()
-        d["date_published"] = fmt_dt(d.get("date_published", ""))
-        out_recs.append(d)
-
-    try:
-        if out_file.exists():
-            with open(out_file, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-            if (
-                isinstance(existing, dict)
-                and "sources" in existing
-                and isinstance(existing["sources"], list)
-            ):
-                combined = existing["sources"] + out_recs
-            elif isinstance(existing, list):
-                combined = existing + out_recs
-            else:
-                combined = out_recs
-        else:
-            combined = out_recs
-    except Exception:
-        LOGGER.warning(
-            "Failed to read existing output file %s", out_file, exc_info=True
-        )
-        combined = out_recs
-
-    with open(out_file, "w", encoding="utf-8") as f:
-        json.dump({"sources": combined}, f, ensure_ascii=False, indent=2)
-    LOGGER.info("Wrote %s records to %s", len(combined), out_file)
-    stats.output_records = len(out_recs)
-    reporter.info(f"Wrote {len(out_recs)} GDELT records to {out_file}")
-
-    # Clear the seed files after a successful pipeline run
-    clear_directory(SEEDS_DIR)
-    reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")
-    LOGGER.debug("Cleared seeds directory: %s", SEEDS_DIR)
+        # Clear the seed files after a successful pipeline run.
+        clear_directory(SEEDS_DIR)
+        reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")
+        LOGGER.debug("Cleared seeds directory: %s", SEEDS_DIR)
 
     if local_reporter:
         reporter.summary(stats)

@@ -22,7 +22,7 @@ LOG_TIMESTAMP_FORMATS = (
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_CONFIG_PATH = _PROJECT_ROOT / "config.cfg"
+_CONFIG_PATH = _PROJECT_ROOT / "src" / "config" / "config.cfg"
 
 
 def _load_config_file() -> dict[str, str]:

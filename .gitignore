@@ -25,6 +25,7 @@ data/
 chroma_db/
 src/models/
 *.log
+src/config/*.cfg
 
 # --- SQL scratch (real schema lives in src/config/) ---
 sql/

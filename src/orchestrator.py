@@ -10,14 +10,12 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+
 from src.cli_reporter import CliReporter, PipelineStats
-from src.shared_utils import ensure_model_available, model_unavailable_error
 from src.logging_utils import get_file_logger
+from src.shared_utils import ensure_model_available, model_unavailable_error
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_GDELT_DIR = _PROJECT_ROOT / "src" / "GDELT"
-if str(_GDELT_DIR) not in sys.path:
-    sys.path.insert(0, str(_GDELT_DIR))
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
@@ -149,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if not args.skip_gdelt:
-        from src.GDELT import runner
+        import src.GDELT.runner as runner
 
         n_provided = _option_provided(raw_args, ("-n", "--num-files"))
         l_provided = _option_provided(raw_args, ("-l", "--limit"))
@@ -176,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
         summaries.append(gdelt_stats)
 
     if not args.skip_html:
-        from src.scrapers import html_engine
+        import src.scrapers.html_engine as html_engine
 
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")

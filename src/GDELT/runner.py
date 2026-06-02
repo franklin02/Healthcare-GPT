@@ -29,28 +29,26 @@ Functions:
 import argparse
 import hashlib
 import json
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-import shutil
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from src.GDELT.gdelt_seeds import backfill_cyber_seeds, SUBSECTOR_THEMES  # noqa: E402
-from src.shared_utils import (  # noqa: E402
+from src.GDELT.gdelt_seeds import SUBSECTOR_THEMES, backfill_cyber_seeds
+from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
+from src.cli_reporter import CliReporter, PipelineStats
+from src.logging_utils import get_file_logger
+from src.shared_utils import (
     AI_MODEL,
     ai_check_validation,
+    ensure_model_available,
     extract_fields,
     get_body,
     get_title,
-    ensure_model_available,
     model_unavailable_error,
 )
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
-from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
-from src.logging_utils import get_file_logger  # noqa: E402
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # intermediate stages directory constants + helper functions
 RAW_GDELT_DIR = PROJECT_ROOT / "data" / "raw" / "gdelt"

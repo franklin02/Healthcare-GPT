@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch, mock_open
 from datetime import datetime
 import pytest
 
-from src.GDELT import runner
+import src.GDELT.runner as runner
 from src.classes import Vulnerability
 
 

@@ -44,6 +44,11 @@ analysis and retrieval.
 
 Run from the repository root:
 
+Pipeline entrypoints are supported through module execution. Use
+`python -m src...` commands rather than direct file execution such as
+`python src/GDELT/runner.py`. Direct file execution may work in some local
+environments, but it is not the documented or tested execution path.
+
 ```bash
 python -m src.GDELT.runner --num-files 2 --limit 3
 ```
@@ -69,7 +74,7 @@ python -m src.GDELT.runner --start-date 20260101 --end-date 20260131 --subsector
 After reviewing processed records, index them for the local chat app:
 
 ```bash
-python src/ingest.py --file data/processed/GDELT.json
+python -m src.ingest --file data/processed/GDELT.json
 ```
 
 Then run the app:

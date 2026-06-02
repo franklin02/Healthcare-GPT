@@ -8,7 +8,6 @@ The shared utilities aim to simplify and streamline repetitive tasks or operatio
 Attributes:
     - `AI_URL`: The base URL for the AI service.
     - `AI_MODEL`: The specific model that the AI will use for processing.
-    - `_sys`: System-related functionality or constant.
     - `_PROJECT_ROOT`: Specifies the project's root directory.
     - `READY_FOR_RAG_DIR`: Directory designated for resources ready for retrieval-augmented generation (RAG).
     - `NOISE_DIR`: Directory for storing noise data.
@@ -42,23 +41,21 @@ Possible subsectors:
 
 """
 
-import json
 import csv
+import json
 import os
+import re
 import subprocess
 import tempfile
-import requests
-import sys
 from pathlib import Path
-import re
+
+import requests
 from bs4 import BeautifulSoup
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
+from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
+from src.logging_utils import get_file_logger
 
-from src.logging_utils import get_file_logger  # noqa E402
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa E402
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2:latest"
@@ -631,8 +628,8 @@ def _run_bert(title: str, body: str, verbose: bool = False) -> str:
     try:
         from src.GDELT.BERT_filter import run_bert_inference, load_model
     except ImportError as exc:
-        LOGGER.error("Failed to import BERT_filter module: %s", exc)
-        raise RuntimeError("BERT_filter.py not found at src/GDELT/") from exc
+        LOGGER.error("Failed to import src.GDELT.BERT_filter module: %s", exc)
+        raise RuntimeError("src.GDELT.BERT_filter module not found") from exc
 
     if _classifier is None:
         _classifier = load_model(verbose=verbose)

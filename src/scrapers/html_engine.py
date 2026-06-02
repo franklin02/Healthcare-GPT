@@ -1,18 +1,9 @@
-"""Configured HTML scraper runner for healthcare disruption sources.
-
-Each site keeps its own selectors and pagination defaults in ``HTML_SITES``.
-The runner accepts optional pagination overrides so the orchestrator can expand
-or shrink HTML runs without changing source configuration.
-"""
-
 import datetime
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import urlparse
-
 from bs4 import BeautifulSoup
-
+from urllib.parse import urlparse
 from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from src.cli_reporter import CliReporter, PipelineStats
 from src.logging_utils import get_file_logger
@@ -31,9 +22,27 @@ from src.shared_utils import (
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "html_engine.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
+
+try:
+    from src.supabase_function import (
+        load_cite,
+        is_known_db,
+        insert_noise,
+        has_supabase_creds,
+    )
+    from src.dedup import handle_vuln
+
+    SUPABASE_AVAILABLE = has_supabase_creds()
+    if not SUPABASE_AVAILABLE:
+        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
+
+except Exception as e:
+    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
+    SUPABASE_AVAILABLE = False
+
+
 
 
 def _live_site_status(
@@ -68,24 +77,6 @@ def _bert_status() -> str:
             "Could not load BERT filter for status description", exc_info=True
         )
         return "BERT pre-filter: enabled"
-
-
-try:
-    from src.supabase_function import (
-        load_cite,
-        is_known_db,
-        insert_noise,
-        has_supabase_creds,
-    )
-    from src.dedup import handle_vuln
-
-    SUPABASE_AVAILABLE = has_supabase_creds()
-    if not SUPABASE_AVAILABLE:
-        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
-
-except Exception as e:
-    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
-    SUPABASE_AVAILABLE = False
 
 
 SUBSECTOR_FIELDS = [

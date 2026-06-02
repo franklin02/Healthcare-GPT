@@ -1,7 +1,7 @@
 import datetime
 import time
 import uuid
-from pathlib import Path
+import argparse
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
@@ -19,30 +19,26 @@ from src.shared_utils import (
     prepend_json_sources,
     prepend_noise_csv,
     prepend_vuln_csv,
+    _PROJECT_ROOT,
 )
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "html_engine.log"
-LOGGER = get_file_logger(__name__, LOG_FILE)
+LOGGER = get_file_logger(__name__, _PROJECT_ROOT / "data" / "logs" / "html_engine.log")
 
 try:
+    from src.dedup import handle_vuln
     from src.supabase_function import (
         load_cite,
         is_known_db,
         insert_noise,
         has_supabase_creds,
     )
-    from src.dedup import handle_vuln
 
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:
         LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
-
 except Exception as e:
     LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
     SUPABASE_AVAILABLE = False
-
-
 
 
 def _live_site_status(
@@ -79,13 +75,9 @@ def _bert_status() -> str:
         return "BERT pre-filter: enabled"
 
 
-SUBSECTOR_FIELDS = [
-    "drug_shortage",
-    "medical_device_shortage",
-    "cyber_attack",
-    "natural_disaster",
-    "other",
-]
+SUBSECTOR_FIELDS = list(SUBSECTOR_DATA_CLASSES.keys())
+
+
 HTML_SITES = [
     {
         "name": "CyberScoop",
@@ -180,7 +172,8 @@ def fetch_html_page(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ):
-    """Fetch one listing page and return article payloads plus a stop flag.
+    """
+    Fetch one listing page and return article payloads plus a stop flag.
 
     The listing page is parsed with the site's configured selectors, then each
     candidate link is fetched to collect article body text and publication date.
@@ -312,6 +305,8 @@ def run_html_scraper(
     verbose: bool = False,
     starting_page: int | None = None,
     page_cap: int | None = None,
+    start_date: datetime.date | None = None,
+    end_date: datetime.date | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ) -> PipelineStats:
@@ -328,6 +323,12 @@ def run_html_scraper(
             ``None`` preserves the site's default.
         page_cap: Optional override for the site's configured maximum page.
             ``None`` preserves the site's default; ``-1`` means unlimited.
+        start_date: Newest article date to keep (inclusive ceiling). Pages list
+            newest-first, so articles published after this date are skipped while
+            crawling continues toward the window. ``None`` means no upper bound.
+        end_date: Oldest article date to keep (inclusive floor). When an article
+            published before this date is reached, crawling stops because nothing
+            older qualifies. ``None`` means no lower bound.
         reporter: Optional shared CLI reporter supplied by the orchestrator.
         stats: Optional stats object to update for the site.
 
@@ -420,6 +421,7 @@ def run_html_scraper(
             break
 
         stats.discovered += len(articles)
+        reached_floor = False
         for article_index, article in enumerate(articles, start=1):
             body_snippet = (article["body"] or "")[:250].replace("\n", " ")
             stats.processed += 1
@@ -427,6 +429,29 @@ def run_html_scraper(
                 reporter.detail(
                     f"[{article_index}/{len(articles)}] {article['title'][:90]}"
                 )
+
+            if (start_date or end_date) and article.get("date"):
+                try:
+                    pub_date = datetime.date.fromisoformat(article["date"][:10])
+                except ValueError:
+                    pub_date = None
+                if pub_date is not None:
+                    if start_date and pub_date > start_date:
+                        stats.skipped += 1
+                        reporter.detail(
+                            f"[SKIP-DATE] Newer than {start_date}: {article['title']}"
+                        )
+                        _live_site_status(
+                            reporter, site_config["name"], current_page, stats
+                        )
+                        continue
+                    if end_date and pub_date < end_date:
+                        reporter.detail(
+                            f"[FINISH] Reached article older than {end_date} on "
+                            f"{site_config['name']}: {article['title']!r}"
+                        )
+                        reached_floor = True
+                        break
 
             if SUPABASE_AVAILABLE and db_known:
                 try:
@@ -545,7 +570,7 @@ def run_html_scraper(
                 )
                 continue
 
-        if stop:
+        if stop or reached_floor:
             break
 
         current_page += 1
@@ -572,8 +597,6 @@ def run_html_scraper(
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="HTML scraper for healthcare news sites"
     )
@@ -590,18 +613,22 @@ if __name__ == "__main__":
         default=False,
         help="Show detailed per-article scraper output",
     )
+
     parser.add_argument(
-        "--start-page",
-        type=int,
+        "--start-date",
+        type=datetime.date.fromisoformat,
         default=None,
-        help="Override configured starting page for every HTML site",
+        metavar="YYYY-MM-DD",
+        help="Newest article date to keep; newer articles are skipped (inclusive ceiling)",
     )
     parser.add_argument(
-        "--page-cap",
-        type=int,
+        "--end-date",
+        type=datetime.date.fromisoformat,
         default=None,
-        help="Override configured max page number for every HTML site (-1 for unlimited)",
+        metavar="YYYY-MM-DD",
+        help="Oldest article date to keep; crawling stops at older articles (inclusive floor)",
     )
+
     args = parser.parse_args()
 
     for site in HTML_SITES:
@@ -609,6 +636,6 @@ if __name__ == "__main__":
             site,
             use_bert=args.use_bert,
             verbose=args.verbose,
-            starting_page=args.start_page,
-            page_cap=args.page_cap,
+            start_date=args.start_date,
+            end_date=args.end_date,
         )

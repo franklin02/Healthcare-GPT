@@ -56,6 +56,8 @@ from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from src.logging_utils import get_file_logger
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Public alias for modules that need the repo root (e.g. scrapers' log routing).
+#PROJECT_ROOT = _PROJECT_ROOT
 
 AI_URL = "http://localhost:11434/api/generate"
 AI_MODEL = "llama3.2:latest"

@@ -6,7 +6,7 @@ called via `run_bert_inference` from the pipeline's `ask_llm` module.
 
 Dependencies:
     transformers (pipeline)
-    torch
+    torch (lazy-loaded on first device detection)
 
 Example:
     from src.GDELT.BERT_filter import load_model, run_bert_inference
@@ -18,7 +18,6 @@ Example:
 import os
 from pathlib import Path
 
-import torch
 from transformers import pipeline
 
 from src.logging_utils import get_file_logger
@@ -66,6 +65,8 @@ def get_device():
     Returns:
         int | str: 0 for CUDA, "mps" for Apple Silicon, or -1 for CPU.
     """
+    import torch
+
     if torch.cuda.is_available():
         return 0
     elif torch.backends.mps.is_available():

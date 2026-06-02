@@ -42,6 +42,7 @@ def _load_config_file() -> dict[str, str]:
 
 _CONFIG = _load_config_file()
 
+
 # Logger Levels:
 # DEBUG: Detailed information, typically of interest only when diagnosing problems
 # INFO: Useful information to log under normal circumstances

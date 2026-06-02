@@ -172,6 +172,11 @@ def main(argv: list[str] | None = None) -> int:
             stats=gdelt_stats,
         )
         summaries.append(gdelt_stats)
+        if gdelt_stats.paused:
+            reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
+            reporter.summary(summaries)
+            LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
+            return 0
 
     if not args.skip_html:
         import src.scrapers.html_engine as html_engine
@@ -190,6 +195,12 @@ def main(argv: list[str] | None = None) -> int:
                 stats=PipelineStats(site["name"]),
             )
             html_stats.merge(site_stats)
+            if site_stats.paused:
+                summaries.append(html_stats)
+                reporter.info("HTML scraper paused; skipping remaining pipelines.")
+                reporter.summary(summaries)
+                LOGGER.info("HTML scraper paused; skipping remaining pipelines")
+                return 0
         summaries.append(html_stats)
 
     if summaries:

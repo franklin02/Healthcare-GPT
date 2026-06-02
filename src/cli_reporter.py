@@ -31,6 +31,7 @@ class PipelineStats:
     errors: int = 0
     output_records: int = 0
     sites_scanned: int = 0
+    paused: bool = False
 
     def merge(self, other: "PipelineStats") -> None:
         self.discovered += other.discovered
@@ -43,6 +44,7 @@ class PipelineStats:
         self.errors += other.errors
         self.output_records += other.output_records
         self.sites_scanned += other.sites_scanned
+        self.paused = self.paused or other.paused
 
     @property
     def rejection_rate(self) -> float:
@@ -132,6 +134,8 @@ class CliReporter:
         print("\n=== Run Summary ===", file=self.stream)
         for item in stats_list:
             print(f"{item.name}:", file=self.stream)
+            if item.paused:
+                print("  Paused:         yes", file=self.stream)
             if item.sites_scanned:
                 print(f"  Sites scanned:  {item.sites_scanned}", file=self.stream)
             print(f"  Discovered:     {item.discovered}", file=self.stream)

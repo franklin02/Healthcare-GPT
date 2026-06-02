@@ -20,6 +20,7 @@ Attributes:
 Functions:
     - `get_config_value`: Retrieves a configuration value by name, with an optional default.
     - `get_config_bool`: Retrieves a boolean configuration value by name, with an optional default.
+    - `get_config_int`: Retrieves an integer configuration value by name, with an optional default.
     - `get_page`: Retrieves web page content for a given URL, handling HTTP requests.
     - `_site_filename`: Generates or retrieves specific filename associated with a site.
     - `check_valid_file`: Validates files against specific criteria.

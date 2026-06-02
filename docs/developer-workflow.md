@@ -47,7 +47,19 @@ ruff format .
 Check formatting without changing files:
 
 ```bash
-ruff format --check .
+python -m ruff format --check .
+```
+
+Run lint checks:
+
+```bash
+python -m ruff check .
+```
+
+Run the test suite:
+
+```bash
+python -m pytest -q
 ```
 
 Build the Sphinx documentation locally:
@@ -90,8 +102,9 @@ Expected result: `sector_data` contains only shared extraction fields, and
 `subsector_data` contains only `cyber_attack` fields. Missing values should be
 `None`/`null`, not boilerplate examples.
 
-The same docs build runs in GitHub Actions on pull requests. Pushes to `main`
-also publish the built HTML to GitHub Pages.
+GitHub Actions runs pytest, Ruff lint, and Ruff formatting checks on pull
+requests to `main`. The same docs build also runs on pull requests. Pushes to
+`main` publish the built HTML to GitHub Pages.
 
 ## Pull Request Checklist
 

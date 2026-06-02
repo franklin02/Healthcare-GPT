@@ -2,7 +2,8 @@ import os
 from dotenv import load_dotenv
 
 try:
-    from supabase import create_client
+    import httpx
+    from supabase import create_client, ClientOptions
 except ModuleNotFoundError:
     create_client = None
 
@@ -36,7 +37,11 @@ def has_supabase_creds() -> bool:
 
 
 supabase = (
-    create_client(SUPABASE_URL, SUPABASE_KEY)
+    create_client(
+        SUPABASE_URL,
+        SUPABASE_KEY,
+        options=ClientOptions(httpx_client=httpx.Client()),
+    )
     if create_client is not None and has_supabase_creds()
     else None
 )

@@ -1,11 +1,13 @@
 import os
 import uuid
 
+import httpx
 import pytest
 from dotenv import load_dotenv
 
 supabase = pytest.importorskip("supabase")
 create_client = supabase.create_client
+ClientOptions = supabase.ClientOptions
 
 load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -50,7 +52,9 @@ def _make_vuln(
 @pytest.fixture(scope="module", autouse=True)
 def restore_test_table_state():
     """Snapshot test_table before any test runs, restore on teardown."""
-    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    client = create_client(
+        SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(httpx_client=httpx.Client())
+    )
     baseline = client.table(TEST_TABLE).select("*").execute().data
     yield
     client.table(TEST_TABLE).delete().neq("id", IMPOSSIBLE_UUID).execute()

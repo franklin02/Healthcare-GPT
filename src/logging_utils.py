@@ -21,13 +21,43 @@ LOG_TIMESTAMP_FORMATS = (
     "%Y-%m-%d %H:%M:%S",
 )
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_CONFIG_PATH = _PROJECT_ROOT / "config.cfg"
+
+
+def _load_config_file() -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not _CONFIG_PATH.exists():
+        return values
+
+    for raw_line in _CONFIG_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+
+    return values
+
+
+_CONFIG = _load_config_file()
+
 # Logger Levels:
 # DEBUG: Detailed information, typically of interest only when diagnosing problems
 # INFO: Useful information to log under normal circumstances
 # WARNING: An indication that something unexpected happened, or indicative of some problem in the near future. The program continues to run
 # ERROR: A serious issue has caused the program to fail
 # CRITICAL: Not really used here, but a even more serious issue than an error
-LOGGER_LEVEL = logging.INFO
+def _resolve_logger_level() -> int:
+    level_text = _CONFIG.get("LOG_LEVEL", "INFO").strip()
+    if not level_text:
+        return logging.INFO
+    if level_text.isdigit():
+        return int(level_text)
+    return getattr(logging, level_text.upper(), logging.INFO)
+
+
+LOGGER_LEVEL = _resolve_logger_level()
 
 
 class RetentionFileHandler(logging.FileHandler):

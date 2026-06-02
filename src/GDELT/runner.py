@@ -41,9 +41,13 @@ from src.logging_utils import get_file_logger
 from src.shared_utils import (
     AI_MODEL,
     ai_check_validation,
+    BODY_CHAR_LIMIT,
     ensure_model_available,
     extract_fields,
     get_body,
+    get_config_bool,
+    get_config_int,
+    get_config_value,
     get_title,
     model_unavailable_error,
 )
@@ -58,8 +62,6 @@ ENRICHED_DIR = RAW_GDELT_DIR / "enriched"
 
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "gdelt_runner.log"
-
-BODY_CHAR_LIMIT = 4000
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
 try:
@@ -89,6 +91,15 @@ def _bert_status() -> str:
     except Exception as exc:
         LOGGER.warning("Failed to describe BERT model: %s", exc)
         return "BERT pre-filter: enabled"
+
+
+def _resolve_config_path(raw_value: str | None, fallback: Path) -> Path:
+    if not raw_value:
+        return fallback
+    path_value = Path(raw_value)
+    if path_value.is_absolute():
+        return path_value
+    return PROJECT_ROOT / path_value
 
 
 def stable_id(url: str) -> str:
@@ -427,7 +438,10 @@ def run(
         if seen_urls_path.suffix.lower() != ".json":
             seen_urls_path = seen_urls_path / "seen_urls.json"
     else:
-        seen_urls_path = None
+        seen_urls_path = _resolve_config_path(
+            get_config_value("SEEN_URLS_FILE", None),
+            PROJECT_ROOT / "data" / "seen_urls.json",
+        )
 
     # Validate subsectors early
     valid_subsectors = set(SUBSECTOR_THEMES.keys()) | {"all"}
@@ -533,7 +547,11 @@ def run(
             out_path if out_path.suffix.lower() == ".json" else out_path / "GDELT.json"
         )
     else:
-        out_file = default_out_dir / "GDELT.json"
+        out_file = _resolve_config_path(
+            get_config_value("OUTPUT_PATH", None), default_out_dir / "GDELT.json"
+        )
+        if out_file.suffix.lower() != ".json":
+            out_file = out_file / "GDELT.json"
     LOGGER.debug("Output file resolved to %s", out_file)
 
     out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -589,54 +607,54 @@ if __name__ == "__main__":
         "--num-files",
         "-n",
         type=int,
-        default=2,
+        default=get_config_int("GDELT_NUM_FILES", 2),
         help="GDELT GKG files to scan (default: 2 ~= 30 min of data)",
     )
     parser.add_argument(
         "--limit",
         "-l",
         type=int,
-        default=None,
+        default=get_config_int("GDELT_LIMIT", None),
         help="Cap on seeds to process; useful for smoke-testing (default: 3 unless --num-files is explicitly provided)",
     )
     parser.add_argument(
         "--output-path",
         "-o",
-        default=None,
+        default=get_config_value("OUTPUT_PATH", "data/output/results.json"),
         help="Output JSON file or directory. If a directory is provided, GDELT.json is written inside it. (default: data/processed/GDELT.json)",
     )
     parser.add_argument(
         "--start-date",
-        default=None,
+        default=get_config_value("GDELT_START_DATE", None),
         help="Earliest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)",
     )
     parser.add_argument(
         "--end-date",
-        default=None,
+        default=get_config_value("GDELT_END_DATE", None),
         help="Latest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)",
     )
     parser.add_argument(
         "--seen-urls-file",
-        default=None,
+        default=get_config_value("SEEN_URLS_FILE", None),
         help="Path to store/load seen URLs JSON file (default: data/seen_urls.json)",
     )
     parser.add_argument(
         "--subsectors",
         "-s",
-        default="all",
+        default=get_config_value("GDELT_SUBSECTORS", "all"),
         help="Comma-separated subsectors to scan, or all",
     )
     parser.add_argument(
         "--use-bert",
         action="store_true",
-        default=False,
+        default=get_config_bool("USE_BERT", False),
         help="Run BERT pre-filter before LLM validation to skip unrelated articles early",
     )
     parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
-        default=False,
+        default=get_config_bool("VERBOSE", False),
         help="Show detailed per-article pipeline output",
     )
     args = parser.parse_args()

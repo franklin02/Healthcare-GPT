@@ -54,9 +54,11 @@ Command arguments:
 If you need to isolate stages for testing / benchmarking without running the full end-to-end pipeline:
 
 Check GDELT seed filtering without scraping:
-- Run `python src/GDELT/gdelt_seeds.py` from the repository root to test the
-  regex and theme filters. It prints matched URLs without scraping their
-  content or triggering the LLM validation step.
+- Import `backfill_cyber_seeds()` from `src.GDELT.gdelt_seeds` in a Python
+  shell or scratch script to test the regex and theme filters without running
+  article scraping or LLM validation.
+- For a GDELT module smoke test through the supported CLI path, run
+  `python -m src.GDELT.runner --num-files 1 --limit 0`.
 
 Test URL scraping and AI validation without GDELT:
 - Import `filter_with_gemma()` from `src/GDELT/gemma.py` and pass a

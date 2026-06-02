@@ -69,7 +69,7 @@ python -m src.GDELT.runner --start-date 20260101 --end-date 20260131 --subsector
 After reviewing processed records, index them for the local chat app:
 
 ```bash
-python src/ingest.py --file data/processed/GDELT.json
+python -m src.ingest --file data/processed/GDELT.json
 ```
 
 Then run the app:

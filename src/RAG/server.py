@@ -63,7 +63,7 @@ def get_chain():
     # check for the vector store
     if not Path(CHROMA_DIR).exists():
         raise RuntimeError(
-            "Vector store not found. Run: python src/ingest.py --file <path_to_json_file>.json"
+            "Vector store not found. Run: python -m src.ingest --file <path_to_json_file>.json"
         )
 
     # use the same embedding as ingest.py

@@ -256,7 +256,7 @@ The runner writes final records to `data/processed/GDELT.json` by default.
 ### Quick start
 
 ```bash
-python src/ingest.py --file data/processed/AHA.json --force
+python -m src.ingest --file data/processed/AHA.json --force
 uvicorn src.RAG.server:app --reload
 ```
 

@@ -18,6 +18,9 @@ Attributes:
     - `SUBSECTOR_FIELDS`: A dictionary that maps subsectors to their specific fields.
 
 Functions:
+    - `get_config_value`: Retrieves a configuration value by name, with an optional default.
+    - `get_config_bool`: Retrieves a boolean configuration value by name, with an optional default.
+    - `get_config_int`: Retrieves an integer configuration value by name, with an optional default.
     - `get_page`: Retrieves web page content for a given URL, handling HTTP requests.
     - `_site_filename`: Generates or retrieves specific filename associated with a site.
     - `check_valid_file`: Validates files against specific criteria.
@@ -56,10 +59,91 @@ from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from src.logging_utils import get_file_logger
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_CONFIG_PATH = _PROJECT_ROOT / "src" / "config" / "config.cfg"
 
-AI_URL = "http://localhost:11434/api/generate"
-AI_MODEL = "llama3.2:latest"
-MIN_BODY_CHARS_FOR_LLM = 150
+
+def _load_config_file() -> dict[str, str]:
+    """
+    Load configuration values from the config.cfg file into a dictionary.
+
+    Returns:
+        dict[str, str]: A dictionary containing configuration key-value pairs. If the config file does not exist, returns an empty dictionary.
+    """
+    values: dict[str, str] = {}
+    if not _CONFIG_PATH.exists():
+        return values
+
+    for raw_line in _CONFIG_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+
+    return values
+
+
+_CONFIG = _load_config_file()
+
+
+def get_config_value(name: str, default: str | None = None) -> str | None:
+    """
+    Retrieve a configuration value by name, with an optional default.
+
+    Parameters:
+        name (str): The name of the configuration variable to retrieve.
+        default (str | None): An optional default value to return if the configuration variable is not set or is empty. Defaults to None.
+
+    Returns:
+        str | None: The value of the configuration variable if it exists and is not empty; otherwise, returns the provided default value.
+    """
+    value = _CONFIG.get(name)
+    if value is None or value == "":
+        return default
+    return value
+
+
+def get_config_bool(name: str, default: bool = False) -> bool:
+    """
+    Retrieve a boolean configuration value by name, with an optional default.
+
+    Parameters:
+        name (str): The name of the configuration variable to retrieve.
+        default (bool): An optional default value to return if the configuration variable is not set or is empty. Defaults to False.
+
+    Returns:
+        bool: The boolean value of the configuration variable if it exists and is not empty; otherwise, returns the provided default value. The function interprets "true" and "yes" (case-insensitive) as True, and any other non-empty value as False.
+    """
+    value = get_config_value(name)
+    if value is None:
+        return default
+    return value.lower() in {"true", "yes"}
+
+
+def get_config_int(name: str, default: int | None = None) -> int | None:
+    """
+    Retrieve an integer configuration value by name, with an optional default.
+
+    Parameters:
+        name (str): The name of the configuration variable to retrieve.
+        default (int | None): An optional default value to return if the configuration variable is not set or is empty. Defaults to None.
+
+    Returns:
+        int | None: The integer value of the configuration variable if it exists and is not empty; otherwise, returns the provided default value.
+    """
+    value = get_config_value(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+AI_URL = get_config_value("AI_URL", "http://localhost:11434/api/generate")
+AI_MODEL = get_config_value("AI_MODEL", "llama3.2:latest")
+MIN_BODY_CHARS_FOR_LLM = get_config_int("MIN_BODY_CHARS_FOR_LLM", 150) or 150
+BODY_CHAR_LIMIT = get_config_int("BODY_CHAR_LIMIT", 4000) or 4000
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "shared_utils.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)

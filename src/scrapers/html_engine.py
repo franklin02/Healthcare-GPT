@@ -22,6 +22,8 @@ from src.shared_utils import (
     check_valid_file,
     ensure_model_available,
     extract_fields,
+    get_config_bool,
+    get_config_int,
     get_page,
     is_known_article,
     model_unavailable_error,
@@ -419,9 +421,13 @@ def run_html_scraper(
     starting_page = (
         starting_page
         if starting_page is not None
-        else site_config["map"]["starting_page"]
+        else get_config_int("HTML_START_PAGE", site_config["map"]["starting_page"])
     )
-    cap = page_cap if page_cap is not None else site_config["map"]["cap"]
+    cap = (
+        page_cap
+        if page_cap is not None
+        else get_config_int("HTML_PAGE_CAP", site_config["map"]["cap"])
+    )
     current_page = starting_page
 
     """
@@ -673,26 +679,26 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use-bert",
         action="store_true",
-        default=False,
+        default=get_config_bool("USE_BERT", False),
         help="Run BERT pre-filter before LLM validation to skip unrelated articles early",
     )
     parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
-        default=False,
+        default=get_config_bool("VERBOSE", False),
         help="Show detailed per-article scraper output",
     )
     parser.add_argument(
         "--start-page",
         type=int,
-        default=None,
+        default=get_config_int("HTML_START_PAGE", None),
         help="Override configured starting page for every HTML site",
     )
     parser.add_argument(
         "--page-cap",
         type=int,
-        default=None,
+        default=get_config_int("HTML_PAGE_CAP", None),
         help="Override configured max page number for every HTML site (-1 for unlimited)",
     )
     args = parser.parse_args()

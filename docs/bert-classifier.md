@@ -68,7 +68,7 @@ This keeps BERT inputs small and consistent across news sites.
 - `run_bert_inference({"title": "...", "body": "..."})` classifies one article.
 - `src/shared_utils.py` can call BERT before LLM validation when
   `ai_check_validation(..., use_bert=True)` is used.
-- `src/ingest.py --use-bert` enables the same pre-screen before ingestion-time
+- `python -m src.ingest --use-bert` enables the same pre-screen before ingestion-time
   LLM validation.
 
 ## Where It Fits

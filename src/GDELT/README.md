@@ -26,6 +26,10 @@ Run the pipeline from the repository root. Keep Ollama running locally before
 commands that perform LLM validation or extraction. The current shared
 validation model is configured in `src/shared_utils.py` as `AI_MODEL`.
 
+Use module execution (`python -m src.GDELT.runner ...`) for pipeline entrypoints.
+Direct file execution such as `python src/GDELT/runner.py` may work in some
+local environments, but it is not the documented or tested execution path.
+
 Basic run (to process 2 recent GDELT files, test with 3 URLs):
 
 `python -m src.GDELT.runner --num-files 2 --limit 3`
@@ -54,9 +58,11 @@ Command arguments:
 If you need to isolate stages for testing / benchmarking without running the full end-to-end pipeline:
 
 Check GDELT seed filtering without scraping:
-- Run `python src/GDELT/gdelt_seeds.py` from the repository root to test the
-  regex and theme filters. It prints matched URLs without scraping their
-  content or triggering the LLM validation step.
+- Import `backfill_cyber_seeds()` from `src.GDELT.gdelt_seeds` in a Python
+  shell or scratch script to test the regex and theme filters without running
+  article scraping or LLM validation.
+- For a GDELT module smoke test through the supported CLI path, run
+  `python -m src.GDELT.runner --num-files 1 --limit 0`.
 
 Test URL scraping and AI validation without GDELT:
 - Import `filter_with_gemma()` from `src/GDELT/gemma.py` and pass a

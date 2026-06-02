@@ -5,34 +5,32 @@ The runner accepts optional pagination overrides so the orchestrator can expand
 or shrink HTML runs without changing source configuration.
 """
 
-import time
 import datetime
+import time
 import uuid
 from pathlib import Path
-import sys as _sys
 from urllib.parse import urlparse
+
 from bs4 import BeautifulSoup
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(_PROJECT_ROOT) not in _sys.path:
-    _sys.path.insert(0, str(_PROJECT_ROOT))
-
-from src.shared_utils import (  # noqa: E402
+from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
+from src.cli_reporter import CliReporter, PipelineStats
+from src.logging_utils import get_file_logger
+from src.shared_utils import (
     AI_MODEL,
     ai_check_validation,
+    check_valid_file,
+    ensure_model_available,
     extract_fields,
     get_page,
-    check_valid_file,
     is_known_article,
-    prepend_vuln_csv,
-    prepend_noise_csv,
-    prepend_json_sources,
-    ensure_model_available,
     model_unavailable_error,
-)  # noqa: E402
-from src.classes import Vulnerability, SUBSECTOR_DATA_CLASSES  # noqa: E402
-from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
-from src.logging_utils import get_file_logger  # noqa: E402
+    prepend_json_sources,
+    prepend_noise_csv,
+    prepend_vuln_csv,
+)
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "html_engine.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)

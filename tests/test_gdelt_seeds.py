@@ -1,7 +1,7 @@
 from unittest.mock import Mock, patch
 import io
 import zipfile
-from src.GDELT import gdelt_seeds
+import src.GDELT.gdelt_seeds as gdelt_seeds
 
 
 class TestIsUsLocated:

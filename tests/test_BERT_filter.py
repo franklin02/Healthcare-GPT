@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from src.GDELT import BERT_filter
+import src.GDELT.BERT_filter as BERT_filter
 
 
 @pytest.fixture(autouse=True)

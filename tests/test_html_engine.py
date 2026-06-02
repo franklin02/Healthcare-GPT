@@ -5,7 +5,7 @@ import pytest
 
 from src.cli_reporter import CliReporter, PipelineStats
 from src.shared_utils import model_unavailable_error
-from src.scrapers import html_engine
+import src.scrapers.html_engine as html_engine
 
 
 @pytest.fixture(autouse=True)

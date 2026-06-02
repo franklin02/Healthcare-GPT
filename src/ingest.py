@@ -423,21 +423,15 @@ def log_duplicate(
 def _is_valid_disruption(record: dict, *, use_bert: bool) -> bool:
     """Return True if the record describes an active healthcare disruption.
 
-    Calls ``ai_check_validation`` from ask_llm with the ``use_bert`` flag so
-    the caller controls which pipeline (LLM-only vs BERT) is used.
-    Skips classification and returns True when ask_llm is not importable
+    Calls ``ai_check_validation`` with the ``use_bert`` flag so the caller
+    controls which pipeline (LLM-only vs BERT) is used.
+    Skips classification and returns True when the classifier is not importable
     (e.g. Ollama not running), so ingestion can still proceed.
     """
-    import sys
-
-    scrapers_dir = str(Path(__file__).resolve().parent / "scrapers")
-    if scrapers_dir not in sys.path:
-        sys.path.insert(0, scrapers_dir)
-
     try:
-        from ask_llm import ai_check_validation  # type: ignore[import]
+        from src.shared_utils import ai_check_validation
     except ImportError:
-        print("         [WARN] ask_llm not found — skipping classification gate")
+        print("         [WARN] classifier not found — skipping classification gate")
         return True
 
     title = str(record.get("title", ""))

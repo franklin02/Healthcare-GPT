@@ -100,7 +100,6 @@ completed records to the configured GDELT output file, and preserves
 `data/raw/gdelt/seeds/` so later recovery or stitching work can inspect the
 remaining staged seeds.
 
-This is a graceful stop with state preservation, not an automatic resume. The
-HTML scraper path does not yet have the same behavior because it buffers output
-until a site finishes; adding equivalent support there requires flushing accepted
-HTML records on interrupt.
+This is a graceful stop with state preservation, not an automatic resume. When
+run through the orchestrator, a paused GDELT stage also prevents later pipeline
+stages from starting.

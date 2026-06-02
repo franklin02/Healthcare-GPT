@@ -94,14 +94,17 @@ uvicorn src.RAG.server:app --reload
 
 ## Graceful Interrupts
 
-The GDELT runner handles `Ctrl-C` during seed processing as a graceful stop. It
-saves seen URLs, writes completed records, reports the run as paused, and keeps
-`data/raw/gdelt/seeds/` intact for future recovery or stitching work. The
-orchestrator skips later pipeline stages after a paused GDELT run.
+The orchestrator treats `Ctrl-C` during long-running pipeline work as a graceful
+stop. The active pipeline reports the run as paused, flushes completed work, and
+the orchestrator skips later stages before printing the run summary.
 
-This behavior is currently GDELT-only. HTML scraper runs should eventually get
-equivalent interrupt handling, but they need explicit flush-on-stop behavior
-because accepted HTML records are buffered until each site finishes.
+GDELT saves seen URLs, writes completed records, and keeps
+`data/raw/gdelt/seeds/` intact for future recovery or stitching work. HTML
+scraper runs flush buffered accepted/rejected rows for the active site before
+the orchestrator skips remaining HTML sites.
+
+This is state preservation, not automatic resume. Full resume/stitching remains
+future work.
 
 ## HTML Pagination Controls
 

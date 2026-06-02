@@ -323,7 +323,24 @@ def flush_html_outputs(
     reporter: CliReporter,
     stats: PipelineStats,
 ) -> None:
-    """Write buffered HTML scraper outputs using the normal destination helpers."""
+    """
+    Flush buffered HTML scraper outputs to the configured destination helpers.
+
+    HTML site runs accumulate accepted vulnerability rows, rejected/noise rows,
+    and JSON-ready vulnerability objects in memory while a site is processed.
+    This helper provides one shared write path for normal completion and
+    graceful interrupt handling so a paused run does not lose buffered work.
+
+    Parameters:
+        site_name: Configured HTML source name used to select destination files.
+        new_rows: Vulnerability CSV rows collected during the current site run.
+        new_noise_rows: Rejected/noise CSV rows collected during the current
+            site run.
+        new_vulns: Vulnerability objects collected during the current site run.
+        reporter: Reporter used to print the flush summary.
+        stats: Pipeline statistics updated with the number of flushed
+            vulnerability records.
+    """
     reporter.finish_line()
     prepend_vuln_csv(site_name, new_rows)
     prepend_noise_csv(site_name, new_noise_rows)
@@ -368,6 +385,12 @@ def run_html_scraper(
 
     Returns:
         The populated ``PipelineStats`` for the site.
+
+    Interrupt behavior:
+        Pressing ``Ctrl-C`` during page fetch, article validation, extraction,
+        or inter-page delay marks the site stats as paused, flushes any buffered
+        outputs through ``flush_html_outputs``, and returns the stats object to
+        the orchestrator so remaining sites can be skipped.
     """
     local_reporter = reporter is None
     reporter = reporter or CliReporter(verbose=verbose)

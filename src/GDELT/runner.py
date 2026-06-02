@@ -261,7 +261,27 @@ def write_output_records(
     reporter: CliReporter,
     stats: PipelineStats,
 ) -> Path:
-    """Write completed GDELT records to the configured processed JSON output."""
+    """
+    Write completed GDELT records to the configured processed JSON output.
+
+    This helper centralizes the final output write so normal completion and
+    graceful interrupt handling use the same merge behavior. Records are
+    converted to dictionaries, publication dates are normalized through
+    ``fmt_dt``, and existing output files are merged when they already contain a
+    ``sources`` list or legacy list-shaped output.
+
+    Parameters:
+        records: Completed vulnerability records ready for processed output.
+        output_path: Optional JSON file or directory path. Directory paths write
+            ``GDELT.json`` inside the directory; ``None`` writes to the default
+            processed GDELT output.
+        reporter: Reporter used to print the write summary.
+        stats: Pipeline statistics updated with the number of newly written
+            output records.
+
+    Returns:
+        The resolved output file path that was written.
+    """
     default_out_dir = PROJECT_ROOT / "data" / "processed"
     if output_path:
         out_path = Path(output_path)
@@ -451,6 +471,12 @@ def run(
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
+
+     Interrupt behavior:
+        Pressing ``Ctrl-C`` while a seed is being processed marks the run as
+        paused, saves seen URLs, writes any completed records through
+        ``write_output_records``, preserves seed staging, and returns the
+        completed records collected before the interrupt.
     """
     LOGGER.debug(
         "Run started num_files=%s limit=%s subsectors=%s start_date=%s end_date=%s output_path=%s",

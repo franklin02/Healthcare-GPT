@@ -4,6 +4,7 @@ from src.cli_reporter import CliReporter, PipelineStats
 
 
 def test_progress_uses_unicode_bar_by_default():
+    """Progress output should use the unicode bar when the stream supports it."""
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
 
@@ -13,6 +14,7 @@ def test_progress_uses_unicode_bar_by_default():
 
 
 def test_progress_redraws_until_complete():
+    """Progress updates should redraw in place and finish with one newline."""
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
 
@@ -40,6 +42,7 @@ def test_status_redraws_active_progress_line_below():
 
 
 def test_warning_is_hidden_by_default_but_counted():
+    """Default-mode warnings should increment stats without printing output."""
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
     stats = PipelineStats("test")
@@ -51,6 +54,7 @@ def test_warning_is_hidden_by_default_but_counted():
 
 
 def test_verbose_warning_prints_and_redraws_progress():
+    """Verbose warnings should print above and redraw the active progress line."""
     stream = io.StringIO()
     reporter = CliReporter(verbose=True, stream=stream)
 
@@ -64,6 +68,7 @@ def test_verbose_warning_prints_and_redraws_progress():
 
 
 def test_detail_only_prints_when_verbose():
+    """Detail messages should only print when verbose mode is enabled."""
     quiet_stream = io.StringIO()
     CliReporter(verbose=False, stream=quiet_stream).detail("hidden")
 
@@ -75,6 +80,7 @@ def test_detail_only_prints_when_verbose():
 
 
 def test_info_prints_in_default_mode():
+    """Info messages should print even when verbose mode is disabled."""
     stream = io.StringIO()
     CliReporter(verbose=False, stream=stream).info("important context")
 
@@ -82,6 +88,7 @@ def test_info_prints_in_default_mode():
 
 
 def test_tick_draws_sticky_counter_line():
+    """Tick output should update a sticky counter line until it is finished."""
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
 
@@ -96,6 +103,7 @@ def test_tick_draws_sticky_counter_line():
 
 
 def test_summary_prints_core_counts():
+    """Summary output should include core counters and rejection rate."""
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
     stats = PipelineStats(
@@ -116,6 +124,7 @@ def test_summary_prints_core_counts():
 
 
 def test_summary_prints_paused_state():
+    """Paused stats should render an explicit paused line in the summary."""
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
     stats = PipelineStats("GDELT", paused=True)
@@ -128,6 +137,7 @@ def test_summary_prints_paused_state():
 
 
 def test_stats_merge_preserves_paused_state():
+    """Merging paused child stats should mark the aggregate stats as paused."""
     combined = PipelineStats("Combined")
     gdelt = PipelineStats("GDELT", paused=True)
 

@@ -13,7 +13,7 @@ def pipeline_mock(monkeypatch):
 
 def test_get_device_returns_0_when_cuda_available():
     """Test that get_device returns 0 when CUDA is available."""
-    with patch("src.GDELT.BERT_filter.torch.cuda.is_available", return_value=True):
+    with patch("torch.cuda.is_available", return_value=True):
         result = BERT_filter.get_device()
         assert result == 0
 
@@ -21,10 +21,8 @@ def test_get_device_returns_0_when_cuda_available():
 def test_get_device_returns_mps_when_only_mps_available():
     """Test that get_device returns 'mps' when CUDA is unavailable but MPS is available."""
     with (
-        patch("src.GDELT.BERT_filter.torch.cuda.is_available", return_value=False),
-        patch(
-            "src.GDELT.BERT_filter.torch.backends.mps.is_available", return_value=True
-        ),
+        patch("torch.cuda.is_available", return_value=False),
+        patch("torch.backends.mps.is_available", return_value=True),
     ):
         result = BERT_filter.get_device()
         assert result == "mps"
@@ -33,10 +31,8 @@ def test_get_device_returns_mps_when_only_mps_available():
 def test_get_device_returns_minus_1_when_no_devices_available():
     """Test that get_device returns -1 when neither CUDA nor MPS is available."""
     with (
-        patch("src.GDELT.BERT_filter.torch.cuda.is_available", return_value=False),
-        patch(
-            "src.GDELT.BERT_filter.torch.backends.mps.is_available", return_value=False
-        ),
+        patch("torch.cuda.is_available", return_value=False),
+        patch("torch.backends.mps.is_available", return_value=False),
     ):
         result = BERT_filter.get_device()
         assert result == -1

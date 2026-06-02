@@ -6,6 +6,8 @@ handful of required fields on each source entry so schema regressions are
 detected early in tests or local workflows.
 
 Use by adding the path of the JSON file to validate as an argument.
+
+Usage: python json_validation.py [-n --normalize] path/to/file.json
 """
 
 from __future__ import annotations

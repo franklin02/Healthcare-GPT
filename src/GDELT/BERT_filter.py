@@ -123,9 +123,14 @@ def load_model(verbose: bool = False):
     device_label = _device_label(device)
     if verbose:
         print(f"[DEBUG] Looking for finetuned model at: {FINETUNE_BERT_PATH}")
+    LOGGER.debug("Looking for finetuned model at: %s", FINETUNE_BERT_PATH)
     MODEL_ID = _selected_model_id()
     if MODEL_ID == FALLBACK_MODEL_ID and verbose:
-        print("[WARN] Finetuned model not found, reverting to base model.")
+        print("[WARNING] Finetuned model not found, reverting to base model.")
+        LOGGER.warning(
+            "Finetuned model not found at %s, reverting to base model.",
+            FINETUNE_BERT_PATH,
+        )
 
     try:
         from transformers import AutoTokenizer
@@ -144,7 +149,7 @@ def load_model(verbose: bool = False):
         return model
     except Exception as e:
         if verbose:
-            print(f"[WARN] Failed to load BERT model: {e}")
+            print(f"[WARNING] Failed to load BERT model: {e}")
         LOGGER.warning("Failed to load BERT model: %s", e)
         return None
 
@@ -194,6 +199,7 @@ def run_bert_inference(data: dict, classifier=None, verbose: bool = False) -> st
 
         if verbose:
             print(f"[BERT] top label: '{top_label}' (score: {top_score:.2f})")
+        LOGGER.debug(f"[BERT] top label: '{top_label}' (score: {top_score:.2f})")
 
         if top_score < 0.15:
             return "none"

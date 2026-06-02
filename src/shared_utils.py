@@ -249,21 +249,18 @@ def check_valid_file(site_name):
     json_path = READY_FOR_RAG_DIR / f"{stem}.json"
     if not json_path.exists():
         json_path.write_text(json.dumps({"sources": []}, indent=4), encoding="utf-8")
-        print(f"Created {json_path}")
         LOGGER.debug("Created JSON file for site %s at %s", site_name, json_path)
 
     noise_path = NOISE_DIR / f"{stem}.csv"
     if not noise_path.exists():
         with open(noise_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(NOISE_CSV_HEADER)
-        print(f"Created {noise_path}")
         LOGGER.debug("Created noise CSV file for site %s at %s", site_name, noise_path)
 
     vulnerabilities_path = VULNERABILITIES_DIR / f"{stem}.csv"
     if not vulnerabilities_path.exists():
         with open(vulnerabilities_path, "w", newline="", encoding="utf-8") as f:
             csv.writer(f).writerow(VULN_CSV_HEADER)
-        print(f"Created {vulnerabilities_path}")
         LOGGER.debug(
             "Created vulnerabilities CSV file for site %s at %s",
             site_name,
@@ -477,7 +474,8 @@ def get_title(url: str) -> str:
         resp = requests.get(url, timeout=30, headers=HEADERS)
         resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
+        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
+        print(f"[WARNING] Failed to fetch {url[:80]}: {e}")
         return url
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -523,8 +521,8 @@ def get_body(url: str) -> str:
         resp = requests.get(url, timeout=30, headers=HEADERS)
         resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"[ERROR] Failed to fetch {url[:80]}: {e}")
-        LOGGER.error("Failed to fetch URL %s: %s", url, e)
+        print(f"[WARNING] Failed to fetch {url[:80]}: {e}")
+        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
         return ""
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -845,8 +843,8 @@ def ai_check_validation(
         return is_threat, detail
 
     except Exception as e:
-        print(f"Error parsing AI response: {e}")
-        LOGGER.error("Error parsing AI response for title %s: %s", title, e)
+        print(f"[WARNING] Error parsing AI response: {e}")
+        LOGGER.warning("Error parsing AI response for title %s: %s", title, e)
         return False, "Parsing Error"
 
 
@@ -1013,7 +1011,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         return sector_data, subsector_data
 
     except Exception as e:
-        LOGGER.error("Error extracting fields for title %s: %s", title, e)
+        LOGGER.warning("Error extracting fields for title %s: %s", title, e)
         return (
             {k: None for k in LLM_SECTOR_FIELDS},
             {k: None for k in subsector_fields},

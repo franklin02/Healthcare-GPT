@@ -61,8 +61,12 @@ def _bert_status() -> str:
         from src.GDELT.BERT_filter import describe_model
 
         model_id, device_label = describe_model()
+        LOGGER.info("BERT pre-filter enabled: %s on %s", model_id, device_label)
         return f"BERT pre-filter: {model_id} using {device_label}"
     except Exception:
+        LOGGER.warning(
+            "Could not load BERT filter for status description", exc_info=True
+        )
         return "BERT pre-filter: enabled"
 
 
@@ -204,6 +208,11 @@ def fetch_html_page(
             "check HTML_SITES config",
             stats,
         )
+        LOGGER.warning(
+            "container '%s' matched 0 elements on %s; check HTML_SITES config",
+            m["container"],
+            page_url,
+        )
         return [], False
 
     # Creates a set of valid articles with their respective links
@@ -288,6 +297,7 @@ def fetch_html_page(
             reporter.warn(
                 f"Could not fetch article body at {entry['link']}: {e}", stats
             )
+            LOGGER.warning("Error fetching article body at %s: %s", entry["link"], e)
             if stats is not None:
                 stats.skipped += 1
             continue
@@ -301,6 +311,7 @@ def fetch_html_page(
             }
         )
 
+    LOGGER.info("Fetched %d articles from %s", len(articles), page_url)
     return articles, stop
 
 
@@ -401,6 +412,13 @@ def run_html_scraper(
                 f"Fetching {site_config['name']} page {current_page} ({page_url}): {e}",
                 stats,
             )
+            LOGGER.warning(
+                "Error fetching %s page %d (%s): %s",
+                site_config["name"],
+                current_page,
+                page_url,
+                e,
+            )
             return stats
 
         if not articles:
@@ -432,6 +450,7 @@ def run_html_scraper(
                         continue
                 except Exception as e:
                     reporter.warn(f"is_known_db check failed: {e}", stats)
+                    LOGGER.warning("is_known_db check failed: %s", e)
 
             try:
                 is_threat, detail = ai_check_validation(
@@ -439,7 +458,7 @@ def run_html_scraper(
                 )
                 if is_threat:
                     if detail not in SUBSECTOR_FIELDS:
-                        print(
+                        LOGGER.warning(
                             f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
                         )
                         continue
@@ -490,14 +509,14 @@ def run_html_scraper(
                         ]
                     )
                     new_vulns.append(vuln)
-                    print(f"[VALID] ({vuln.subsector}): {vuln.title}")
+                    LOGGER.info(f"Validated article: {vuln.title}")
 
                     if SUPABASE_AVAILABLE:
                         try:
                             handle_vuln(vuln, reporter=reporter, stats=stats)
                         except Exception as e:
                             LOGGER.warning(
-                                "dedup/insert failed for %r: %s", vuln.title, e
+                                "insert_vuln failed for %s: %s", vuln.title, e
                             )
                 else:
                     stats.rejected += 1
@@ -526,12 +545,12 @@ def run_html_scraper(
                                 ),
                             )
                         except Exception as e:
-                            print(
-                                f"[WARNING] insert_noise failed for {article['title']!r}: {e}"
+                            LOGGER.warning(
+                                "insert_noise failed for %s: %s", article["title"], e
                             )
             except Exception as e:
-                print(
-                    f"[WARNING] Validation failed for {article.get('title', 'unknown')!r}: {e}"
+                LOGGER.warning(
+                    "Validation failed for %s: %s", article.get("title", "unknown"), e
                 )
                 continue
 
@@ -552,6 +571,12 @@ def run_html_scraper(
     )
     if local_reporter:
         reporter.summary(stats)
+    LOGGER.info(
+        "Finished %s: %d vuln(s), %d rejected",
+        site_config["name"],
+        len(new_vulns),
+        len(new_noise_rows),
+    )
     return stats
 
 

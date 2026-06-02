@@ -23,6 +23,9 @@ LOGGER = get_file_logger(__name__, LOG_FILE)
 
 def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
     """Return whether any CLI option was supplied, including --option=value."""
+    LOGGER.debug(
+        "Checking if any of options %s were provided in args: %s", options, raw_args
+    )
     return any(
         arg == option or arg.startswith(f"{option}=")
         for arg in raw_args
@@ -154,6 +157,7 @@ def main(argv: list[str] | None = None) -> int:
 
         gdelt_stats = PipelineStats("GDELT")
         reporter.phase("Running GDELT pipeline")
+        LOGGER.info("Running GDELT pipeline with args: %s", args)
         runner.run(
             num_files=args.num_files,
             limit=effective_limit,
@@ -174,6 +178,7 @@ def main(argv: list[str] | None = None) -> int:
 
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")
+        LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
         for site in html_engine.HTML_SITES:
             site_stats = html_engine.run_html_scraper(
                 site,
@@ -189,6 +194,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if summaries:
         reporter.summary(summaries)
+    LOGGER.info("Orchestrator run complete with summaries: %s", summaries)
     return 0
 
 

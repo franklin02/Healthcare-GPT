@@ -1,6 +1,10 @@
 """
 Shared logging helpers for file-backed module loggers.
 
+Constants:
+- LOG_TIMESTAMP_FORMATS: Tuple of timestamp formats to try when parsing log lines for retention pruning
+- LOGGER_LEVEL: The logging level for the file logger
+
 Functions:
 - get_file_logger: Get a logger that writes DEBUG+ output to a specified file.
 """
@@ -16,6 +20,14 @@ LOG_TIMESTAMP_FORMATS = (
     "%Y-%m-%d %H:%M:%S,%f",
     "%Y-%m-%d %H:%M:%S",
 )
+
+# Logger Levels:
+# DEBUG: Detailed information, typically of interest only when diagnosing problems
+# INFO: Useful information to log under normal circumstances
+# WARNING: An indication that something unexpected happened, or indicative of some problem in the near future. The program continues to run
+# ERROR: A serious issue has caused the program to fail
+# CRITICAL: Not really used here, but a even more serious issue than an error
+LOGGER_LEVEL = logging.INFO
 
 
 class RetentionFileHandler(logging.FileHandler):
@@ -124,7 +136,7 @@ def get_file_logger(name: str, log_file: Path) -> logging.Logger:
     log_file.parent.mkdir(parents=True, exist_ok=True)
 
     logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(LOGGER_LEVEL)
 
     log_path = str(log_file)
     if not any(
@@ -133,7 +145,7 @@ def get_file_logger(name: str, log_file: Path) -> logging.Logger:
         for handler in logger.handlers
     ):
         handler = RetentionFileHandler(log_file, encoding="utf-8")
-        handler.setLevel(logging.DEBUG)
+        handler.setLevel(LOGGER_LEVEL)
         handler.setFormatter(
             logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
         )

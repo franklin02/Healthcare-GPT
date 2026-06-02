@@ -195,6 +195,12 @@ def main(argv: list[str] | None = None) -> int:
                 stats=PipelineStats(site["name"]),
             )
             html_stats.merge(site_stats)
+            if site_stats.paused:
+                summaries.append(html_stats)
+                reporter.info("HTML scraper paused; skipping remaining pipelines.")
+                reporter.summary(summaries)
+                LOGGER.info("HTML scraper paused; skipping remaining pipelines")
+                return 0
         summaries.append(html_stats)
 
     if summaries:

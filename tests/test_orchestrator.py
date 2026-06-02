@@ -107,6 +107,29 @@ def test_orchestrator_skips_html_after_gdelt_pause():
     mock_summary.assert_called_once()
 
 
+def test_orchestrator_skips_remaining_html_sites_after_html_pause():
+    """A paused HTML site should prevent later HTML sites from running."""
+    sites = [{"name": "SiteOne"}, {"name": "SiteTwo"}]
+    paused_stats = PipelineStats("SiteOne", paused=True)
+
+    with (
+        patch("src.orchestrator.ensure_model_available"),
+        patch("src.GDELT.runner.run"),
+        patch("src.scrapers.html_engine.HTML_SITES", sites),
+        patch(
+            "src.scrapers.html_engine.run_html_scraper",
+            return_value=paused_stats,
+        ) as mock_scraper,
+        patch("src.cli_reporter.CliReporter.summary") as mock_summary,
+    ):
+        result = orchestrator.main([])
+
+    assert result == 0
+    assert mock_scraper.call_count == 1
+    assert mock_scraper.call_args.kwargs["stats"].name == "SiteOne"
+    mock_summary.assert_called_once()
+
+
 def test_orchestrator_logs_model_availability_failure_before_pipelines():
     """Model availability check should fail before any scraping."""
     with (

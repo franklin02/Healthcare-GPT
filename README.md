@@ -79,8 +79,8 @@ sphinx-build -b html -E docs docs/_build/html
 ## GitHub Actions
 This repository uses GitHub Actions for two automation checks:
 
-- `Ruff Format` runs on every pull request and fails if Python files are not
-  formatted with Ruff.
+- `CI` runs on pull requests to `main` and fails if pytest, Ruff lint, or Ruff
+  formatting checks fail.
 - `Sphinx Docs` runs on pull requests and pushes to `main`. Pushes to `main`
   also publish the built docs to GitHub Pages.
 
@@ -89,6 +89,6 @@ automatically after they are merged.
 
 Repo admins still need to finish two settings in GitHub:
 
-1. In Settings -> Branches, require the Ruff status check before merging to
+1. In Settings -> Branches, require the CI status check before merging to
    `main`.
 2. In Settings -> Pages, set the publishing source to GitHub Actions.

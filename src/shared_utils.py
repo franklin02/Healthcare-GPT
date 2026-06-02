@@ -50,7 +50,6 @@ import tempfile
 import requests
 import sys
 from pathlib import Path
-import sys as _sys
 import re
 from bs4 import BeautifulSoup
 

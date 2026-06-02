@@ -92,6 +92,20 @@ uvicorn src.RAG.server:app --reload
 - `data/seen_urls.json`: URL history used to avoid duplicate processing.
 - `chroma_db/`: local vector store created by `src/ingest.py`.
 
+## Graceful Interrupts
+
+The orchestrator treats `Ctrl-C` during long-running pipeline work as a graceful
+stop. The active pipeline reports the run as paused, flushes completed work, and
+the orchestrator skips later stages before printing the run summary.
+
+GDELT saves seen URLs, writes completed records, and keeps
+`data/raw/gdelt/seeds/` intact for future recovery or stitching work. HTML
+scraper runs flush buffered accepted/rejected rows for the active site before
+the orchestrator skips remaining HTML sites.
+
+This is state preservation, not automatic resume. Full resume/stitching remains
+future work.
+
 ## HTML Pagination Controls
 
 Configured HTML sources keep their selector and pagination defaults in

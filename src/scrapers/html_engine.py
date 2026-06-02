@@ -317,6 +317,49 @@ def fetch_html_page(
     return articles, stop
 
 
+def flush_html_outputs(
+    site_name: str,
+    new_rows: list[list[str]],
+    new_noise_rows: list[list[str]],
+    new_vulns: list[Vulnerability],
+    reporter: CliReporter,
+    stats: PipelineStats,
+) -> None:
+    """
+    Flush buffered HTML scraper outputs to the configured destination helpers.
+
+    HTML site runs accumulate accepted vulnerability rows, rejected/noise rows,
+    and JSON-ready vulnerability objects in memory while a site is processed.
+    This helper provides one shared write path for normal completion and
+    graceful interrupt handling so a paused run does not lose buffered work.
+
+    Parameters:
+        site_name: Configured HTML source name used to select destination files.
+        new_rows: Vulnerability CSV rows collected during the current site run.
+        new_noise_rows: Rejected/noise CSV rows collected during the current
+            site run.
+        new_vulns: Vulnerability objects collected during the current site run.
+        reporter: Reporter used to print the flush summary.
+        stats: Pipeline statistics updated with the number of flushed
+            vulnerability records.
+    """
+    reporter.finish_line()
+    prepend_vuln_csv(site_name, new_rows)
+    prepend_noise_csv(site_name, new_noise_rows)
+    prepend_json_sources(site_name, new_vulns)
+    stats.output_records += len(new_vulns)
+    reporter.info(
+        f"Finished {site_name}: {len(new_vulns)} vuln(s), "
+        f"{len(new_noise_rows)} rejected"
+    )
+    LOGGER.info(
+        "Finished %s: %d vuln(s), %d rejected",
+        site_name,
+        len(new_vulns),
+        len(new_noise_rows),
+    )
+
+
 def run_html_scraper(
     site_config,
     use_bert: bool = False,
@@ -344,6 +387,12 @@ def run_html_scraper(
 
     Returns:
         The populated ``PipelineStats`` for the site.
+
+    Interrupt behavior:
+        Pressing ``Ctrl-C`` during page fetch, article validation, extraction,
+        or inter-page delay marks the site stats as paused, flushes any buffered
+        outputs through ``flush_html_outputs``, and returns the stats object to
+        the orchestrator so remaining sites can be skipped.
     """
     local_reporter = reporter is None
     reporter = reporter or CliReporter(verbose=verbose)
@@ -413,6 +462,19 @@ def run_html_scraper(
                 reporter=reporter,
                 stats=stats,
             )
+        except KeyboardInterrupt:
+            stats.paused = True
+            reporter.finish_line()
+            reporter.info(
+                f"HTML scraper paused by operator during {site_config['name']}; "
+                "flushing completed records."
+            )
+            LOGGER.info(
+                "HTML scraper paused by operator while fetching %s page %d",
+                site_config["name"],
+                current_page,
+            )
+            break
         except Exception as e:
             reporter.error(
                 f"Fetching {site_config['name']} page {current_page} ({page_url}): {e}",
@@ -554,35 +616,57 @@ def run_html_scraper(
                             LOGGER.warning(
                                 "insert_noise failed for %s: %s", article["title"], e
                             )
+            except KeyboardInterrupt:
+                stats.paused = True
+                reporter.finish_line()
+                reporter.info(
+                    f"HTML scraper paused by operator during {site_config['name']}; "
+                    "flushing completed records."
+                )
+                LOGGER.info(
+                    "HTML scraper paused by operator while processing %s article %s",
+                    site_config["name"],
+                    article.get("link", "unknown"),
+                )
+                break
             except Exception as e:
                 LOGGER.warning(
                     "Validation failed for %s: %s", article.get("title", "unknown"), e
                 )
                 continue
 
+        if stats.paused:
+            break
+
         if stop:
             break
 
         current_page += 1
-        time.sleep(0.5)
+        try:
+            time.sleep(0.5)
+        except KeyboardInterrupt:
+            stats.paused = True
+            reporter.finish_line()
+            reporter.info(
+                f"HTML scraper paused by operator during {site_config['name']}; "
+                "flushing completed records."
+            )
+            LOGGER.info(
+                "HTML scraper paused by operator between %s pages",
+                site_config["name"],
+            )
+            break
 
-    reporter.finish_line()
-    prepend_vuln_csv(site_config["name"], new_rows)
-    prepend_noise_csv(site_config["name"], new_noise_rows)
-    prepend_json_sources(site_config["name"], new_vulns)
-    stats.output_records += len(new_vulns)
-    reporter.info(
-        f"Finished {site_config['name']}: "
-        f"{len(new_vulns)} vuln(s), {len(new_noise_rows)} rejected"
+    flush_html_outputs(
+        site_config["name"],
+        new_rows,
+        new_noise_rows,
+        new_vulns,
+        reporter,
+        stats,
     )
     if local_reporter:
         reporter.summary(stats)
-    LOGGER.info(
-        "Finished %s: %d vuln(s), %d rejected",
-        site_config["name"],
-        len(new_vulns),
-        len(new_noise_rows),
-    )
     return stats
 
 

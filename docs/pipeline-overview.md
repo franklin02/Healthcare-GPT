@@ -44,6 +44,11 @@ analysis and retrieval.
 
 Run from the repository root:
 
+Pipeline entrypoints are supported through module execution. Use
+`python -m src...` commands rather than direct file execution such as
+`python src/GDELT/runner.py`. Direct file execution may work in some local
+environments, but it is not the documented or tested execution path.
+
 ```bash
 python -m src.GDELT.runner --num-files 2 --limit 3
 ```

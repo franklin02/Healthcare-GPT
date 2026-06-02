@@ -26,6 +26,10 @@ Run the pipeline from the repository root. Keep Ollama running locally before
 commands that perform LLM validation or extraction. The current shared
 validation model is configured in `src/shared_utils.py` as `AI_MODEL`.
 
+Use module execution (`python -m src.GDELT.runner ...`) for pipeline entrypoints.
+Direct file execution such as `python src/GDELT/runner.py` may work in some
+local environments, but it is not the documented or tested execution path.
+
 Basic run (to process 2 recent GDELT files, test with 3 URLs):
 
 `python -m src.GDELT.runner --num-files 2 --limit 3`

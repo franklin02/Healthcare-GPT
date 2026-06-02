@@ -24,8 +24,18 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+import sys
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from src.logging_utils import get_file_logger  # noqa: E402
+
+LOG_DIR = _PROJECT_ROOT / "data" / "logs"
+LOG_FILE = LOG_DIR / "data_migration.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
 
 PROCESSED_DIR = _PROJECT_ROOT / "data" / "processed"
 NOISE_DIR = _PROJECT_ROOT / "data" / "noise"
@@ -74,17 +84,19 @@ _BATCH_SIZE = 100
 def _skip_with_warning(file_label: str, reason: str, title: str) -> None:
     """Uniform skip log line for rows we refuse to emit."""
     snippet = (title or "").strip().replace("\n", " ")[:80]
-    print(f"[SKIP] {file_label}: {reason}: {snippet}")
+    LOGGER.info(f"[SKIP] {file_label}: {reason}: {snippet}")
 
 
 def _pick_dollar_tag(body: str) -> str:
     """Pick a dollar-quote tag that doesn't collide with the body."""
     base = "mig"
     if f"${base}$" not in body:
+        LOGGER.debug("Picked dollar tag $%s$ for body snippet: %s", base, body[:30])
         return base
     i = 1
     while f"${base}{i}$" in body:
         i += 1
+    LOGGER.debug("Picked dollar tag $%s$ for body snippet: %s", f"{base}{i}", body[:30])
     return f"{base}{i}"
 
 
@@ -102,15 +114,18 @@ def _quote_literal(value: object) -> str:
         return str(value)
     text = str(value)
     tag = _pick_dollar_tag(text)
+    LOGGER.debug("Quoted literal with tag $%s$: %s", tag, text[:30])
     return f"${tag}${text}${tag}$"
 
 
 def _quote_jsonb(obj: object) -> str:
     """Render any JSON-serializable object as a ``jsonb`` literal."""
     if obj is None:
+        LOGGER.debug("Quoted JSON null as NULL")
         return "'{}'::jsonb"
     payload = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
     tag = _pick_dollar_tag(payload)
+    LOGGER.debug("Quoted JSON with tag $%s$: %s", tag, payload[:30])
     return f"${tag}${payload}${tag}$::jsonb"
 
 
@@ -134,6 +149,7 @@ def _normalize_date(value: object) -> str | None:
         return None
     if not (len(y) == 4 and 1 <= int(m) <= 12 and 1 <= int(d) <= 31):
         return None
+    LOGGER.debug("Normalized date to %s-%s-%s", y, m, d)
     return f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
 
 
@@ -141,7 +157,9 @@ def _quote_date(value: object) -> str:
     """Render a value as a ``date`` SQL literal, or ``NULL``."""
     normalized = _normalize_date(value)
     if normalized is None:
+        LOGGER.debug("Quoted date as NULL for value: %s", value)
         return "NULL"
+    LOGGER.debug("Quoted date as '%s' for value: %s", normalized, value)
     return f"'{normalized}'::date"
 
 
@@ -159,7 +177,9 @@ def _quote_timestamptz(value: object) -> str | None:
     body = text.replace("T", " ").rstrip("Z").strip()
     if text.endswith("Z") or "+" in body or body.endswith("UTC"):
         body = body.replace("UTC", "").strip()
+        LOGGER.debug("Quoted timestamptz as '%s+00' for value: %s", body, value)
         return f"'{body}+00'::timestamptz"
+    LOGGER.debug("Quoted timestamptz as '%s+00' for value: %s", body, value)
     return f"'{body}+00'::timestamptz"
 
 
@@ -198,6 +218,7 @@ def _write_inserts(
             out_handle.write(",\n".join("  " + r for r in chunk))
             out_handle.write(f"\nON CONFLICT {conflict_target} DO NOTHING;\n")
         total += len(rows)
+    LOGGER.debug("Emitted %d rows into %s", total, table)
     return total
 
 
@@ -260,6 +281,7 @@ def _vuln_row_to_sql(
     else:
         columns = tuple(c for c in VULN_COLUMNS if c != "date_accessed")
 
+    LOGGER.debug("Built SQL for record with title: %s", title[:30])
     return _build_row_sql(columns, values), columns
 
 
@@ -268,11 +290,13 @@ def vulnerabilities_to_sql() -> None:
     SQL_DIR.mkdir(parents=True, exist_ok=True)
     if not PROCESSED_DIR.exists():
         print(f"[ERROR] {PROCESSED_DIR} does not exist; nothing to migrate")
+        LOGGER.error(f"{PROCESSED_DIR} does not exist; nothing to migrate")
         return
 
     json_files = sorted(PROCESSED_DIR.glob("*.json"))
     if not json_files:
         print(f"[WARN] No *.json files under {PROCESSED_DIR}")
+        LOGGER.warning(f"No *.json files under {PROCESSED_DIR}")
 
     # Group rows by (file_label, columns_used) so each multi-row INSERT has
     # a uniform column list.
@@ -287,12 +311,14 @@ def vulnerabilities_to_sql() -> None:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            print(f"[ERROR] Could not read {path}: {exc}")
+            print(f"[WARNING] Could not read {path}: {exc}")
+            LOGGER.warning(f"Could not read {path}: {exc}")
             continue
 
         sources = payload.get("sources", []) if isinstance(payload, dict) else []
         if not isinstance(sources, list):
-            print(f"[ERROR] {file_label}: 'sources' is not a list, skipping file")
+            print(f"[WARNING] {file_label}: 'sources' is not a list, skipping file")
+            LOGGER.warning(f"{file_label}: 'sources' is not a list, skipping file")
             continue
 
         rows_full: list[str] = []
@@ -344,6 +370,10 @@ def vulnerabilities_to_sql() -> None:
         f"[OK] Wrote {VULN_SQL_PATH.relative_to(_PROJECT_ROOT)}: "
         f"{valid_total} row(s), {skipped_total} skipped"
     )
+    LOGGER.info(
+        f"Wrote {VULN_SQL_PATH.relative_to(_PROJECT_ROOT)}: "
+        f"{valid_total} row(s), {skipped_total} skipped"
+    )
 
 
 def _noise_row_to_sql(
@@ -378,6 +408,7 @@ def _noise_row_to_sql(
     else:
         columns = tuple(c for c in NOISE_COLUMNS if c != "date_accessed")
 
+    LOGGER.debug("Built SQL for noise record with title: %s", title[:30])
     return _build_row_sql(columns, values), columns
 
 
@@ -385,12 +416,14 @@ def noise_to_sql() -> None:
     """Read every ``data/noise/*.csv`` and write ``sql/noise.sql``."""
     SQL_DIR.mkdir(parents=True, exist_ok=True)
     if not NOISE_DIR.exists():
-        print(f"[ERROR] {NOISE_DIR} does not exist; nothing to migrate")
+        print(f"[WARNING] {NOISE_DIR} does not exist; nothing to migrate")
+        LOGGER.warning(f"{NOISE_DIR} does not exist; nothing to migrate")
         return
 
     csv_files = sorted(NOISE_DIR.glob("*.csv"))
     if not csv_files:
-        print(f"[WARN] No *.csv files under {NOISE_DIR}")
+        print(f"[WARNING] No *.csv files under {NOISE_DIR}")
+        LOGGER.warning(f"No *.csv files under {NOISE_DIR}")
 
     groups_full: list[tuple[str, list[str]]] = []
     groups_no_da: list[tuple[str, list[str]]] = []
@@ -416,7 +449,8 @@ def noise_to_sql() -> None:
                     else:
                         rows_no_da.append(row_sql)
         except OSError as exc:
-            print(f"[ERROR] Could not read {path}: {exc}")
+            print(f"[WARNING] Could not read {path}: {exc}")
+            LOGGER.warning(f"Could not read {path}: {exc}")
             continue
 
         if rows_full:
@@ -449,6 +483,10 @@ def noise_to_sql() -> None:
 
     print(
         f"[OK] Wrote {NOISE_SQL_PATH.relative_to(_PROJECT_ROOT)}: "
+        f"{valid_total} row(s), {skipped_total} skipped"
+    )
+    LOGGER.info(
+        f"Wrote {NOISE_SQL_PATH.relative_to(_PROJECT_ROOT)}: "
         f"{valid_total} row(s), {skipped_total} skipped"
     )
 

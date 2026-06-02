@@ -7,6 +7,18 @@ except ModuleNotFoundError:
     create_client = None
 
 from src.classes import Vulnerability
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.logging_utils import get_file_logger  # noqa: E402
+
+LOG_DIR = PROJECT_ROOT / "data" / "logs"
+LOG_FILE = LOG_DIR / "supabase_function.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
 
 load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -115,6 +127,12 @@ def insert_vuln(
     if embedding is not None:
         payload["embedding"] = embedding
     response = supabase.table(table).insert(payload).execute()
+    LOGGER.debug(
+        "Inserted vulnerability '%s' into table %s with ID %s",
+        vuln.title,
+        table,
+        response.data[0].get("id"),
+    )
     return response.data[0]
 
 
@@ -194,4 +212,10 @@ def insert_noise(
         "date_accessed": date_accessed,
     }
     response = supabase.table(table).insert(payload).execute()
+    LOGGER.debug(
+        "Inserted noise article '%s' into table %s with ID %s",
+        title,
+        table,
+        response.data[0].get("id"),
+    )
     return response.data[0]

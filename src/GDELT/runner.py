@@ -140,7 +140,6 @@ def save_json(path: Path, data: dict) -> None:
     """
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
-    LOGGER.debug("Wrote JSON: %s", path)
 
 
 def clear_directory(directory: Path) -> None:
@@ -315,7 +314,7 @@ def process_seed(
         if stats is not None:
             stats.rejected += 1
         reporter.detail(f"     [skip] not a disruption: {detail}")
-        LOGGER.debug("Not a disruption url=%s detail=%s", url, detail)
+        LOGGER.info("Not a disruption url=%s detail=%s", url, detail)
         return None
 
     subsector = detail
@@ -338,7 +337,7 @@ def process_seed(
     if stats is not None:
         stats.validated += 1
     reporter.detail(f"     OK  disruption confirmed: {subsector}")
-    LOGGER.debug("Disruption confirmed url=%s subsector=%s", url, subsector)
+    LOGGER.info("Disruption confirmed url=%s subsector=%s", url, subsector)
 
     sector_data, subsector_data_dict = extract_fields(subsector, title, excerpt)
     LOGGER.debug(
@@ -571,7 +570,7 @@ def run(
 
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump({"sources": combined}, f, ensure_ascii=False, indent=2)
-    LOGGER.debug("Wrote %s records to %s", len(combined), out_file)
+    LOGGER.info("Wrote %s records to %s", len(combined), out_file)
     stats.output_records = len(out_recs)
     reporter.info(f"Wrote {len(out_recs)} GDELT records to {out_file}")
 

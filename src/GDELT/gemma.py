@@ -19,6 +19,18 @@ import time
 from html.parser import HTMLParser
 
 import requests
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.logging_utils import get_file_logger  # noqa: E402
+
+LOG_DIR = PROJECT_ROOT / "data" / "logs"
+LOG_FILE = LOG_DIR / "gemma.log"
+LOGGER = get_file_logger(__name__, LOG_FILE)
 
 GEMMA_URL = "http://localhost:11434/api/generate"
 GEMMA_MODEL = "gemma4:e4b"
@@ -90,6 +102,7 @@ class _TextExtractor(HTMLParser):
                 self._parts.append(stripped)
 
     def get_text(self) -> str:
+        LOGGER.debug("Extracted text parts: %d", len(self._parts))
         return " ".join(self._parts)
 
 
@@ -109,15 +122,21 @@ def fetch_article_text(url: str) -> str | None:
     try:
         resp = requests.get(url, timeout=10, headers=HEADERS, allow_redirects=True)
         if resp.status_code != 200:
+            LOGGER.warning("Non-200 status code %d for URL: %s", resp.status_code, url)
             return None
         content_type = resp.headers.get("Content-Type", "")
         if "text/html" not in content_type and "text/plain" not in content_type:
+            LOGGER.warning(
+                "Unexpected Content-Type '%s' for URL: %s", content_type, url
+            )
             return None
         parser = _TextExtractor()
         parser.feed(resp.text)
         text = parser.get_text()
+        LOGGER.debug("Fetched text length: %d characters", len(text))
         return text[:MAX_CHARS] if text else None
     except Exception:
+        LOGGER.warning("Error fetching or parsing URL: %s", url, exc_info=True)
         return None
 
 
@@ -146,13 +165,18 @@ def ask_ai(url: str, text: str) -> bool:
             timeout=60,
         )
     except requests.exceptions.ConnectionError:
+        LOGGER.error("Could not connect to Ollama at %s", GEMMA_URL, exc_info=True)
         raise ConnectionError(
             "Could not reach Ollama. Make sure Ollama is running and the "
             "Gemma model is installed with: ollama pull gemma4:e4b"
         )
     if resp.status_code != 200:
+        LOGGER.warning(
+            "Ollama API error %d: %s", resp.status_code, resp.text, exc_info=True
+        )
         return False
     answer = resp.json().get("response", "").strip().upper()
+    LOGGER.debug("Ollama response: '%s'", answer)
     return answer.startswith("YES")
 
 
@@ -174,6 +198,7 @@ def filter_with_gemma(urls: list[str]) -> list[str]:
         list[str]: Confirmed URLs where Gemma indicated a healthcare cyberattack.
     """
     if not urls:
+        LOGGER.info("No URLs provided for Gemma filtering.")
         return []
 
     total = len(urls)
@@ -181,26 +206,28 @@ def filter_with_gemma(urls: list[str]) -> list[str]:
 
     print(f"\nRunning AI filter on {total} candidate URLs...")
     print(f"Model: {GEMMA_MODEL}  |  Max chars per article: {MAX_CHARS}\n")
+    LOGGER.info(f"\nRunning AI filter on {total} candidate URLs...")
+    LOGGER.info(f"Model: {GEMMA_MODEL}  |  Max chars per article: {MAX_CHARS}\n")
 
     for i, url in enumerate(urls, start=1):
         prefix = f"[{i:>{len(str(total))}}/{total}]"
 
         text = fetch_article_text(url)
         if text is None:
-            print(f"{prefix} SKIP (fetch failed)  {url}")
+            LOGGER.warning("Failed to fetch article text for URL: %s", url)
             time.sleep(FETCH_DELAY)
             continue
-        # print(f"  DEBUG text preview: {text[:200]}") # remove
+        LOGGER.debug(f"text preview: {text[:200]}")
 
         try:
             result = ask_ai(url, text)
         except ConnectionError as e:
-            print(f"\n  ERROR: {e}")
-            print("  Stopping filter - restart Ollama and try again.\n")
+            print("[ERROR] Stopping filter - restart Ollama and try again.\n")
+            LOGGER.error("Ollama connection error: %s", e)
             break
 
         label = "YES " if result else "NO  "
-        print(f"{prefix} {label}  {url}")
+        LOGGER.info(f"{prefix} {label}  {url}")
 
         if result:
             confirmed.append(url)
@@ -208,4 +235,5 @@ def filter_with_gemma(urls: list[str]) -> list[str]:
         time.sleep(FETCH_DELAY)
 
     print(f"\nGemma filter complete: {len(confirmed)} / {total} confirmed.\n")
+    LOGGER.info(f"\nGemma filter complete: {len(confirmed)} / {total} confirmed.\n")
     return confirmed

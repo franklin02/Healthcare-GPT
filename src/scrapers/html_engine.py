@@ -14,6 +14,7 @@ from src.shared_utils import (
     ensure_model_available,
     extract_fields,
     get_config_bool,
+    get_config_date,
     get_config_int,
     get_page,
     is_known_article,
@@ -137,34 +138,34 @@ HTML_SITES = [
     #         "cap": 1,
     #     },
     # },
-    {
-        "name": "AHA",
-        "url": "https://www.aha.org/news",
-        "pagination_url": "https://www.aha.org/news?page=%2C{page}",
-        "map": {
-            "container": "section.views-latest-feed div.views-row",
-            "title": None,
-            "link_selector": "div.views-field-title span.field-content a",
-            "body_selector": "article .body",
-            "date_selector": "time[datetime]",
-            "starting_page": 0,
-            "cap": 10,
-        },
-    },
-    {
-        "name": "HealthIT_News",
-        "url": "https://www.techtarget.com/news/health-it",
-        "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
-        "map": {
-            "container": "div.topic-related-item-info",
-            "title": None,
-            "link_selector": "h3 a",
-            "body_selector": "article#content-columns",
-            "date_selector": "",
-            "starting_page": 1,
-            "cap": 9,
-        },
-    },
+    # {
+    #     "name": "AHA",
+    #     "url": "https://www.aha.org/news",
+    #     "pagination_url": "https://www.aha.org/news?page=%2C{page}",
+    #     "map": {
+    #         "container": "section.views-latest-feed div.views-row",
+    #         "title": None,
+    #         "link_selector": "div.views-field-title span.field-content a",
+    #         "body_selector": "article .body",
+    #         "date_selector": "time[datetime]",
+    #         "starting_page": 0,
+    #         "cap": 10,
+    #     },
+    # },
+    # {
+    #     "name": "HealthIT_News",
+    #     "url": "https://www.techtarget.com/news/health-it",
+    #     "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
+    #     "map": {
+    #         "container": "div.topic-related-item-info",
+    #         "title": None,
+    #         "link_selector": "h3 a",
+    #         "body_selector": "article#content-columns",
+    #         "date_selector": "",
+    #         "starting_page": 1,
+    #         "cap": 9,
+    #     },
+    # },
 ]
 
 
@@ -348,14 +349,13 @@ def run_html_scraper(
     site_config,
     use_bert: bool = False,
     verbose: bool = False,
-    starting_page: int | None = None,
-    page_cap: int | None = None,
     start_date: datetime.date | None = None,
     end_date: datetime.date | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ) -> PipelineStats:
-    """Run one configured HTML scraper and return its run statistics.
+    """
+    Run one configured HTML scraper and return its run statistics.
 
     Args:
         site_config: One entry from ``HTML_SITES`` containing URL, selector,
@@ -364,14 +364,10 @@ def run_html_scraper(
             enabled for this run.
         verbose: Whether to print per-article progress details when a reporter
             is not supplied.
-        starting_page: Optional override for the site's configured first page.
-            ``None`` preserves the site's default.
-        page_cap: Optional override for the site's configured maximum page.
-            ``None`` preserves the site's default; ``-1`` means unlimited.
-        start_date: Newest article date to keep (inclusive ceiling). Pages list
+        start_date: Newest article date to keep (inclusive, ceiling). Pages list
             newest-first, so articles published after this date are skipped while
             crawling continues toward the window. ``None`` means no upper bound.
-        end_date: Oldest article date to keep (inclusive floor). When an article
+        end_date: Oldest article date to keep (inclusive, floor). When an article
             published before this date is reached, crawling stops because nothing
             older qualifies. ``None`` means no lower bound.
         reporter: Optional shared CLI reporter supplied by the orchestrator.
@@ -410,17 +406,13 @@ def run_html_scraper(
             LOGGER.warning(message)
             reporter.warn(message, stats)
 
-    starting_page = (
-        starting_page
-        if starting_page is not None
-        else get_config_int("HTML_START_PAGE", site_config["map"]["starting_page"])
+    starting_page = get_config_int(
+        "HTML_START_PAGE", site_config["map"]["starting_page"]
     )
-    cap = (
-        page_cap
-        if page_cap is not None
-        else get_config_int("HTML_PAGE_CAP", site_config["map"]["cap"])
-    )
+
+    cap = site_config["map"]["cap"]
     current_page = starting_page
+
 
     """
     Buffer this run's new vulns + CSV rows so we can prepend them in one shot
@@ -498,6 +490,7 @@ def run_html_scraper(
                     f"[{article_index}/{len(articles)}] {article['title'][:90]}"
                 )
 
+            """ date validation, remove me if i work pls """
             if (start_date or end_date) and article.get("date"):
                 try:
                     pub_date = datetime.date.fromisoformat(article["date"][:10])
@@ -545,6 +538,7 @@ def run_html_scraper(
                         LOGGER.warning(
                             f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
                         )
+                        stats.skipped += 1
                         continue
                     stats.validated += 1
                     sector_data, ss_data = extract_fields(
@@ -559,14 +553,14 @@ def run_html_scraper(
                     )
 
                     vuln = Vulnerability(
-                        id=str(uuid.uuid4()),
+                        id=str(uuid.uuid4()), # DROP L8er 
                         title=article["title"],
                         source_name=site_config["name"],
                         direct_link=article["link"],
                         subsector=detail,
                         date_accessed=datetime.datetime.now().strftime(
                             "%Y-%m-%d %H:%M"
-                        ),
+                        ), # DROP L8er
                         date_published=article.get("date", ""),
                         content=article["body"],
                         exec_summary=sector_data.get("exec_summary") or "",
@@ -579,6 +573,7 @@ def run_html_scraper(
                         subsector_data=subsector_data,
                     )
 
+                    # Manual log on CSV/JSON, to be discontinued in the near future ⬇
                     content_preview = (vuln.content or "")[:250].replace("\n", " ")
                     new_rows.append(
                         [
@@ -594,6 +589,7 @@ def run_html_scraper(
                     )
                     new_vulns.append(vuln)
                     LOGGER.info(f"Validated article: {vuln.title}")
+                    # Manual log on CSV/JSON, to be discontinued in the near future ^
 
                     if SUPABASE_AVAILABLE:
                         try:
@@ -604,6 +600,8 @@ def run_html_scraper(
                             )
                 else:
                     stats.rejected += 1
+
+                    # Manual log on CSV/JSON, to be discontinued in the near future ⬇
                     body_preview = (article["body"] or "")[:250].replace("\n", " ")
                     new_noise_rows.append(
                         [
@@ -615,6 +613,7 @@ def run_html_scraper(
                             body_preview,
                         ]
                     )
+                    # Manual log on CSV/JSON, to be discontinued in the near future ^
 
                     if SUPABASE_AVAILABLE:
                         try:
@@ -707,16 +706,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--start-date",
         type=datetime.date.fromisoformat,
-        default=None,
+        default=get_config_date("HTML_START_DATE", None),
         metavar="YYYY-MM-DD",
-        help="Newest article date to keep; newer articles are skipped (inclusive ceiling)",
+        help="Newest article date to keep, newer articles are skipped (ceiling)",
     )
     parser.add_argument(
         "--end-date",
         type=datetime.date.fromisoformat,
-        default=None,
+        default=get_config_date("HTML_END_DATE", None),
         metavar="YYYY-MM-DD",
-        help="Oldest article date to keep; crawling stops at older articles (inclusive floor)",
+        help="Oldest article date to keep, crawling stops at older articles (floor)",
     )
 
     args = parser.parse_args()

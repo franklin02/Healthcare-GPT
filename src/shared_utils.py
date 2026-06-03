@@ -21,6 +21,7 @@ Functions:
     - `get_config_value`: Retrieves a configuration value by name, with an optional default.
     - `get_config_bool`: Retrieves a boolean configuration value by name, with an optional default.
     - `get_config_int`: Retrieves an integer configuration value by name, with an optional default.
+    - `get_config_date`: Retrieves an ISO-formatted date configuration value by name, with an optional default.
     - `get_page`: Retrieves web page content for a given URL, handling HTTP requests.
     - `_site_filename`: Generates or retrieves specific filename associated with a site.
     - `check_valid_file`: Validates files against specific criteria.
@@ -45,6 +46,7 @@ Possible subsectors:
 """
 
 import csv
+import datetime
 import json
 import os
 import re
@@ -136,6 +138,28 @@ def get_config_int(name: str, default: int | None = None) -> int | None:
         return default
     try:
         return int(value)
+    except ValueError:
+        return default
+
+
+def get_config_date(
+    name: str, default: datetime.date | None = None
+) -> datetime.date | None:
+    """
+    Retrieve an ISO-formatted date configuration value by name, with an optional default.
+
+    Parameters:
+        name (str): The name of the configuration variable to retrieve.
+        default (datetime.date | None): An optional default value to return if the configuration variable is not set, empty, or not a valid ISO date. Defaults to None.
+
+    Returns:
+        datetime.date | None: The parsed date if the configuration variable exists and is a valid ``YYYY-MM-DD`` string; otherwise, returns the provided default value.
+    """
+    value = get_config_value(name)
+    if value is None:
+        return default
+    try:
+        return datetime.date.fromisoformat(value)
     except ValueError:
         return default
 

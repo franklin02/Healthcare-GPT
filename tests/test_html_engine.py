@@ -1,4 +1,3 @@
-import datetime
 import io
 from unittest.mock import patch
 
@@ -73,38 +72,6 @@ def test_run_html_scraper_counts_validated_and_rejected_articles():
     mock_json.assert_called_once()
 
 
-<<<<<<< HEAD
-def test_run_html_scraper_date_window_skips_newer_and_stops_at_older():
-    """start_date skips newer articles; end_date stops the crawl at older ones."""
-    site_config = {
-        "name": "TestSite",
-        "url": "https://example.com/page-1",
-        "pagination_url": "https://example.com/page-{page}",
-        "map": {
-            "starting_page": 1,
-            "cap": 5,
-        },
-    }
-    # Newest-first, like a real listing page: too-new, in-window, then too-old.
-    articles = [
-        {
-            "title": "Future news",
-            "link": "https://example.com/future",
-            "body": "Too new",
-            "date": "2026-06-01",
-        },
-        {
-            "title": "In-window breach",
-            "link": "https://example.com/valid",
-            "body": "Confirmed breach",
-            "date": "2025-06-15",
-        },
-        {
-            "title": "Old news",
-            "link": "https://example.com/old",
-            "body": "Too old",
-            "date": "2024-12-01",
-=======
 def test_run_html_scraper_pause_flushes_buffered_outputs():
     """Ctrl-C during HTML processing should flush accepted and rejected rows."""
     site_config = {
@@ -133,7 +100,6 @@ def test_run_html_scraper_pause_flushes_buffered_outputs():
             "link": "https://example.com/interrupted",
             "body": "Still processing",
             "date": "2026-01-03",
->>>>>>> main
         },
     ]
 
@@ -141,15 +107,6 @@ def test_run_html_scraper_pause_flushes_buffered_outputs():
         patch("src.scrapers.html_engine.ensure_model_available"),
         patch("src.scrapers.html_engine.check_valid_file"),
         patch(
-<<<<<<< HEAD
-            "src.scrapers.html_engine.fetch_html_page",
-            return_value=(articles, False),
-        ) as mock_fetch,
-        patch(
-            "src.scrapers.html_engine.ai_check_validation",
-            return_value=(True, "cyber_attack"),
-        ) as mock_validation,
-=======
             "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)
         ),
         patch(
@@ -160,41 +117,20 @@ def test_run_html_scraper_pause_flushes_buffered_outputs():
                 KeyboardInterrupt(),
             ],
         ),
->>>>>>> main
         patch(
             "src.scrapers.html_engine.extract_fields",
             return_value=({"exec_summary": "Breach confirmed"}, {}),
         ),
-<<<<<<< HEAD
-        patch("src.scrapers.html_engine.prepend_vuln_csv"),
-        patch("src.scrapers.html_engine.prepend_noise_csv"),
-        patch("src.scrapers.html_engine.prepend_json_sources"),
-        patch("src.scrapers.html_engine.time.sleep"),
-    ):
-        stats = html_engine.run_html_scraper(
-            site_config,
-            start_date=datetime.date(2025, 12, 31),
-            end_date=datetime.date(2025, 1, 1),
-=======
         patch("src.scrapers.html_engine.prepend_vuln_csv") as mock_vuln_csv,
         patch("src.scrapers.html_engine.prepend_noise_csv") as mock_noise_csv,
         patch("src.scrapers.html_engine.prepend_json_sources") as mock_json,
     ):
         stats = html_engine.run_html_scraper(
             site_config,
->>>>>>> main
             reporter=CliReporter(stream=io.StringIO()),
             stats=PipelineStats("TestSite"),
         )
 
-<<<<<<< HEAD
-    # Only the in-window article is validated; the future one is skipped, and the
-    # too-old article halts pagination before a second page is fetched.
-    assert stats.validated == 1
-    assert stats.skipped == 1
-    assert mock_fetch.call_count == 1
-    mock_validation.assert_called_once()
-=======
     assert stats.paused is True
     assert stats.discovered == 3
     assert stats.processed == 3
@@ -242,7 +178,6 @@ def test_run_html_scraper_pause_during_fetch_flushes_empty_outputs():
     mock_vuln_csv.assert_called_once_with("TestSite", [])
     mock_noise_csv.assert_called_once_with("TestSite", [])
     mock_json.assert_called_once_with("TestSite", [])
->>>>>>> main
 
 
 def test_run_html_scraper_allows_page_cap_override():

@@ -357,6 +357,7 @@ def _normalize_date_bound(value, end=False):
 def process_gkg_file(
     link,
     subsector="all",
+    cache_dir: Path | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ):
@@ -366,6 +367,7 @@ def process_gkg_file(
     Parameters:
         link: The URL to the GDELT GKG file (a .zip containing a .csv).
         subsector: The subsector to filter for, or "all" for any supported subsector.
+        cache_dir: Optional directory for caching downloaded zip files.
         reporter: Optional CliReporter for logging progress and warnings.
         stats: Optional PipelineStats for recording statistics.
 
@@ -374,15 +376,31 @@ def process_gkg_file(
     """
     reporter = reporter or CliReporter(verbose=True)
     LOGGER.debug("Processing GKG file link=%s subsector=%s", link, subsector)
+
+    fname = link.split("/")[-1]
+    cached_path = (cache_dir / fname) if cache_dir else None
+
+    if cached_path and cached_path.exists():
+        LOGGER.debug("Cache hit, reading from disk: %s", cached_path)
+        zip_bytes = cached_path.read_bytes()
+    else:
+        try:
+            r = requests.get(link, timeout=20)
+            r.raise_for_status()
+        except Exception as e:
+            reporter.warn(f"Download failed {link.split('/')[-1]}: {e}", stats)
+            LOGGER.warning("Download failed link=%s error=%s", link, e)
+            return [], 0
+        zip_bytes = r.content
+        if cached_path:
+            try:
+                cached_path.write_bytes(zip_bytes)
+                LOGGER.debug("Cached zip to %s", cached_path)
+            except Exception as exc:
+                LOGGER.warning("Failed to write cache file %s: %s", cached_path, exc)
+
     try:
-        r = requests.get(link, timeout=20)
-        r.raise_for_status()
-    except Exception as e:
-        reporter.warn(f"Download failed {link.split('/')[-1]}: {e}", stats)
-        LOGGER.warning("Download failed link=%s error=%s", link, e)
-        return [], 0
-    try:
-        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
             raw = pd.read_csv(
                 z.open(z.namelist()[0]),
                 sep="\t",
@@ -436,7 +454,7 @@ def process_gkg_file(
             LOGGER.debug("Filtered out by URL quality link=%s", link)
             return [], total
 
-        fname = link.split("/")[-1]
+        fname = link.split("/")[-1]  # already defined above; kept for clarity
         reporter.detail(f"  OK {fname}: {len(df)} leads from {total} rows")
         LOGGER.info("File %s produced %s leads from %s rows", fname, len(df), total)
         seeds = [
@@ -464,6 +482,7 @@ def backfill_cyber_seeds(
     subsector="all",
     start_date=None,
     end_date=None,
+    cache_dir: Path | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ):
@@ -519,6 +538,7 @@ def backfill_cyber_seeds(
         seeds, rows = process_gkg_file(
             link,
             subsector=subsector,
+            cache_dir=cache_dir,
             reporter=reporter,
             stats=stats,
         )

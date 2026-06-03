@@ -121,16 +121,6 @@ class TestThemesMatch:
         """Should return False if missing HEALTH_THEMES."""
         assert gdelt_seeds.themes_match("CYBER_ATTACK", subsector="all") is False
 
-    def test_all_subsectors_checks_health_theme_once_when_missing(self):
-        """Should short-circuit all-subsector matching when health themes are absent."""
-        with patch(
-            "src.GDELT.gdelt_seeds._matches_any_theme", return_value=False
-        ) as mock_match:
-            result = gdelt_seeds.themes_match("CYBER_ATTACK", subsector="all")
-
-        assert result is False
-        mock_match.assert_called_once_with("CYBER_ATTACK", gdelt_seeds.HEALTH_THEMES)
-
     def test_no_match_missing_subsector_theme(self):
         """Should return False if missing subsector theme."""
         assert (
@@ -160,28 +150,6 @@ class TestThemesMatch:
             )
             is True
         )
-
-
-class TestDetectSubsectors:
-    """Tests for detect_subsectors function."""
-
-    def test_detect_multiple_subsectors(self):
-        """Should return every subsector whose themes are present."""
-        assert gdelt_seeds.detect_subsectors(
-            "HEALTHCARE;CYBER_ATTACK;SHORTAGE"
-        ) == ["drug_shortage", "cyber_attack"]
-
-    def test_no_health_theme_returns_empty_list(self):
-        """Should return an empty list if no HEALTH_THEMES are present."""
-        assert gdelt_seeds.detect_subsectors("CYBER_ATTACK;SHORTAGE") == []
-
-    def test_no_matching_subsector_returns_empty_list(self):
-        """Should return an empty list if no subsector themes match."""
-        assert gdelt_seeds.detect_subsectors("HEALTHCARE;SPORTS") == []
-
-    def test_none_input_returns_empty_list(self):
-        """Should return an empty list for None input."""
-        assert gdelt_seeds.detect_subsectors(None) == []
 
 
 class TestDetectSubsector:

@@ -13,7 +13,13 @@ from pathlib import Path
 
 from src.cli_reporter import CliReporter, PipelineStats
 from src.logging_utils import get_file_logger
-from src.shared_utils import ensure_model_available, model_unavailable_error
+from src.shared_utils import (
+    ensure_model_available,
+    get_config_bool,
+    get_config_int,
+    get_config_value,
+    model_unavailable_error,
+)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -53,26 +59,26 @@ def main(argv: list[str] | None = None) -> int:
         "--use-bert",
         "-b",
         action="store_true",
-        default=False,
+        default=get_config_bool("USE_BERT", False),
         help="Run BERT pre-filter before LLM field extraction in both pipelines",
     )
     parser.add_argument(
         "--skip-gdelt",
         action="store_true",
-        default=False,
+        default=get_config_bool("SKIP_GDELT", False),
         help="Skip the GDELT pipeline",
     )
     parser.add_argument(
         "--skip-html",
         action="store_true",
-        default=False,
+        default=get_config_bool("SKIP_HTML", False),
         help="Skip the HTML scraper pipeline",
     )
     parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
-        default=False,
+        default=get_config_bool("VERBOSE", False),
         help="Show detailed per-article pipeline output",
     )
 
@@ -81,53 +87,53 @@ def main(argv: list[str] | None = None) -> int:
         "--num-files",
         "-n",
         type=int,
-        default=2,
+        default=get_config_int("GDELT_NUM_FILES", 2),
         help="GDELT GKG files to scan (default: 2)",
     )
     parser.add_argument(
         "--limit",
         "-l",
         type=int,
-        default=None,
+        default=get_config_int("GDELT_LIMIT", None),
         help="Cap on seeds to process; defaults to 3 unless --num-files is provided",
     )
     parser.add_argument(
         "--output-path",
         "-o",
-        default=None,
+        default=get_config_value("OUTPUT_PATH", "data/output/results.json"),
         help="Output JSON file or directory for GDELT results",
     )
     parser.add_argument(
         "--start-date",
-        default=None,
+        default=get_config_value("GDELT_START_DATE", None),
         help="Earliest GDELT file date to include (YYYYMMDD or YYYY-MM-DD)",
     )
     parser.add_argument(
         "--end-date",
-        default=None,
+        default=get_config_value("GDELT_END_DATE", None),
         help="Latest GDELT file date to include (YYYYMMDD or YYYY-MM-DD)",
     )
     parser.add_argument(
         "--seen-urls-file",
-        default=None,
+        default=get_config_value("SEEN_URLS_FILE", None),
         help="Path to store/load seen URLs JSON file",
     )
     parser.add_argument(
         "--subsectors",
         "-s",
-        default="all",
+        default=get_config_value("GDELT_SUBSECTORS", "all"),
         help="Comma-separated subsectors to scan, or 'all'",
     )
     parser.add_argument(
         "--html-start-page",
         type=int,
-        default=None,
+        default=get_config_int("HTML_START_PAGE", None),
         help="Override configured starting page for every HTML scraper site",
     )
     parser.add_argument(
         "--html-page-cap",
         type=int,
-        default=None,
+        default=get_config_int("HTML_PAGE_CAP", None),
         help=(
             "Override configured max page number for every HTML scraper site "
             "(-1 for unlimited)"
@@ -153,7 +159,12 @@ def main(argv: list[str] | None = None) -> int:
         l_provided = _option_provided(raw_args, ("-l", "--limit"))
         effective_limit = args.limit
         if not l_provided:
-            effective_limit = None if n_provided else 3
+            config_limit = get_config_int("GDELT_LIMIT", None)
+            effective_limit = (
+                config_limit
+                if config_limit is not None
+                else (None if n_provided else 3)
+            )
 
         gdelt_stats = PipelineStats("GDELT")
         reporter.phase("Running GDELT pipeline")
@@ -172,6 +183,11 @@ def main(argv: list[str] | None = None) -> int:
             stats=gdelt_stats,
         )
         summaries.append(gdelt_stats)
+        if gdelt_stats.paused:
+            reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
+            reporter.summary(summaries)
+            LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
+            return 0
 
     if not args.skip_html:
         import src.scrapers.html_engine as html_engine
@@ -190,6 +206,12 @@ def main(argv: list[str] | None = None) -> int:
                 stats=PipelineStats(site["name"]),
             )
             html_stats.merge(site_stats)
+            if site_stats.paused:
+                summaries.append(html_stats)
+                reporter.info("HTML scraper paused; skipping remaining pipelines.")
+                reporter.summary(summaries)
+                LOGGER.info("HTML scraper paused; skipping remaining pipelines")
+                return 0
         summaries.append(html_stats)
 
     if summaries:

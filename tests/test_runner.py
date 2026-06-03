@@ -7,6 +7,7 @@ import pytest
 
 import src.GDELT.runner as runner
 from src.classes import Vulnerability
+from src.cli_reporter import PipelineStats
 
 
 @pytest.fixture(autouse=True)
@@ -1108,6 +1109,115 @@ class TestRun:
         output = capsys.readouterr().out
         assert "[1/1]" in output
         assert "Progress:" not in output
+
+    def test_run_pause_writes_partial_output_and_preserves_seeds(self):
+        """Ctrl-C during processing should write completed records and keep staging."""
+        stats = PipelineStats("GDELT")
+        seeds = [
+            {"url": "https://example.com/1", "source": "test"},
+            {"url": "https://example.com/2", "source": "test"},
+        ]
+        first_record = _make_vuln(
+            id_value="first",
+            direct_link="https://example.com/1",
+            source_name="test",
+            title="First Article",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch("src.GDELT.runner.ensure_raw_dirs"),
+                patch("src.GDELT.runner.load_seen", return_value=set()),
+                patch("src.GDELT.runner.save_seen") as mock_save_seen,
+                patch("src.GDELT.runner.persist_raw_seeds"),
+                patch("src.GDELT.runner.backfill_cyber_seeds", return_value=seeds),
+                patch(
+                    "src.GDELT.runner.process_seed",
+                    side_effect=[first_record, KeyboardInterrupt],
+                ),
+                patch("src.GDELT.runner.persist_stage"),
+                patch("src.GDELT.runner.clear_directory") as mock_clear,
+            ):
+                result = runner.run(
+                    num_files=1,
+                    limit=2,
+                    subsectors="all",
+                    output_path=tmpdir,
+                    stats=stats,
+                )
+
+            output_file = Path(tmpdir) / "GDELT.json"
+            with open(output_file, "r", encoding="utf-8") as f:
+                output = json.load(f)
+
+        assert result == [first_record]
+        assert output["sources"][0]["id"] == "first"
+        assert stats.paused is True
+        assert stats.output_records == 1
+        mock_save_seen.assert_called_once()
+        mock_clear.assert_not_called()
+
+    def test_run_pause_before_records_reports_zero_output(self):
+        """Ctrl-C before validation completes should still save state cleanly."""
+        stats = PipelineStats("GDELT")
+        seeds = [{"url": "https://example.com/1", "source": "test"}]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch("src.GDELT.runner.ensure_raw_dirs"),
+                patch("src.GDELT.runner.load_seen", return_value=set()),
+                patch("src.GDELT.runner.save_seen") as mock_save_seen,
+                patch("src.GDELT.runner.persist_raw_seeds"),
+                patch("src.GDELT.runner.backfill_cyber_seeds", return_value=seeds),
+                patch(
+                    "src.GDELT.runner.process_seed",
+                    side_effect=KeyboardInterrupt,
+                ),
+                patch("src.GDELT.runner.persist_stage"),
+                patch("src.GDELT.runner.clear_directory") as mock_clear,
+            ):
+                result = runner.run(
+                    num_files=1,
+                    limit=1,
+                    subsectors="all",
+                    output_path=tmpdir,
+                    stats=stats,
+                )
+
+            output_file = Path(tmpdir) / "GDELT.json"
+            with open(output_file, "r", encoding="utf-8") as f:
+                output = json.load(f)
+
+        assert result == []
+        assert output == {"sources": []}
+        assert stats.paused is True
+        assert stats.output_records == 0
+        mock_save_seen.assert_called_once()
+        mock_clear.assert_not_called()
+
+    def test_run_success_clears_seed_staging(self):
+        """Normal successful runs should still clear GDELT seed staging."""
+        seeds = [{"url": "https://example.com/1", "source": "test"}]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch("src.GDELT.runner.ensure_raw_dirs"),
+                patch("src.GDELT.runner.load_seen", return_value=set()),
+                patch("src.GDELT.runner.save_seen"),
+                patch("src.GDELT.runner.persist_raw_seeds"),
+                patch("src.GDELT.runner.backfill_cyber_seeds", return_value=seeds),
+                patch("src.GDELT.runner.process_seed", return_value=None),
+                patch("src.GDELT.runner.persist_stage"),
+                patch("src.GDELT.runner.clear_directory") as mock_clear,
+            ):
+                runner.run(
+                    num_files=1,
+                    limit=1,
+                    subsectors="all",
+                    output_path=tmpdir,
+                )
+
+        mock_clear.assert_called_once_with(runner.SEEDS_DIR)
 
 
 class TestEnsureRawDirs:

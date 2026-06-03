@@ -41,9 +41,13 @@ from src.logging_utils import get_file_logger
 from src.shared_utils import (
     AI_MODEL,
     ai_check_validation,
+    BODY_CHAR_LIMIT,
     ensure_model_available,
     extract_fields,
     get_body,
+    get_config_bool,
+    get_config_int,
+    get_config_value,
     get_title,
     model_unavailable_error,
 )
@@ -58,8 +62,6 @@ ENRICHED_DIR = RAW_GDELT_DIR / "enriched"
 
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "gdelt_runner.log"
-
-BODY_CHAR_LIMIT = 4000
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
 try:
@@ -89,6 +91,15 @@ def _bert_status() -> str:
     except Exception as exc:
         LOGGER.warning("Failed to describe BERT model: %s", exc)
         return "BERT pre-filter: enabled"
+
+
+def _resolve_config_path(raw_value: str | None, fallback: Path) -> Path:
+    if not raw_value:
+        return fallback
+    path_value = Path(raw_value)
+    if path_value.is_absolute():
+        return path_value
+    return PROJECT_ROOT / path_value
 
 
 def stable_id(url: str) -> str:
@@ -291,6 +302,80 @@ def save_seen(seen: set, seen_file: Path | None = None) -> None:
         pass
 
 
+def write_output_records(
+    records: list[Vulnerability],
+    output_path: str | None,
+    reporter: CliReporter,
+    stats: PipelineStats,
+) -> Path:
+    """
+    Write completed GDELT records to the configured processed JSON output.
+
+    This helper centralizes the final output write so normal completion and
+    graceful interrupt handling use the same merge behavior. Records are
+    converted to dictionaries, publication dates are normalized through
+    ``fmt_dt``, and existing output files are merged when they already contain a
+    ``sources`` list or legacy list-shaped output.
+
+    Parameters:
+        records: Completed vulnerability records ready for processed output.
+        output_path: Optional JSON file or directory path. Directory paths write
+            ``GDELT.json`` inside the directory; ``None`` writes to the default
+            processed GDELT output.
+        reporter: Reporter used to print the write summary.
+        stats: Pipeline statistics updated with the number of newly written
+            output records.
+
+    Returns:
+        The resolved output file path that was written.
+    """
+    default_out_dir = PROJECT_ROOT / "data" / "processed"
+    if output_path:
+        out_path = Path(output_path)
+        out_file = (
+            out_path if out_path.suffix.lower() == ".json" else out_path / "GDELT.json"
+        )
+    else:
+        out_file = default_out_dir / "GDELT.json"
+    LOGGER.debug("Output file resolved to %s", out_file)
+
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_recs = []
+    for record in records:
+        data = record.to_dict()
+        data["date_published"] = fmt_dt(data.get("date_published", ""))
+        out_recs.append(data)
+
+    try:
+        if out_file.exists():
+            with open(out_file, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            if (
+                isinstance(existing, dict)
+                and "sources" in existing
+                and isinstance(existing["sources"], list)
+            ):
+                combined = existing["sources"] + out_recs
+            elif isinstance(existing, list):
+                combined = existing + out_recs
+            else:
+                combined = out_recs
+        else:
+            combined = out_recs
+    except Exception:
+        LOGGER.warning(
+            "Failed to read existing output file %s", out_file, exc_info=True
+        )
+        combined = out_recs
+
+    with open(out_file, "w", encoding="utf-8") as f:
+        json.dump({"sources": combined}, f, ensure_ascii=False, indent=2)
+    LOGGER.info("Wrote %s records to %s", len(combined), out_file)
+    stats.output_records = len(out_recs)
+    reporter.info(f"Wrote {len(out_recs)} GDELT records to {out_file}")
+    return out_file
+
+
 def process_seed(
     seed: dict,
     seen: set,
@@ -433,6 +518,12 @@ def run(
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
+
+     Interrupt behavior:
+        Pressing ``Ctrl-C`` while a seed is being processed marks the run as
+        paused, saves seen URLs, writes any completed records through
+        ``write_output_records``, preserves seed staging, and returns the
+        completed records collected before the interrupt.
     """
     LOGGER.debug(
         "Run started num_files=%s limit=%s subsectors=%s start_date=%s end_date=%s output_path=%s",
@@ -463,7 +554,10 @@ def run(
         if seen_urls_path.suffix.lower() != ".json":
             seen_urls_path = seen_urls_path / "seen_urls.json"
     else:
-        seen_urls_path = None
+        seen_urls_path = _resolve_config_path(
+            get_config_value("SEEN_URLS_FILE", None),
+            PROJECT_ROOT / "data" / "seen_urls.json",
+        )
 
     # Validate subsectors early
     valid_subsectors = set(SUBSECTOR_THEMES.keys()) | {"all"}
@@ -521,31 +615,45 @@ def run(
     records = []
     for i, seed in enumerate(seeds, start=1):
         stats.processed += 1
-        if reporter.verbose:
-            reporter.detail(f"[{i}/{len(seeds)}]")
-        LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
-        url = seed["url"]
-        article_id = stable_id(url)
-        rec = process_seed(
-            seed,
-            seen,
-            use_bert=use_bert,
-            reporter=reporter,
-            stats=stats,
-        )
-        if rec:
-            persist_stage(VALIDATED_DIR, article_id, "validated", url, rec.to_dict())
-            persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
-            records.append(rec)
-            if SUPABASE_AVAILABLE:
-                try:
-                    handle_vuln(rec, reporter=reporter, stats=stats)
-                except Exception as e:
-                    LOGGER.warning("dedup/insert failed for %r: %s", rec.title, e)
-        else:
-            LOGGER.debug("Seed skipped url=%s", url)
-        if not reporter.verbose:
-            reporter.progress(i, len(seeds), "GDELT articles")
+        try:
+            if reporter.verbose:
+                reporter.detail(f"[{i}/{len(seeds)}]")
+            LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
+            url = seed["url"]
+            article_id = stable_id(url)
+            rec = process_seed(
+                seed,
+                seen,
+                use_bert=use_bert,
+                reporter=reporter,
+                stats=stats,
+            )
+            if rec:
+                persist_stage(
+                    VALIDATED_DIR, article_id, "validated", url, rec.to_dict()
+                )
+                persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
+                records.append(rec)
+                if SUPABASE_AVAILABLE:
+                    try:
+                        handle_vuln(rec, reporter=reporter, stats=stats)
+                    except Exception as e:
+                        LOGGER.warning("dedup/insert failed for %r: %s", rec.title, e)
+            else:
+                LOGGER.debug("Seed skipped url=%s", url)
+            if not reporter.verbose:
+                reporter.progress(i, len(seeds), "GDELT articles")
+        except KeyboardInterrupt:
+            stats.paused = True
+            reporter.finish_line()
+            reporter.info(
+                "GDELT pipeline paused by operator; saving completed records "
+                "and preserving seed staging."
+            )
+            LOGGER.info(
+                "GDELT pipeline paused by operator at seed %s/%s", i, len(seeds)
+            )
+            break
 
     # Save seen URLs once at the end
     save_seen(seen, seen_urls_path)
@@ -563,56 +671,16 @@ def run(
         reporter.detail(f"Source: {rec.source_name}")
         reporter.detail(f"Fields: {rec.subsector_data}")
 
-    default_out_dir = PROJECT_ROOT / "data" / "processed"
-    if output_path:
-        out_path = Path(output_path)
-        out_file = (
-            out_path if out_path.suffix.lower() == ".json" else out_path / "GDELT.json"
-        )
+    write_output_records(records, output_path, reporter, stats)
+
+    if stats.paused:
+        reporter.detail(f"Preserved seed staging directory: {SEEDS_DIR}")
+        LOGGER.debug("Preserved seeds directory after pause: %s", SEEDS_DIR)
     else:
-        out_file = default_out_dir / "GDELT.json"
-    LOGGER.debug("Output file resolved to %s", out_file)
-
-    out_file.parent.mkdir(parents=True, exist_ok=True)
-    out_recs = []
-    # Convert records to dicts and format date_published before saving, to ensure consistent output formatting regardless of how dates are represented in the Vulnerability objects.
-    for r in records:
-        d = r.to_dict()
-        d["date_published"] = fmt_dt(d.get("date_published", ""))
-        out_recs.append(d)
-
-    try:
-        if out_file.exists():
-            with open(out_file, "r", encoding="utf-8") as f:
-                existing = json.load(f)
-            if (
-                isinstance(existing, dict)
-                and "sources" in existing
-                and isinstance(existing["sources"], list)
-            ):
-                combined = existing["sources"] + out_recs
-            elif isinstance(existing, list):
-                combined = existing + out_recs
-            else:
-                combined = out_recs
-        else:
-            combined = out_recs
-    except Exception:
-        LOGGER.warning(
-            "Failed to read existing output file %s", out_file, exc_info=True
-        )
-        combined = out_recs
-
-    with open(out_file, "w", encoding="utf-8") as f:
-        json.dump({"sources": combined}, f, ensure_ascii=False, indent=2)
-    LOGGER.info("Wrote %s records to %s", len(combined), out_file)
-    stats.output_records = len(out_recs)
-    reporter.info(f"Wrote {len(out_recs)} GDELT records to {out_file}")
-
-    # Clear the seed files after a successful pipeline run
-    clear_directory(SEEDS_DIR)
-    reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")
-    LOGGER.debug("Cleared seeds directory: %s", SEEDS_DIR)
+        # Clear the seed files after a successful pipeline run.
+        clear_directory(SEEDS_DIR)
+        reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")
+        LOGGER.debug("Cleared seeds directory: %s", SEEDS_DIR)
 
     if local_reporter:
         reporter.summary(stats)
@@ -626,54 +694,54 @@ if __name__ == "__main__":
         "--num-files",
         "-n",
         type=int,
-        default=2,
+        default=get_config_int("GDELT_NUM_FILES", 2),
         help="GDELT GKG files to scan (default: 2 ~= 30 min of data)",
     )
     parser.add_argument(
         "--limit",
         "-l",
         type=int,
-        default=None,
+        default=get_config_int("GDELT_LIMIT", None),
         help="Cap on seeds to process; useful for smoke-testing (default: 3 unless --num-files is explicitly provided)",
     )
     parser.add_argument(
         "--output-path",
         "-o",
-        default=None,
+        default=get_config_value("OUTPUT_PATH", "data/output/results.json"),
         help="Output JSON file or directory. If a directory is provided, GDELT.json is written inside it. (default: data/processed/GDELT.json)",
     )
     parser.add_argument(
         "--start-date",
-        default=None,
+        default=get_config_value("GDELT_START_DATE", None),
         help="Earliest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)",
     )
     parser.add_argument(
         "--end-date",
-        default=None,
+        default=get_config_value("GDELT_END_DATE", None),
         help="Latest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)",
     )
     parser.add_argument(
         "--seen-urls-file",
-        default=None,
+        default=get_config_value("SEEN_URLS_FILE", None),
         help="Path to store/load seen URLs JSON file (default: data/seen_urls.json)",
     )
     parser.add_argument(
         "--subsectors",
         "-s",
-        default="all",
+        default=get_config_value("GDELT_SUBSECTORS", "all"),
         help="Comma-separated subsectors to scan, or all",
     )
     parser.add_argument(
         "--use-bert",
         action="store_true",
-        default=False,
+        default=get_config_bool("USE_BERT", False),
         help="Run BERT pre-filter before LLM validation to skip unrelated articles early",
     )
     parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
-        default=False,
+        default=get_config_bool("VERBOSE", False),
         help="Show detailed per-article pipeline output",
     )
     args = parser.parse_args()

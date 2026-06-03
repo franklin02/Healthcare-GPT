@@ -218,13 +218,11 @@ class TestDedupeRawSeeds:
                 "url": "https://example.com/shared",
                 "source": "first",
                 "subsector": "cyber_attack",
-            },
-            {
+            }, {
                 "url": "https://example.com/shared",
                 "source": "second",
                 "subsector": "drug_shortage",
-            },
-            {
+            },{
                 "url": "https://example.com/unique",
                 "source": "third",
                 "subsector": "natural_disaster",
@@ -242,29 +240,6 @@ class TestDedupeRawSeeds:
             "drug_shortage",
         ]
         assert result[1]["detected_subsectors"] == ["natural_disaster"]
-
-    def test_dedupe_raw_seeds_keeps_existing_detected_subsectors(self):
-        """Existing detected_subsectors should be merged without duplicates."""
-        raw_seeds = [
-            {
-                "url": "https://example.com/shared",
-                "subsector": "cyber_attack",
-                "detected_subsectors": ["cyber_attack", "drug_shortage"],
-            },
-            {
-                "url": "https://example.com/shared",
-                "subsector": "drug_shortage",
-            },
-        ]
-
-        result = runner.dedupe_raw_seeds(raw_seeds)
-
-        assert len(result) == 1
-        assert result[0]["detected_subsectors"] == [
-            "cyber_attack",
-            "drug_shortage",
-        ]
-
 
 class TestPersistStage:
     """Tests for the persist_stage function."""

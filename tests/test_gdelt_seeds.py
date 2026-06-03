@@ -121,6 +121,16 @@ class TestThemesMatch:
         """Should return False if missing HEALTH_THEMES."""
         assert gdelt_seeds.themes_match("CYBER_ATTACK", subsector="all") is False
 
+    def test_all_subsectors_checks_health_theme_once_when_missing(self):
+        """Should short-circuit all-subsector matching when health themes are absent."""
+        with patch(
+            "src.GDELT.gdelt_seeds._matches_any_theme", return_value=False
+        ) as mock_match:
+            result = gdelt_seeds.themes_match("CYBER_ATTACK", subsector="all")
+
+        assert result is False
+        mock_match.assert_called_once_with("CYBER_ATTACK", gdelt_seeds.HEALTH_THEMES)
+
     def test_no_match_missing_subsector_theme(self):
         """Should return False if missing subsector theme."""
         assert (
@@ -150,6 +160,28 @@ class TestThemesMatch:
             )
             is True
         )
+
+
+class TestDetectSubsectors:
+    """Tests for detect_subsectors function."""
+
+    def test_detect_multiple_subsectors(self):
+        """Should return every subsector whose themes are present."""
+        assert gdelt_seeds.detect_subsectors(
+            "HEALTHCARE;CYBER_ATTACK;SHORTAGE"
+        ) == ["drug_shortage", "cyber_attack"]
+
+    def test_no_health_theme_returns_empty_list(self):
+        """Should return an empty list if no HEALTH_THEMES are present."""
+        assert gdelt_seeds.detect_subsectors("CYBER_ATTACK;SHORTAGE") == []
+
+    def test_no_matching_subsector_returns_empty_list(self):
+        """Should return an empty list if no subsector themes match."""
+        assert gdelt_seeds.detect_subsectors("HEALTHCARE;SPORTS") == []
+
+    def test_none_input_returns_empty_list(self):
+        """Should return an empty list for None input."""
+        assert gdelt_seeds.detect_subsectors(None) == []
 
 
 class TestDetectSubsector:
@@ -502,6 +534,37 @@ class TestProcessGkgFileFilters:
         assert total == 2
         assert len(seeds) == 1
         assert "CYBER_ATTACK" in seeds[0]["themes"]
+
+    @patch("src.GDELT.gdelt_seeds.requests.get")
+    def test_all_subsector_seeds_include_detected_subsectors(self, mock_get):
+        """subsector=all seeds should preserve all GDELT-detected subsectors."""
+        csv_content = (
+            "1\t20230515123045\t2\tBBC\thttps://hospital.com/cyber-shortage\t5\t6\t"
+            "HEALTHCARE;CYBER_ATTACK;SHORTAGE\t8\t1#New York#US#123#40.7#74.0\t"
+            "10\t11\t12\t13\t14\t15\n"
+        )
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as z:
+            z.writestr("test.csv", csv_content)
+        zip_buffer.seek(0)
+
+        response = Mock()
+        response.content = zip_buffer.getvalue()
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+
+        seeds, total = gdelt_seeds.process_gkg_file(
+            "http://example.com/test.zip", subsector="all"
+        )
+
+        assert total == 1
+        assert len(seeds) == 1
+        assert seeds[0]["subsector"] == "drug_shortage"
+        assert seeds[0]["detected_subsectors"] == [
+            "drug_shortage",
+            "cyber_attack",
+        ]
 
     @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_us_location_filter(self, mock_get):

@@ -213,18 +213,47 @@ def themes_match(theme_str, subsector="all"):
         True if the themes match the requested subsector, False otherwise.
     """
     LOGGER.debug("Checking themes %s against subsector %s", theme_str, subsector)
+    if not _matches_any_theme(theme_str, HEALTH_THEMES):
+        return False
+
     if subsector == "all":
         return any(
-            _matches_any_theme(theme_str, HEALTH_THEMES)
-            and _matches_any_theme(theme_str, theme_set)
+            _matches_any_theme(theme_str, theme_set)
             for theme_set in SUBSECTOR_THEMES.values()
         )
 
     return (
         subsector in SUBSECTOR_THEMES
-        and _matches_any_theme(theme_str, HEALTH_THEMES)
         and _matches_any_theme(theme_str, SUBSECTOR_THEMES[subsector])
     )
+
+
+def detect_subsectors(theme_str):
+    """
+    Return all matching subsectors for a theme string.
+
+    Parameters:
+        theme_str: The theme string from GDELT's V1Themes field.
+
+    Returns:
+        A list of detected subsector names, or an empty list if no specific
+        subsectors can be detected.
+    """
+    if not _matches_any_theme(theme_str, HEALTH_THEMES):
+        LOGGER.debug("Theme string does not match health themes: %s", theme_str)
+        return []
+
+    subsectors = []
+    for subsector, theme_set in SUBSECTOR_THEMES.items():
+        if _matches_any_theme(theme_str, theme_set):
+            LOGGER.debug(
+                "Detected subsector %s for theme string: %s", subsector, theme_str
+            )
+            subsectors.append(subsector)
+    if subsectors:
+        return subsectors
+    LOGGER.debug("No specific subsector detected for theme string: %s", theme_str)
+    return []
 
 
 def detect_subsector(theme_str):
@@ -237,18 +266,8 @@ def detect_subsector(theme_str):
     Returns:
         The detected subsector name if a match is found, or None if no specific subsector can be detected.
     """
-    if not _matches_any_theme(theme_str, HEALTH_THEMES):
-        LOGGER.debug("Theme string does not match health themes: %s", theme_str)
-        return None
-
-    for subsector, theme_set in SUBSECTOR_THEMES.items():
-        if _matches_any_theme(theme_str, theme_set):
-            LOGGER.debug(
-                "Detected subsector %s for theme string: %s", subsector, theme_str
-            )
-            return subsector
-    LOGGER.debug("No specific subsector detected for theme string: %s", theme_str)
-    return None
+    subsectors = detect_subsectors(theme_str)
+    return subsectors[0] if subsectors else None
 
 
 def themes_match_noise(theme_str):
@@ -439,19 +458,24 @@ def process_gkg_file(
         fname = link.split("/")[-1]
         reporter.detail(f"  OK {fname}: {len(df)} leads from {total} rows")
         LOGGER.info("File %s produced %s leads from %s rows", fname, len(df), total)
-        seeds = [
-            {
+        seeds = []
+        for _, row in df.iterrows():
+            detected_subsectors = (
+                detect_subsectors(row["themes"]) if subsector == "all" else []
+            )
+            seed = {
                 "url": row["url"],
                 "source": row["source"],
                 "themes": row["themes"],
                 "subsector": subsector
                 if subsector != "all"
-                else (detect_subsector(row["themes"]) or "other"),
+                else (detected_subsectors[0] if detected_subsectors else "other"),
                 "date": row["date"],
                 "file": fname,
             }
-            for _, row in df.iterrows()
-        ]
+            if detected_subsectors:
+                seed["detected_subsectors"] = detected_subsectors
+            seeds.append(seed)
         return seeds, total
     except Exception as e:
         reporter.warn(f"Parse error {link.split('/')[-1]}: {e}", stats)

@@ -52,7 +52,9 @@ Command arguments:
 
 - `--seen-urls-file`: Path for the JSON file of processed URLs. Defaults to `data/seen_urls.json`.
 
-- `--stitch-staged`: Recover the final output from records already saved in `data/raw/gdelt/enriched/` without fetching, scraping, or calling the LLM.
+- `--stitch-staged`: Recover the final output from staged GDELT data. Defaults to `data/raw/gdelt/enriched/`.
+
+- `--stitch-stage`: Stage to recover from when stitching (`seeds`, `validated`, or `enriched`). Defaults to `enriched`. Passing this option implies `--stitch-staged`.
 
 
 ## Subsector Detection
@@ -86,7 +88,7 @@ Check GDELT seed filtering without scraping:
   shell or scratch script to test the regex and theme filters without running
   article scraping or LLM validation.
 - For a GDELT module smoke test through the supported CLI path, run
-  `python -m src.GDELT.runner --num-files 1 --limit 0`.
+  `python -m src.GDELT.runner --num-files 20 --limit 30`.
 
 Test URL scraping and AI validation without GDELT:
 - Import `filter_with_gemma()` from `src/GDELT/gemma.py` and pass a
@@ -120,9 +122,23 @@ Extracted data (articles with fully extracted JSON metadata):
 ## Crash Recovery
 
 If the pipeline crashes after records are enriched but before the final output
-is written, stitch the staged enriched records into the final JSON file:
+is written, stitch the staged enriched records into the final JSON file.
+`enriched` is the default recovery stage:
 
 `python -m src.GDELT.runner --stitch-staged`
+
+You can also choose where recovery starts:
+
+`python -m src.GDELT.runner --stitch-staged --stitch-stage validated`
+
+`python -m src.GDELT.runner --stitch-staged --stitch-stage seeds`
+
+The `validated` and `enriched` stages stitch already extracted record payloads
+into the final output without fetching new GDELT files. The `seeds` stage first
+reuses any records already staged in `data/raw/gdelt/enriched/` or
+`data/raw/gdelt/validated/`, then processes the remaining candidate URLs from
+`data/raw/gdelt/seeds/` through scraping, validation, and extraction before
+writing the final output. Keep Ollama running when recovering from `seeds`.
 
 Use `--output-path` with `--stitch-staged` to recover into a custom file or
 directory. Stitching leaves staging files in place.

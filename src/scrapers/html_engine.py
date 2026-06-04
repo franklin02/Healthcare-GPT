@@ -82,48 +82,48 @@ SUBSECTOR_FIELDS = list(SUBSECTOR_DATA_CLASSES.keys())
 
 
 HTML_SITES = [
-    {
-        "name": "CyberScoop",
-        "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
-        "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
-        "map": {
-            "container": "li.search-results__item",
-            "title": None,
-            "link_selector": "a.post-item__title-link",
-            "body_selector": "div.single-article__content",
-            "date_selector": "time[datetime]",
-            "starting_page": 1,
-            "cap": 10,
-        },
-    },
-    {
-        "name": "StateScoop",
-        "url": "https://statescoop.com/search/healthcare/page/1/",
-        "pagination_url": "https://statescoop.com/search/healthcare/page/{page}/",
-        "map": {
-            "container": "article.post-item",
-            "title": None,
-            "link_selector": "a.post-item__title-link",
-            "body_selector": "div.single-article__content",
-            "date_selector": "time[datetime]",
-            "starting_page": 1,
-            "cap": 7,
-        },
-    },
-    {
-        "name": "FedScoop",
-        "url": "https://fedscoop.com/search/healthcare/",
-        "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
-        "map": {
-            "container": "article.post-item",
-            "title": None,
-            "link_selector": "a.post-item__title-link",
-            "body_selector": "div.single-article__content",
-            "date_selector": "time[datetime]",
-            "starting_page": 1,
-            "cap": 18,
-        },
-    },
+    # {
+    #     "name": "CyberScoop",
+    #     "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
+    #     "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
+    #     "map": {
+    #         "container": "li.search-results__item",
+    #         "title": None,
+    #         "link_selector": "a.post-item__title-link",
+    #         "body_selector": "div.single-article__content",
+    #         "date_selector": "time[datetime]",
+    #         "starting_page": 1,
+    #         "cap": 10,
+    #     },
+    # },
+    # {
+    #     "name": "StateScoop",
+    #     "url": "https://statescoop.com/search/healthcare/page/1/",
+    #     "pagination_url": "https://statescoop.com/search/healthcare/page/{page}/",
+    #     "map": {
+    #         "container": "article.post-item",
+    #         "title": None,
+    #         "link_selector": "a.post-item__title-link",
+    #         "body_selector": "div.single-article__content",
+    #         "date_selector": "time[datetime]",
+    #         "starting_page": 1,
+    #         "cap": 7,
+    #     },
+    # },
+    # {
+    #     "name": "FedScoop",
+    #     "url": "https://fedscoop.com/search/healthcare/",
+    #     "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
+    #     "map": {
+    #         "container": "article.post-item",
+    #         "title": None,
+    #         "link_selector": "a.post-item__title-link",
+    #         "body_selector": "div.single-article__content",
+    #         "date_selector": "time[datetime]",
+    #         "starting_page": 1,
+    #         "cap": 18,
+    #     },
+    # },
     # {
     #     "name": "MedicalNewsToday",
     #     "url": "https://www.medicalnewstoday.com/news",
@@ -152,20 +152,20 @@ HTML_SITES = [
     #         "cap": 10,
     #     },
     # },
-    # {
-    #     "name": "HealthIT_News",
-    #     "url": "https://www.techtarget.com/news/health-it",
-    #     "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
-    #     "map": {
-    #         "container": "div.topic-related-item-info",
-    #         "title": None,
-    #         "link_selector": "h3 a",
-    #         "body_selector": "article#content-columns",
-    #         "date_selector": "",
-    #         "starting_page": 1,
-    #         "cap": 9,
-    #     },
-    # },
+    {
+        "name": "HealthIT_News",
+        "url": "https://www.techtarget.com/news/health-it",
+        "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
+        "map": {
+            "container": "div.topic-related-item-info",
+            "title": None,
+            "link_selector": "h3 a",
+            "body_selector": "article#content-columns",
+            "date_selector": "",
+            "starting_page": 1,
+            "cap": 9,
+        },
+    },
 ]
 
 
@@ -174,6 +174,7 @@ def fetch_html_page(
     page_url,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    sb_only: bool = False,
 ):
     """
     Fetch one listing page and return article payloads plus a stop flag.
@@ -241,9 +242,7 @@ def fetch_html_page(
         if title_text:
             raw_links.append({"title": title_text, "link": href})
 
-    body_selector = m[
-        "body_selector"
-    ]  # NOTE:  this may need to be moved up to the for loop
+    body_selector = m["body_selector"]
     date_selector = m.get("date_selector", "")
 
     # For each article found, we go to that specific link and grab the body and date (if applicable)
@@ -263,28 +262,28 @@ def fetch_html_page(
                 )
                 if stats is not None:
                     stats.skipped += 1
-                time.sleep(0.5)
                 continue
 
             body = body_el.get_text(separator=" ", strip=True)
 
-            if is_known_article(site_config["name"], entry["title"], body):
-                reporter.detail(
-                    f"[FINISH] Reached known article on {site_config['name']}: "
-                    f"{entry['title']!r}"
-                )
-                stop = True
-                break
+            if not sb_only:  # local dedup check only applies to local mode
+                if is_known_article(site_config["name"], entry["title"], body):
+                    reporter.detail(
+                        f"[FINISH] Reached known article on {site_config['name']}: "
+                        f"{entry['title']!r}"
+                    )
+                    stop = True
+                    break
 
             date_el = article_soup.select_one(date_selector) if date_selector else None
             date = date_el.get("datetime", "") if date_el else ""
 
-            time.sleep(0.5)
+            time.sleep(0.25)
         except Exception as e:
             reporter.warn(
                 f"Could not fetch article body at {entry['link']}: {e}", stats
             )
-            LOGGER.warning("Error fetching article body at %s: %s", entry["link"], e)
+            LOGGER.warning("Error fetching article body:%s", e)
             if stats is not None:
                 stats.skipped += 1
             continue
@@ -327,6 +326,8 @@ def flush_html_outputs(
         reporter: Reporter used to print the flush summary.
         stats: Pipeline statistics updated with the number of flushed
             vulnerability records.
+
+    NOTE: only used when reading or writing locally
     """
     reporter.finish_line()
     prepend_vuln_csv(site_name, new_rows)
@@ -353,6 +354,7 @@ def run_html_scraper(
     end_date: datetime.date | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    sb_only: bool = False,
 ) -> PipelineStats:
     """
     Run one configured HTML scraper and return its run statistics.
@@ -397,8 +399,15 @@ def run_html_scraper(
         raise
     check_valid_file(site_config["name"])
 
+    if not SUPABASE_AVAILABLE and sb_only:
+        sb_only = False
+        LOGGER.warning(
+            "sb_only was selected, but no Supabase keys are found; "
+            "falling back to local-only writes."
+        )
+
     db_known: list[dict[str, str]] = []
-    if SUPABASE_AVAILABLE:
+    if SUPABASE_AVAILABLE and sb_only:
         try:
             db_known = load_cite(site_config["name"])
         except Exception as e:
@@ -412,7 +421,6 @@ def run_html_scraper(
 
     cap = site_config["map"]["cap"]
     current_page = starting_page
-
 
     """
     Buffer this run's new vulns + CSV rows so we can prepend them in one shot
@@ -441,10 +449,7 @@ def run_html_scraper(
 
         try:
             articles, stop = fetch_html_page(
-                site_config,
-                page_url,
-                reporter=reporter,
-                stats=stats,
+                site_config, page_url, reporter=reporter, stats=stats, sb_only=sb_only
             )
         except KeyboardInterrupt:
             stats.paused = True
@@ -482,6 +487,7 @@ def run_html_scraper(
 
         stats.discovered += len(articles)
         reached_floor = False
+
         for article_index, article in enumerate(articles, start=1):
             body_snippet = (article["body"] or "")[:250].replace("\n", " ")
             stats.processed += 1
@@ -490,7 +496,7 @@ def run_html_scraper(
                     f"[{article_index}/{len(articles)}] {article['title'][:90]}"
                 )
 
-            """ date validation, remove me if i work pls """
+            # Date-window filter: skip newer-than-start, stop at older-than-end.
             if (start_date or end_date) and article.get("date"):
                 try:
                     pub_date = datetime.date.fromisoformat(article["date"][:10])
@@ -514,7 +520,7 @@ def run_html_scraper(
                         reached_floor = True
                         break
 
-            if SUPABASE_AVAILABLE and db_known:
+            if SUPABASE_AVAILABLE and db_known and sb_only:
                 try:
                     if is_known_db(db_known, article["title"], body_snippet):
                         stats.skipped += 1
@@ -535,9 +541,9 @@ def run_html_scraper(
                 )
                 if is_threat:
                     if detail not in SUBSECTOR_FIELDS:
-                        LOGGER.warning(
-                            f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
-                        )
+                        # LOGGER.warning(
+                        #     f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
+                        # )
                         stats.skipped += 1
                         continue
                     stats.validated += 1
@@ -553,14 +559,14 @@ def run_html_scraper(
                     )
 
                     vuln = Vulnerability(
-                        id=str(uuid.uuid4()), # DROP L8er 
+                        id=str(uuid.uuid4()),
                         title=article["title"],
                         source_name=site_config["name"],
                         direct_link=article["link"],
                         subsector=detail,
                         date_accessed=datetime.datetime.now().strftime(
                             "%Y-%m-%d %H:%M"
-                        ), # DROP L8er
+                        ),
                         date_published=article.get("date", ""),
                         content=article["body"],
                         exec_summary=sector_data.get("exec_summary") or "",
@@ -573,49 +579,36 @@ def run_html_scraper(
                         subsector_data=subsector_data,
                     )
 
-                    # Manual log on CSV/JSON, to be discontinued in the near future ⬇
-                    content_preview = (vuln.content or "")[:250].replace("\n", " ")
-                    new_rows.append(
-                        [
-                            vuln.date_accessed,
-                            vuln.date_published,
-                            vuln.source_name,
-                            vuln.subsector,
-                            vuln.title,
-                            vuln.direct_link,
-                            vuln.exec_summary,
-                            content_preview,
-                        ]
-                    )
-                    new_vulns.append(vuln)
-                    LOGGER.info(f"Validated article: {vuln.title}")
-                    # Manual log on CSV/JSON, to be discontinued in the near future ^
+                    LOGGER.info("Validated article: %s", vuln.title)
 
-                    if SUPABASE_AVAILABLE:
+                    if sb_only:
                         try:
                             handle_vuln(vuln, reporter=reporter, stats=stats)
+                            stats.output_records += 1
                         except Exception as e:
                             LOGGER.warning(
-                                "insert_vuln failed for %s: %s", vuln.title, e
+                                "handle_vuln failed for %s: %s", vuln.title, e
                             )
+                    else:
+                        content_preview = (vuln.content or "")[:250].replace("\n", " ")
+                        new_rows.append(
+                            [
+                                vuln.date_accessed,
+                                vuln.date_published,
+                                vuln.source_name,
+                                vuln.subsector,
+                                vuln.title,
+                                vuln.direct_link,
+                                vuln.exec_summary,
+                                content_preview,
+                            ]
+                        )
+                        new_vulns.append(vuln)
                 else:
                     stats.rejected += 1
-
-                    # Manual log on CSV/JSON, to be discontinued in the near future ⬇
                     body_preview = (article["body"] or "")[:250].replace("\n", " ")
-                    new_noise_rows.append(
-                        [
-                            datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                            site_config["name"],
-                            article["title"],
-                            article["link"],
-                            detail,
-                            body_preview,
-                        ]
-                    )
-                    # Manual log on CSV/JSON, to be discontinued in the near future ^
 
-                    if SUPABASE_AVAILABLE:
+                    if sb_only:
                         try:
                             insert_noise(
                                 source_name=site_config["name"],
@@ -631,6 +624,17 @@ def run_html_scraper(
                             LOGGER.warning(
                                 "insert_noise failed for %s: %s", article["title"], e
                             )
+                    else:
+                        new_noise_rows.append(
+                            [
+                                datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                site_config["name"],
+                                article["title"],
+                                article["link"],
+                                detail,
+                                body_preview,
+                            ]
+                        )
             except KeyboardInterrupt:
                 stats.paused = True
                 reporter.finish_line()
@@ -658,7 +662,7 @@ def run_html_scraper(
 
         current_page += 1
         try:
-            time.sleep(0.5)
+            time.sleep(0.25)
         except KeyboardInterrupt:
             stats.paused = True
             reporter.finish_line()
@@ -672,14 +676,23 @@ def run_html_scraper(
             )
             break
 
-    flush_html_outputs(
-        site_config["name"],
-        new_rows,
-        new_noise_rows,
-        new_vulns,
-        reporter,
-        stats,
-    )
+    if not sb_only:
+        flush_html_outputs(
+            site_config["name"],
+            new_rows,
+            new_noise_rows,
+            new_vulns,
+            reporter,
+            stats,
+        )
+    else:
+        reporter.finish_line()
+        reporter.info(f"Finished {site_config['name']}: {stats.output_records} vuln(s)")
+        LOGGER.info(
+            "Finished %s (Supabase): %d vuln(s)",
+            site_config["name"],
+            stats.output_records,
+        )
     if local_reporter:
         reporter.summary(stats)
     return stats
@@ -702,7 +715,6 @@ if __name__ == "__main__":
         default=get_config_bool("VERBOSE", False),
         help="Show detailed per-article scraper output",
     )
-
     parser.add_argument(
         "--start-date",
         type=datetime.date.fromisoformat,
@@ -717,6 +729,12 @@ if __name__ == "__main__":
         metavar="YYYY-MM-DD",
         help="Oldest article date to keep, crawling stops at older articles (floor)",
     )
+    parser.add_argument(
+        "--sb-only",
+        action="store_true",
+        default=get_config_bool("HTML_SB_ONLY", False),
+        help="Use Supabase only, no local reads or writes",
+    )
 
     args = parser.parse_args()
 
@@ -727,4 +745,5 @@ if __name__ == "__main__":
             verbose=args.verbose,
             start_date=args.start_date,
             end_date=args.end_date,
+            sb_only=args.sb_only,
         )

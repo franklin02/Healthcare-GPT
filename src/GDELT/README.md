@@ -52,6 +52,8 @@ Command arguments:
 
 - `--seen-urls-file`: Path for the JSON file of processed URLs. Defaults to `data/seen_urls.json`.
 
+- `--stitch-staged`: Recover the final output from records already saved in `data/raw/gdelt/enriched/` without fetching, scraping, or calling the LLM.
+
 
 ## Subsector Detection
 
@@ -103,6 +105,16 @@ Validated data (articles confirmed as threats by the LLM):
 
 Extracted data (articles with fully extracted JSON metadata):
 - `data/raw/gdelt/enriched/`
+
+## Crash Recovery
+
+If the pipeline crashes after records are enriched but before the final output
+is written, stitch the staged enriched records into the final JSON file:
+
+`python -m src.GDELT.runner --stitch-staged`
+
+Use `--output-path` with `--stitch-staged` to recover into a custom file or
+directory. Stitching leaves staging files in place.
 
 ## Graceful Interrupts
 

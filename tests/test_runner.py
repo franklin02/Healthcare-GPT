@@ -341,6 +341,139 @@ class TestPersistStage:
             assert False, "saved_at is not in valid ISO format"
 
 
+class TestStagedRecovery:
+    """Tests for stitching enriched GDELT staging files."""
+
+    def test_load_staged_enriched_records_skips_malformed_files(self):
+        """load_staged_enriched_records should load valid records and warn on bad files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir)
+            valid_record = {
+                "id": "rec1",
+                "direct_link": "https://example.com/1",
+                "date_published": "20230515123045",
+            }
+            (directory / "valid.json").write_text(
+                json.dumps({"record": valid_record}),
+                encoding="utf-8",
+            )
+            (directory / "invalid.json").write_text(
+                json.dumps({"missing": "record"}),
+                encoding="utf-8",
+            )
+            reporter = Mock()
+
+            records = runner.load_staged_enriched_records(
+                directory,
+                reporter=reporter,
+            )
+
+        assert records == [valid_record]
+        reporter.warn.assert_called_once()
+
+    def test_write_output_records_dedupes_existing_records_first(self):
+        """write_output_records should append unique records and keep existing duplicates."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_file = Path(tmpdir) / "output.json"
+            existing_record = {
+                "id": "same-id",
+                "title": "Existing",
+                "direct_link": "https://example.com/same",
+            }
+            output_file.write_text(
+                json.dumps({"sources": [existing_record]}),
+                encoding="utf-8",
+            )
+
+            runner.write_output_records(
+                [
+                    {
+                        "id": "same-id",
+                        "title": "Recovered duplicate",
+                        "direct_link": "https://example.com/same",
+                    },
+                    {
+                        "id": "different-id",
+                        "title": "Recovered direct link duplicate",
+                        "direct_link": "https://example.com/same",
+                    },
+                    {
+                        "id": "new-id",
+                        "title": "Recovered new",
+                        "direct_link": "https://example.com/new",
+                        "date_published": "20230515123045",
+                    },
+                ],
+                str(output_file),
+                Mock(),
+                PipelineStats("GDELT"),
+            )
+
+            result = json.loads(output_file.read_text(encoding="utf-8"))
+
+        assert len(result["sources"]) == 2
+        assert result["sources"][0]["title"] == "Existing"
+        assert result["sources"][1]["id"] == "new-id"
+        assert result["sources"][1]["date_published"] == "2023-05-15 12:30"
+
+    def test_stitch_staged_records_uses_enriched_stage_without_pipeline_calls(self):
+        """stitch_staged_records should recover enriched records without processing seeds."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            enriched_dir = tmp_path / "enriched"
+            enriched_dir.mkdir()
+            staged_file = enriched_dir / "record.json"
+            staged_file.write_text(
+                json.dumps(
+                    {
+                        "id": "rec1",
+                        "stage": "enriched",
+                        "url": "https://example.com/1",
+                        "record": {
+                            "id": "rec1",
+                            "title": "Recovered",
+                            "direct_link": "https://example.com/1",
+                            "date_published": "20230515123045",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with (
+                patch("src.GDELT.runner.ENRICHED_DIR", enriched_dir),
+                patch("src.GDELT.runner.backfill_cyber_seeds") as mock_backfill,
+                patch("src.GDELT.runner.process_seed") as mock_process_seed,
+                patch("src.GDELT.runner.load_seen") as mock_load_seen,
+                patch("src.GDELT.runner.save_seen") as mock_save_seen,
+                patch("src.GDELT.runner.clear_directory") as mock_clear_directory,
+            ):
+                recovered = runner.stitch_staged_records(
+                    output_path=str(tmp_path),
+                    reporter=Mock(),
+                )
+
+            output_file = tmp_path / "GDELT.json"
+            result = json.loads(output_file.read_text(encoding="utf-8"))
+            assert staged_file.exists()
+
+        assert recovered == [
+            {
+                "id": "rec1",
+                "title": "Recovered",
+                "direct_link": "https://example.com/1",
+                "date_published": "2023-05-15 12:30",
+            }
+        ]
+        assert len(result["sources"]) == 1
+        assert result["sources"][0]["id"] == "rec1"
+        mock_backfill.assert_not_called()
+        mock_process_seed.assert_not_called()
+        mock_load_seen.assert_not_called()
+        mock_save_seen.assert_not_called()
+        mock_clear_directory.assert_not_called()
+
+
 class TestLoadSeen:
     """Tests for the load_seen function."""
 

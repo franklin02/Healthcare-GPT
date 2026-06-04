@@ -302,8 +302,33 @@ def save_seen(seen: set, seen_file: Path | None = None) -> None:
         pass
 
 
+def _record_identities(record: dict) -> list[tuple[str, str]]:
+    """Return stable identities used to deduplicate final output records."""
+    identities = []
+    record_id = record.get("id")
+    if record_id:
+        identities.append(("id", str(record_id)))
+    direct_link = record.get("direct_link")
+    if direct_link:
+        identities.append(("direct_link", str(direct_link)))
+    return identities
+
+
+def _dedupe_output_records(records: list[dict]) -> list[dict]:
+    """Deduplicate final output records by id or direct_link."""
+    seen = set()
+    unique = []
+    for record in records:
+        identities = _record_identities(record)
+        if any(identity in seen for identity in identities):
+            continue
+        seen.update(identities)
+        unique.append(record)
+    return unique
+
+
 def write_output_records(
-    records: list[Vulnerability],
+    records: list[Vulnerability | dict],
     output_path: str | None,
     reporter: CliReporter,
     stats: PipelineStats,
@@ -342,7 +367,7 @@ def write_output_records(
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_recs = []
     for record in records:
-        data = record.to_dict()
+        data = record.to_dict() if isinstance(record, Vulnerability) else dict(record)
         data["date_published"] = fmt_dt(data.get("date_published", ""))
         out_recs.append(data)
 
@@ -368,12 +393,68 @@ def write_output_records(
         )
         combined = out_recs
 
+    combined = _dedupe_output_records(combined)
     with open(out_file, "w", encoding="utf-8") as f:
         json.dump({"sources": combined}, f, ensure_ascii=False, indent=2)
     LOGGER.info("Wrote %s records to %s", len(combined), out_file)
     stats.output_records = len(out_recs)
     reporter.info(f"Wrote {len(out_recs)} GDELT records to {out_file}")
     return out_file
+
+
+def load_staged_enriched_records(
+    directory: Path | None = None,
+    reporter: CliReporter | None = None,
+    stats: PipelineStats | None = None,
+) -> list[dict]:
+    """
+    Load final record payloads from enriched GDELT staging files.
+    """
+    directory = directory or ENRICHED_DIR
+    reporter = reporter or CliReporter()
+    if not directory.exists():
+        LOGGER.debug("Enriched staging directory does not exist: %s", directory)
+        return []
+
+    records = []
+    for path in sorted(directory.glob("*.json")):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            record = payload.get("record") if isinstance(payload, dict) else None
+            if not isinstance(record, dict):
+                raise ValueError("missing record object")
+            records.append(record)
+        except Exception as exc:
+            reporter.warn(f"Skipping staged record {path.name}: {exc}", stats)
+            LOGGER.warning("Skipping staged record %s: %s", path, exc)
+    return records
+
+
+def stitch_staged_records(
+    output_path: str | None = None,
+    reporter: CliReporter | None = None,
+    stats: PipelineStats | None = None,
+    verbose: bool = False,
+) -> list[dict]:
+    """
+    Stitch enriched staged GDELT records into the final output file.
+    """
+    local_reporter = reporter is None
+    reporter = reporter or CliReporter(verbose=verbose)
+    stats = stats or PipelineStats("GDELT stitch")
+    if local_reporter:
+        reporter.phase("GDELT staged recovery")
+
+    records = load_staged_enriched_records(ENRICHED_DIR, reporter=reporter, stats=stats)
+    write_output_records(records, output_path, reporter, stats)
+
+    if local_reporter:
+        reporter.summary(stats)
+    return [
+        {**record, "date_published": fmt_dt(record.get("date_published", ""))}
+        for record in records
+    ]
 
 
 def process_seed(
@@ -707,7 +788,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-path",
         "-o",
-        default=get_config_value("OUTPUT_PATH", "data/output/results.json"),
+        default=get_config_value("OUTPUT_PATH", None),
         help="Output JSON file or directory. If a directory is provided, GDELT.json is written inside it. (default: data/processed/GDELT.json)",
     )
     parser.add_argument(
@@ -744,7 +825,24 @@ if __name__ == "__main__":
         default=get_config_bool("VERBOSE", False),
         help="Show detailed per-article pipeline output",
     )
+    parser.add_argument(
+        "--stitch-staged",
+        action="store_true",
+        default=False,
+        help="Recover final output from data/raw/gdelt/enriched/ without fetching, scraping, or calling the LLM",
+    )
     args = parser.parse_args()
+
+    if args.stitch_staged:
+        output_path_provided = any(
+            arg in ("-o", "--output-path") or arg.startswith("--output-path=")
+            for arg in sys.argv[1:]
+        )
+        stitch_staged_records(
+            output_path=args.output_path if output_path_provided else None,
+            verbose=args.verbose,
+        )
+        sys.exit(0)
 
     # If --num-files/-n is explicitly provided without --limit/-l, process all
     # discovered seeds for that fetch window instead of using the smoke-test cap.

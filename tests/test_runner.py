@@ -219,11 +219,13 @@ class TestDedupeRawSeeds:
                 "url": "https://example.com/shared",
                 "source": "first",
                 "subsector": "cyber_attack",
-            }, {
+            },
+            {
                 "url": "https://example.com/shared",
                 "source": "second",
                 "subsector": "drug_shortage",
-            },{
+            },
+            {
                 "url": "https://example.com/unique",
                 "source": "third",
                 "subsector": "natural_disaster",
@@ -241,6 +243,7 @@ class TestDedupeRawSeeds:
             "drug_shortage",
         ]
         assert result[1]["detected_subsectors"] == ["natural_disaster"]
+
 
 class TestPersistStage:
     """Tests for the persist_stage function."""

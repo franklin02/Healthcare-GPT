@@ -222,9 +222,8 @@ def themes_match(theme_str, subsector="all"):
             for theme_set in SUBSECTOR_THEMES.values()
         )
 
-    return (
-        subsector in SUBSECTOR_THEMES
-        and _matches_any_theme(theme_str, SUBSECTOR_THEMES[subsector])
+    return subsector in SUBSECTOR_THEMES and _matches_any_theme(
+        theme_str, SUBSECTOR_THEMES[subsector]
     )
 
 

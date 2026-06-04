@@ -193,9 +193,7 @@ def get_file_logger(name: str, log_file: Path) -> logging.Logger:
 
     # Route console output through the active CliReporter so records redraw above
     # the sticky progress bar instead of corrupting it.
-    if not any(
-        isinstance(h, CliReporterLoggingHandler) for h in logger.handlers
-    ):
+    if not any(isinstance(h, CliReporterLoggingHandler) for h in logger.handlers):
         console_handler = CliReporterLoggingHandler()
         console_handler.setLevel(CONSOLE_LOG_LEVEL)
         console_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))

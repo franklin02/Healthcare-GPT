@@ -58,8 +58,10 @@ write accepted vulnerabilities, rejected noise articles, and duplicate records
 to Supabase. When those variables are missing, database writes are disabled and
 the local JSON/CSV outputs still work.
 
-1. Create a Supabase project and open the SQL editor.
-2. Run the setup SQL files in this order:
+1. Get the project URL and service-role key for the existing Healthcare-GPT
+   Supabase project from a maintainer.
+2. If the database needs to be initialized or updated, run the setup SQL files
+   in the Supabase SQL editor in this order:
 
 ```sql
 -- src/config/schema.sql
@@ -67,7 +69,7 @@ the local JSON/CSV outputs still work.
 -- src/config/dedup_rpc.sql
 ```
 
-3. Add local credentials in a gitignored `.env` file:
+3. Add the provided credentials in a gitignored `.env` file:
 
 ```bash
 SUPABASE_URL=https://your-project-ref.supabase.co

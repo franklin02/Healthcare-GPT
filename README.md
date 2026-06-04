@@ -51,6 +51,38 @@ https://franklin02.github.io/Healthcare-GPT/index.html
 2. Install the development tools listed below.
 3. Run a small GDELT smoke test or docs build before opening a pull request.
 
+## Optional Supabase Setup
+Supabase is used as an optional persistence and deduplication store. When
+`SUPABASE_URL` and `SUPABASE_KEY` are set, the GDELT and HTML pipelines can
+write accepted vulnerabilities, rejected noise articles, and duplicate records
+to Supabase. When those variables are missing, database writes are disabled and
+the local JSON/CSV outputs still work.
+
+1. Create a Supabase project and open the SQL editor.
+2. Run the setup SQL files in this order:
+
+```sql
+-- src/config/schema.sql
+-- src/config/duplicate.sql
+-- src/config/dedup_rpc.sql
+```
+
+3. Add local credentials in a gitignored `.env` file:
+
+```bash
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_KEY=your-service-role-key
+```
+
+Use the service-role key only for local/private pipeline runs and never commit
+it. The schema enables row-level security, so an anon key will need explicit
+policies before it can insert or query rows.
+
+The main tables are:
+- `vulnerabilities` - accepted disruption records with optional embeddings
+- `noise` - rejected articles used to avoid reprocessing known noise
+- `duplicates` - duplicate records linked back to their original vulnerability
+
 ## Developer Tooling
 Install the development tools with:
 

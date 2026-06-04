@@ -15,7 +15,7 @@ Functions:
     stable_id(url): Generate a stable ID for a given URL using SHA-256 hashing.
     fmt_dt(value): Format a date string into YYYY-MM-DD HH:MM format. Tries multiple input formats and returns the original value if parsing fails.
     ensure_raw_dirs(): Ensure that the raw directories for seeds, validated, and enriched data exist. Creates them if they don't.
-    ensure_cache_dir(): Ensure that the GDELT zip cache directory exists. Creates it if it doesn't. The cache directory is persistent across pipeline runs and is never cleared automatically.
+    ensure_cache_dir(): Ensure that the GDELT zip cache directory exists. Creates it if it doesn't.
     save_json(path, data): Save a dictionary as JSON to the specified path, creating parent directories if needed.
     clear_directory(directory): Delete all files and subdirectories inside a directory.
     persist_raw_seeds(raw_seeds): Persist raw seeds to the seeds directory, using stable IDs for filenames.

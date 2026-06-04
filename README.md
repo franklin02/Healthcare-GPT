@@ -40,6 +40,9 @@ ingestion, and a FastAPI chat interface over processed records.
 - `src/scrapers/` - shared scraper and LLM helper utilities
 - `src/config/schema.json` - structured output schema reference
 - `src/` - FastAPI app, ingestion pipeline, classifier, scraper, and data models
+- `scripts/` - opt-in maintenance/validation scripts run on demand (not part of
+  the pytest suite); e.g. `scripts/validate_schemas.py` validates that every
+  schema populates every field. See CONTRIBUTING.md §7.
 
 ## Documentation
 The published Sphinx documentation is available at:

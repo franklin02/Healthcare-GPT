@@ -15,6 +15,8 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from src.cli_reporter import CliReporterLoggingHandler
+
 
 LOG_TIMESTAMP_FORMATS = (
     "%Y-%m-%d %H:%M:%S,%f",
@@ -49,16 +51,23 @@ _CONFIG = _load_config_file()
 # WARNING: An indication that something unexpected happened, or indicative of some problem in the near future. The program continues to run
 # ERROR: A serious issue has caused the program to fail
 # CRITICAL: Not really used here, but a even more serious issue than an error
-def _resolve_logger_level() -> int:
-    level_text = _CONFIG.get("LOG_LEVEL", "INFO").strip()
+def _resolve_level(key: str, default: int) -> int:
+    level_text = _CONFIG.get(key, "").strip()
     if not level_text:
-        return logging.INFO
+        return default
     if level_text.isdigit():
         return int(level_text)
-    return getattr(logging, level_text.upper(), logging.INFO)
+    return getattr(logging, level_text.upper(), default)
+
+
+def _resolve_logger_level() -> int:
+    return _resolve_level("LOG_LEVEL", logging.INFO)
 
 
 LOGGER_LEVEL = _resolve_logger_level()
+# Console gets WARNING+ by default so the progress bar isn't flooded with
+# INFO/DEBUG; the file handler still captures everything at LOGGER_LEVEL.
+CONSOLE_LOG_LEVEL = _resolve_level("CONSOLE_LOG_LEVEL", logging.WARNING)
 
 
 class RetentionFileHandler(logging.FileHandler):
@@ -181,6 +190,16 @@ def get_file_logger(name: str, log_file: Path) -> logging.Logger:
             logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
         )
         logger.addHandler(handler)
+
+    # Route console output through the active CliReporter so records redraw above
+    # the sticky progress bar instead of corrupting it.
+    if not any(
+        isinstance(h, CliReporterLoggingHandler) for h in logger.handlers
+    ):
+        console_handler = CliReporterLoggingHandler()
+        console_handler.setLevel(CONSOLE_LOG_LEVEL)
+        console_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+        logger.addHandler(console_handler)
 
     logger.propagate = False
     return logger

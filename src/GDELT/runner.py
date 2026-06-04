@@ -699,6 +699,7 @@ def run(
     else:
         # Clear the seed files after a successful pipeline run.
         clear_directory(SEEDS_DIR)
+        clear_directory(GDELT_CACHE_DIR)
         reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")
         LOGGER.debug("Cleared seeds directory: %s", SEEDS_DIR)
 

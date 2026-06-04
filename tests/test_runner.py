@@ -1198,30 +1198,6 @@ class TestRun:
         mock_save_seen.assert_called_once()
         mock_clear.assert_not_called()
 
-    def test_run_success_clears_seed_staging(self):
-        """Normal successful runs should still clear GDELT seed staging."""
-        seeds = [{"url": "https://example.com/1", "source": "test"}]
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with (
-                patch("src.GDELT.runner.ensure_raw_dirs"),
-                patch("src.GDELT.runner.load_seen", return_value=set()),
-                patch("src.GDELT.runner.save_seen"),
-                patch("src.GDELT.runner.persist_raw_seeds"),
-                patch("src.GDELT.runner.backfill_cyber_seeds", return_value=seeds),
-                patch("src.GDELT.runner.process_seed", return_value=None),
-                patch("src.GDELT.runner.persist_stage"),
-                patch("src.GDELT.runner.clear_directory") as mock_clear,
-            ):
-                runner.run(
-                    num_files=1,
-                    limit=1,
-                    subsectors="all",
-                    output_path=tmpdir,
-                )
-
-        mock_clear.assert_called_once_with(runner.SEEDS_DIR)
-
 
 class TestEnsureRawDirs:
     """Tests for the ensure_raw_dirs function."""

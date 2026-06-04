@@ -48,9 +48,11 @@ class PipelineStats:
 
     @property
     def rejection_rate(self) -> float:
-        if self.processed == 0 or (self.processed - self.skipped) == 0:
+        rejected_or_skipped = self.rejected + self.skipped
+        outcomes = self.validated + rejected_or_skipped
+        if outcomes == 0:
             return 0.0
-        return self.rejected / (self.processed - self.skipped)
+        return rejected_or_skipped / outcomes
 
 
 class CliReporter:

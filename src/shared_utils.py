@@ -396,10 +396,6 @@ def _top_row_matches(
 
     incoming_preview = _content_preview(body_snippet)
     if first_row.get(preview_column, "") != incoming_preview:
-        print(
-            f"[WARN] Title matched but body preview differs for {title!r} "
-            f"— stopping anyway"
-        )
         LOGGER.warning("Body preview differs for title %s", title)
     return True
 
@@ -559,7 +555,6 @@ def get_title(url: str) -> str:
         resp.raise_for_status()
     except requests.RequestException as e:
         LOGGER.warning("Failed to fetch URL %s: %s", url, e)
-        print(f"[WARNING] Failed to fetch {url[:80]}: {e}")
         return url
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -605,7 +600,6 @@ def get_body(url: str) -> str:
         resp = requests.get(url, timeout=30, headers=HEADERS)
         resp.raise_for_status()
     except requests.RequestException as e:
-        print(f"[WARNING] Failed to fetch {url[:80]}: {e}")
         LOGGER.warning("Failed to fetch URL %s: %s", url, e)
         return ""
 
@@ -649,7 +643,6 @@ def get_body(url: str) -> str:
             break
 
     if main is None:
-        print("[WARN] no body found")
         LOGGER.warning("No body found for URL %s", url)
         return ""
 
@@ -768,14 +761,8 @@ def ai_check_validation(
     if use_bert:
         bert_subsector = _run_bert(title, body, verbose=verbose)
         if bert_subsector == "none":
-            if verbose:
-                print("[BERT] rejected skipping LLM")
             LOGGER.info("BERT rejected article with title %s", title)
             return False, "BERT: unrelated news"
-        if verbose:
-            print(
-                f"[BERT] flagged as '{bert_subsector}' sending to LLM for confirmation"
-            )
         LOGGER.info("BERT flagged article with title %s as %s", title, bert_subsector)
 
     prompt = f"""
@@ -927,7 +914,6 @@ def ai_check_validation(
         return is_threat, detail
 
     except Exception as e:
-        print(f"[WARNING] Error parsing AI response: {e}")
         LOGGER.warning("Error parsing AI response for title %s: %s", title, e)
         return False, "Parsing Error"
 

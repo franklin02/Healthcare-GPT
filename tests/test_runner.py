@@ -209,6 +209,42 @@ class TestPersistRawSeeds:
         assert ".json" in str(path_arg)
 
 
+class TestDedupeRawSeeds:
+    """Tests for raw seed URL deduplication."""
+
+    def test_dedupe_raw_seeds_merges_subsector_labels_by_url(self):
+        """dedupe_raw_seeds should keep one seed per URL and merge subsectors."""
+        raw_seeds = [
+            {
+                "url": "https://example.com/shared",
+                "source": "first",
+                "subsector": "cyber_attack",
+            },
+            {
+                "url": "https://example.com/shared",
+                "source": "second",
+                "subsector": "drug_shortage",
+            },
+            {
+                "url": "https://example.com/unique",
+                "source": "third",
+                "subsector": "natural_disaster",
+            },
+        ]
+
+        result = runner.dedupe_raw_seeds(raw_seeds)
+
+        assert len(result) == 2
+        assert result[0]["url"] == "https://example.com/shared"
+        assert result[0]["source"] == "first"
+        assert result[0]["subsector"] == "cyber_attack"
+        assert result[0]["detected_subsectors"] == [
+            "cyber_attack",
+            "drug_shortage",
+        ]
+        assert result[1]["detected_subsectors"] == ["natural_disaster"]
+
+
 class TestPersistStage:
     """Tests for the persist_stage function."""
 
@@ -698,6 +734,68 @@ class TestRun:
 
         # backfill_cyber_seeds should be called for each specified subsector
         assert mock_backfill.call_count == 2
+
+    @patch("src.GDELT.runner.save_seen")
+    @patch("src.GDELT.runner.load_seen")
+    @patch("src.GDELT.runner.persist_raw_seeds")
+    @patch("src.GDELT.runner.backfill_cyber_seeds")
+    @patch("src.GDELT.runner.process_seed")
+    @patch("src.GDELT.runner.persist_stage")
+    @patch("src.GDELT.runner.ensure_raw_dirs")
+    def test_run_dedupes_raw_seeds_across_subsectors(
+        self,
+        mock_ensure_dirs,
+        mock_persist_stage,
+        mock_process_seed,
+        mock_backfill,
+        mock_persist_raw,
+        mock_load_seen,
+        mock_save_seen,
+    ):
+        """run should process duplicate URLs once across requested subsectors."""
+        mock_load_seen.return_value = set()
+        mock_backfill.side_effect = [
+            [
+                {
+                    "url": "https://example.com/shared",
+                    "source": "cyber source",
+                    "subsector": "cyber_attack",
+                }
+            ],
+            [
+                {
+                    "url": "https://example.com/shared",
+                    "source": "drug source",
+                    "subsector": "drug_shortage",
+                }
+            ],
+        ]
+        mock_process_seed.return_value = None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runner.run(
+                num_files=1,
+                limit=None,
+                subsectors="cyber_attack,drug_shortage",
+                output_path=tmpdir,
+            )
+
+        mock_persist_raw.assert_called_once()
+        persisted_seeds = mock_persist_raw.call_args[0][0]
+        assert len(persisted_seeds) == 1
+        assert persisted_seeds[0]["url"] == "https://example.com/shared"
+        assert persisted_seeds[0]["subsector"] == "cyber_attack"
+        assert persisted_seeds[0]["detected_subsectors"] == [
+            "cyber_attack",
+            "drug_shortage",
+        ]
+        assert mock_process_seed.call_count == 1
+        processed_seed = mock_process_seed.call_args[0][0]
+        assert processed_seed["url"] == "https://example.com/shared"
+        assert processed_seed["detected_subsectors"] == [
+            "cyber_attack",
+            "drug_shortage",
+        ]
 
     @patch("src.GDELT.runner.save_seen")
     @patch("src.GDELT.runner.load_seen")

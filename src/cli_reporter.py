@@ -10,10 +10,27 @@ stream and re-draws it after any interrupting message — similar in feel to
 
 from __future__ import annotations
 
+import logging
 import shutil
 import sys
 from dataclasses import dataclass
 from typing import TextIO
+
+# Module-level handle on the reporter that owns the terminal right now. Low-level
+# code (e.g. logging handlers) has no reporter reference, so it looks here to draw
+# above the sticky line instead of smashing it.
+_active_reporter: "CliReporter | None" = None
+
+
+def set_active_reporter(reporter: "CliReporter | None") -> None:
+    """Register the reporter that currently owns the sticky line."""
+    global _active_reporter
+    _active_reporter = reporter
+
+
+def get_active_reporter() -> "CliReporter | None":
+    """Return the reporter currently owning the sticky line, if any."""
+    return _active_reporter
 
 
 @dataclass
@@ -48,9 +65,11 @@ class PipelineStats:
 
     @property
     def rejection_rate(self) -> float:
-        if self.processed == 0 or (self.processed - self.skipped) == 0:
+        rejected_or_skipped = self.rejected + self.skipped
+        outcomes = self.validated + rejected_or_skipped
+        if outcomes == 0:
             return 0.0
-        return self.rejected / (self.processed - self.skipped)
+        return rejected_or_skipped / outcomes
 
 
 class CliReporter:
@@ -61,8 +80,17 @@ class CliReporter:
         self.stream = stream or sys.stdout
         self._sticky: str | None = None
         self._sticky_len = 0
+        set_active_reporter(self)
 
     # ---- public API ----------------------------------------------------
+
+    def log(self, message: str) -> None:
+        """Print a pre-formatted log line above the sticky bar.
+
+        Single coordinated write path for logging handlers so records redraw
+        cleanly instead of colliding with the progress line.
+        """
+        self._print_above(message)
 
     def phase(self, message: str) -> None:
         """Print a section header; finalizes any active sticky line."""
@@ -210,3 +238,23 @@ class CliReporter:
         if encoding is None:
             return True
         return "utf" in encoding.lower()
+
+
+class CliReporterLoggingHandler(logging.Handler):
+    """Route log records through the active reporter so they don't break the bar.
+
+    When a reporter owns the sticky line, records are drawn above it via
+    ``reporter.log``. With no active reporter (scripts, tests) the record falls
+    back to ``stderr`` so nothing is silently dropped.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            message = self.format(record)
+            reporter = get_active_reporter()
+            if reporter is not None:
+                reporter.log(message)
+            else:
+                print(message, file=sys.stderr, flush=True)
+        except Exception:
+            self.handleError(record)

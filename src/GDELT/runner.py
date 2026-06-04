@@ -190,6 +190,42 @@ def clear_directory(directory: Path) -> None:
             LOGGER.warning("Failed to remove %s: %s", item, exc)
 
 
+def dedupe_raw_seeds(raw_seeds: list[dict]) -> list[dict]:
+    """
+    Deduplicate raw GDELT seeds by exact URL while preserving subsector evidence.
+
+    The first seed for a URL stays canonical so existing single-subsector seed
+    metadata remains backward compatible. Later duplicates only contribute
+    unique subsector labels to the canonical seed's detected_subsectors list.
+    """
+    seeds_by_url: dict[str, dict] = {}
+    detected_by_url: dict[str, list[str]] = {}
+
+    for seed in raw_seeds:
+        url = seed["url"]
+        if url not in seeds_by_url:
+            seeds_by_url[url] = dict(seed)
+            detected_by_url[url] = []
+
+        labels = []
+        detected = seed.get("detected_subsectors")
+        if isinstance(detected, list):
+            labels.extend(detected)
+        subsector = seed.get("subsector")
+        if subsector:
+            labels.append(subsector)
+
+        for label in labels:
+            if label not in detected_by_url[url]:
+                detected_by_url[url].append(label)
+
+    for url, seed in seeds_by_url.items():
+        if detected_by_url[url]:
+            seed["detected_subsectors"] = detected_by_url[url]
+
+    return list(seeds_by_url.values())
+
+
 def persist_raw_seeds(raw_seeds: list[dict]) -> None:
     """
     Persist raw seeds to the seeds directory, using stable IDs for filenames.
@@ -581,6 +617,7 @@ def run(
             stats=stats,
         )
     ]
+    raw_seeds = dedupe_raw_seeds(raw_seeds)
     LOGGER.debug("Collected %s raw seeds", len(raw_seeds))
     stats.discovered = len(raw_seeds)
     persist_raw_seeds(raw_seeds)
@@ -731,8 +768,11 @@ if __name__ == "__main__":
 
     # If --num-files/-n is explicitly provided without --limit/-l, process all
     # discovered seeds for that fetch window instead of using the smoke-test cap.
-    n_provided = any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
-    l_provided = any(opt in sys.argv[1:] for opt in ("-l", "--limit"))
+    n_provided = (
+        any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
+        or args.num_files is not None
+    )
+    l_provided = args.limit is not None
     effective_limit = args.limit
     if not l_provided:
         effective_limit = None if n_provided else 3

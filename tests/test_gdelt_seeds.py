@@ -504,6 +504,37 @@ class TestProcessGkgFileFilters:
         assert "CYBER_ATTACK" in seeds[0]["themes"]
 
     @patch("src.GDELT.gdelt_seeds.requests.get")
+    def test_all_subsector_seeds_include_detected_subsectors(self, mock_get):
+        """subsector=all seeds should preserve all GDELT-detected subsectors."""
+        csv_content = (
+            "1\t20230515123045\t2\tBBC\thttps://hospital.com/cyber-shortage\t5\t6\t"
+            "HEALTHCARE;CYBER_ATTACK;SHORTAGE\t8\t1#New York#US#123#40.7#74.0\t"
+            "10\t11\t12\t13\t14\t15\n"
+        )
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as z:
+            z.writestr("test.csv", csv_content)
+        zip_buffer.seek(0)
+
+        response = Mock()
+        response.content = zip_buffer.getvalue()
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+
+        seeds, total = gdelt_seeds.process_gkg_file(
+            "http://example.com/test.zip", subsector="all"
+        )
+
+        assert total == 1
+        assert len(seeds) == 1
+        assert seeds[0]["subsector"] == "drug_shortage"
+        assert seeds[0]["detected_subsectors"] == [
+            "drug_shortage",
+            "cyber_attack",
+        ]
+
+    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_us_location_filter(self, mock_get):
         """Should filter by US location."""
         csv_content = (

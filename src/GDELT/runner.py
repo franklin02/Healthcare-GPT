@@ -15,6 +15,7 @@ Functions:
     stable_id(url): Generate a stable ID for a given URL using SHA-256 hashing.
     fmt_dt(value): Format a date string into YYYY-MM-DD HH:MM format. Tries multiple input formats and returns the original value if parsing fails.
     ensure_raw_dirs(): Ensure that the raw directories for seeds, validated, and enriched data exist. Creates them if they don't.
+    ensure_cache_dir(): Ensure that the GDELT zip cache directory exists. Creates it if it doesn't.
     save_json(path, data): Save a dictionary as JSON to the specified path, creating parent directories if needed.
     clear_directory(directory): Delete all files and subdirectories inside a directory.
     persist_raw_seeds(raw_seeds): Persist raw seeds to the seeds directory, using stable IDs for filenames.
@@ -63,6 +64,9 @@ ENRICHED_DIR = RAW_GDELT_DIR / "enriched"
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "gdelt_runner.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
+
+# cache for downloaded GDELT GKG zip files to avoid redownloading
+GDELT_CACHE_DIR = PROJECT_ROOT / "data" / "gdelt_cache"
 
 try:
     from src.supabase_function import has_supabase_creds
@@ -137,6 +141,20 @@ def ensure_raw_dirs() -> None:
     for directory in (SEEDS_DIR, VALIDATED_DIR, ENRICHED_DIR):
         directory.mkdir(parents=True, exist_ok=True)
     LOGGER.debug("Ensured raw directories: %s", RAW_GDELT_DIR)
+
+
+def ensure_cache_dir() -> None:
+    """
+    Ensure that the GDELT zip cache directory exists. Creates it if it doesn't.
+
+    The cache directory `GDELT_CACHE_DIR` is never cleared by the pipeline so
+    that zip files downloaded in one run are reused in subsequent runs covering
+    the same date range. Only remove files from this directory manually when you
+    want to force a fresh download.
+    """
+    GDELT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    LOGGER.debug("Ensured GDELT cache directory: %s", GDELT_CACHE_DIR)
 
 
 def save_json(path: Path, data: dict) -> None:
@@ -581,6 +599,7 @@ def run(
         sys.exit(1)
 
     ensure_raw_dirs()
+    ensure_cache_dir()
 
     # Load seen URLs once at the start
     seen = load_seen(seen_urls_path)
@@ -593,6 +612,7 @@ def run(
             subsector=subsector,
             start_date=start_date,
             end_date=end_date,
+            cache_dir=GDELT_CACHE_DIR,
             reporter=reporter,
             stats=stats,
         )
@@ -679,6 +699,7 @@ def run(
     else:
         # Clear the seed files after a successful pipeline run.
         clear_directory(SEEDS_DIR)
+        clear_directory(GDELT_CACHE_DIR)
         reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")
         LOGGER.debug("Cleared seeds directory: %s", SEEDS_DIR)
 

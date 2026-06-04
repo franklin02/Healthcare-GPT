@@ -34,6 +34,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
+import json
 
 import pandas as pd
 import requests
@@ -46,6 +47,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "gdelt_seeds.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
+
+SEEDS_DIR = PROJECT_ROOT / "data" / "raw" / "gdelt" / "seeds"
 
 GKG_COLS = {
     0: "GkgRecordId",
@@ -166,15 +169,12 @@ def is_us_located(location_str):
         True if the location string indicates a US location, False otherwise.
     """
     if not isinstance(location_str, str) or not location_str.strip():
-        LOGGER.debug("Location string is not valid: %s", location_str)
         return True
     # GDELT location strings have entries separated by semicolons, with fields separated by hashes. The country code is typically the third field. We check if any entry has "US" as the country code.
     for entry in location_str.split(";"):
         parts = entry.split("#")
         if len(parts) >= 3 and parts[2].strip().upper() == "US":
-            LOGGER.debug("Location string indicates US location: %s", location_str)
             return True
-    LOGGER.debug("Location string does not indicate US location: %s", location_str)
     return False
 
 
@@ -190,10 +190,8 @@ def _matches_any_theme(theme_str, theme_set):
         True if any theme in theme_set is present in theme_str, False otherwise.
     """
     if not isinstance(theme_str, str):
-        LOGGER.debug("Theme string is not valid: %s", theme_str)
         return False
     tokens = [token.strip().upper() for token in theme_str.split(";") if token.strip()]
-    LOGGER.debug("Checking themes %s against set %s", tokens, theme_set)
     return any(any(expected in token for token in tokens) for expected in theme_set)
 
 
@@ -212,7 +210,6 @@ def themes_match(theme_str, subsector="all"):
     Returns:
         True if the themes match the requested subsector, False otherwise.
     """
-    LOGGER.debug("Checking themes %s against subsector %s", theme_str, subsector)
     if not _matches_any_theme(theme_str, HEALTH_THEMES):
         return False
 
@@ -239,19 +236,14 @@ def detect_subsectors(theme_str):
         subsectors can be detected.
     """
     if not _matches_any_theme(theme_str, HEALTH_THEMES):
-        LOGGER.debug("Theme string does not match health themes: %s", theme_str)
         return []
 
     subsectors = []
     for subsector, theme_set in SUBSECTOR_THEMES.items():
         if _matches_any_theme(theme_str, theme_set):
-            LOGGER.debug(
-                "Detected subsector %s for theme string: %s", subsector, theme_str
-            )
             subsectors.append(subsector)
     if subsectors:
         return subsectors
-    LOGGER.debug("No specific subsector detected for theme string: %s", theme_str)
     return []
 
 
@@ -280,10 +272,8 @@ def themes_match_noise(theme_str):
         True if any noise theme is present in the theme string, False otherwise.
     """
     if not isinstance(theme_str, str):
-        LOGGER.debug("Theme string is not valid: %s", theme_str)
         return False
     u = theme_str.upper()
-    LOGGER.debug("Checking if themes %s match noise patterns", theme_str)
     return any(n in u for n in NOISE_THEMES)
 
 
@@ -375,6 +365,7 @@ def _normalize_date_bound(value, end=False):
 def process_gkg_file(
     link,
     subsector="all",
+    cache_dir: Path | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ):
@@ -384,6 +375,7 @@ def process_gkg_file(
     Parameters:
         link: The URL to the GDELT GKG file (a .zip containing a .csv).
         subsector: The subsector to filter for, or "all" for any supported subsector.
+        cache_dir: Optional directory for caching downloaded zip files.
         reporter: Optional CliReporter for logging progress and warnings.
         stats: Optional PipelineStats for recording statistics.
 
@@ -392,15 +384,31 @@ def process_gkg_file(
     """
     reporter = reporter or CliReporter(verbose=True)
     LOGGER.debug("Processing GKG file link=%s subsector=%s", link, subsector)
+
+    fname = link.split("/")[-1]
+    cached_path = (cache_dir / fname) if cache_dir else None
+
+    if cached_path and cached_path.exists():
+        LOGGER.debug("Cache hit, reading from disk: %s", cached_path)
+        zip_bytes = cached_path.read_bytes()
+    else:
+        try:
+            r = requests.get(link, timeout=20)
+            r.raise_for_status()
+        except Exception as e:
+            reporter.warn(f"Download failed {link.split('/')[-1]}: {e}", stats)
+            LOGGER.warning("Download failed link=%s error=%s", link, e)
+            return [], 0
+        zip_bytes = r.content
+        if cached_path:
+            try:
+                cached_path.write_bytes(zip_bytes)
+                LOGGER.debug("Cached zip to %s", cached_path)
+            except Exception as exc:
+                LOGGER.warning("Failed to write cache file %s: %s", cached_path, exc)
+
     try:
-        r = requests.get(link, timeout=20)
-        r.raise_for_status()
-    except Exception as e:
-        reporter.warn(f"Download failed {link.split('/')[-1]}: {e}", stats)
-        LOGGER.warning("Download failed link=%s error=%s", link, e)
-        return [], 0
-    try:
-        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
             raw = pd.read_csv(
                 z.open(z.namelist()[0]),
                 sep="\t",
@@ -454,7 +462,7 @@ def process_gkg_file(
             LOGGER.debug("Filtered out by URL quality link=%s", link)
             return [], total
 
-        fname = link.split("/")[-1]
+        fname = link.split("/")[-1]  # already defined above; kept for clarity
         reporter.detail(f"  OK {fname}: {len(df)} leads from {total} rows")
         LOGGER.info("File %s produced %s leads from %s rows", fname, len(df), total)
         seeds = []
@@ -487,6 +495,7 @@ def backfill_cyber_seeds(
     subsector="all",
     start_date=None,
     end_date=None,
+    cache_dir: Path | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
 ):
@@ -539,12 +548,39 @@ def backfill_cyber_seeds(
     all_seeds = []
     total_rows = 0
     for index, link in enumerate(recent, start=1):
-        seeds, rows = process_gkg_file(
-            link,
-            subsector=subsector,
-            reporter=reporter,
-            stats=stats,
-        )
+        fname = link.split("/")[-1]
+        cached_seeds = []
+        try:
+            if SEEDS_DIR.exists():
+                for p in SEEDS_DIR.glob("*.json"):
+                    try:
+                        with open(p, "r", encoding="utf-8") as f:
+                            j = json.load(f)
+                        s = j.get("seed") or j
+                        if isinstance(s, dict) and s.get("file") == fname:
+                            cached_seeds.append(s)
+                    except Exception:
+                        LOGGER.warning("Failed to read cache file %s: %s", p)
+                        continue
+        except Exception:
+            LOGGER.warning("Failed to access cache directory %s: %s", SEEDS_DIR)
+            cached_seeds = []
+
+        if cached_seeds:
+            reporter.detail(f"  Reusing {len(cached_seeds)} cached seeds from {fname}")
+            LOGGER.info("Reusing %s cached seeds from %s", len(cached_seeds), fname)
+            all_seeds.extend(cached_seeds)
+            if recent and not reporter.verbose:
+                reporter.progress(index, len(recent), "GDELT files")
+            continue
+        else:
+            seeds, rows = process_gkg_file(
+                link,
+                subsector=subsector,
+                cache_dir=cache_dir,
+                reporter=reporter,
+                stats=stats,
+            )
         all_seeds.extend(seeds)
         total_rows += rows
         if recent and not reporter.verbose:

@@ -846,8 +846,11 @@ if __name__ == "__main__":
 
     # If --num-files/-n is explicitly provided without --limit/-l, process all
     # discovered seeds for that fetch window instead of using the smoke-test cap.
-    n_provided = any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
-    l_provided = any(opt in sys.argv[1:] for opt in ("-l", "--limit"))
+    n_provided = (
+        any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
+        or args.num_files is not None
+    )
+    l_provided = args.limit is not None
     effective_limit = args.limit
     if not l_provided:
         effective_limit = None if n_provided else 3

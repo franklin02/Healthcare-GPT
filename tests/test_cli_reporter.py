@@ -146,16 +146,59 @@ def test_stats_merge_preserves_paused_state():
     assert combined.paused is True
 
 
-def test_summary_treats_skipped_items_as_rejected():
-    """Skipped items are still rejected, they should be counted in the rejection rate."""
+def test_summary_counts_skipped_items_as_negative_outcomes():
+    """Skipped items should count as negative outcomes without using processed."""
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
     stats = PipelineStats(
         "GDELT",
-        processed=2,
+        processed=3,
+        validated=1,
         rejected=1,
         skipped=1,
     )
+
+    reporter.summary(stats)
+
+    output = stream.getvalue()
+    assert "Rejection rate: 67%" in output
+
+
+def test_summary_rejection_rate_does_not_exceed_100_with_skipped_items():
+    """Skipped counts must not shrink the rejection-rate denominator."""
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+    stats = PipelineStats(
+        "FedScoop",
+        processed=164,
+        validated=12,
+        rejected=150,
+        skipped=18,
+    )
+
+    reporter.summary(stats)
+
+    output = stream.getvalue()
+    assert "Rejection rate: 93%" in output
+
+
+def test_summary_rejection_rate_handles_no_outcomes():
+    """No terminal outcomes should report 0% instead of dividing by zero."""
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+    stats = PipelineStats("Empty", processed=0)
+
+    reporter.summary(stats)
+
+    output = stream.getvalue()
+    assert "Rejection rate: 0%" in output
+
+
+def test_summary_rejection_rate_handles_all_skipped_items():
+    """All-skipped runs should be bounded and avoid the old zero denominator."""
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+    stats = PipelineStats("Skipped", processed=3, skipped=3)
 
     reporter.summary(stats)
 

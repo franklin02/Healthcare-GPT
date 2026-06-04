@@ -66,6 +66,17 @@ GDELT themes are only discovery hints.
 - `subsector_data` uses the schema for that final subsector.
 
 
+## Subsector Detection
+
+GDELT themes are only discovery hints.
+
+- One article can match more than one supported subsector.
+- Raw seed records keep `subsector` as the primary label.
+- Raw seed records may also include `detected_subsectors` with all GDELT theme matches.
+- Final validated records still have one `subsector`, chosen by the LLM.
+- `subsector_data` uses the schema for that final subsector.
+
+
 ## Single-Stage Debugging
 
 If you need to isolate stages for testing / benchmarking without running the full end-to-end pipeline:

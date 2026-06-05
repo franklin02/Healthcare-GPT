@@ -110,10 +110,10 @@ Extracted data (articles with fully extracted JSON metadata):
 
 ## Crash Recovery
 
-If the GDELT pipeline crashes, stitch staged data into the final JSON file with
-`--stitch-stage`. Accepted values are `seeds`, `validated`, and `enriched`.
-The default recovery path is `enriched`, which recovers from
-`data/raw/gdelt/enriched/`:
+If the GDELT pipeline stops after staging files have been written, manually
+stitch staged data into the final JSON file with `--stitch-stage`. Accepted
+values are `seeds`, `validated`, and `enriched`. The default recovery path is
+`enriched`, which recovers from `data/raw/gdelt/enriched/`:
 
 `python -m src.GDELT.runner --stitch-stage enriched`
 
@@ -126,8 +126,8 @@ You can also choose an earlier recovery stage:
 The older `--stitch-staged` flag still works as a shortcut for
 `--stitch-stage enriched`.
 
-The `validated` and `enriched` stages stitch already extracted record payloads
-into the final output without fetching new GDELT files. The `seeds` stage first
+The `validated` and `enriched` stages stitch staged record payloads into the
+final output without fetching pages or calling the LLM. The `seeds` stage first
 reuses any records already staged in `data/raw/gdelt/enriched/` or
 `data/raw/gdelt/validated/`, then processes the remaining candidate URLs from
 `data/raw/gdelt/seeds/` through scraping, validation, and extraction before
@@ -144,6 +144,7 @@ completed records to the configured GDELT output file, and preserves
 `data/raw/gdelt/seeds/` so later recovery or stitching work can inspect the
 remaining staged seeds.
 
-This is a graceful stop with state preservation, not an automatic resume. When
-run through the orchestrator, a paused GDELT stage also prevents later pipeline
-stages from starting.
+This is a graceful stop with state preservation, not an automatic resume. After
+a stop, run one of the `--stitch-stage` commands above to build the final JSON
+from the preserved stage files. When run through the orchestrator, a paused
+GDELT stage also prevents later pipeline stages from starting.

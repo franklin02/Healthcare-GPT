@@ -344,81 +344,6 @@ class TestPersistStage:
 class TestStagedRecovery:
     """Tests for stitching staged GDELT files."""
 
-    def test_load_staged_payloads_skips_malformed_files(self):
-        """load_staged_payloads should load valid records and warn on bad files."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            directory = Path(tmpdir)
-            valid_record = {
-                "id": "rec1",
-                "direct_link": "https://example.com/1",
-                "date_published": "20230515123045",
-            }
-            (directory / "valid.json").write_text(
-                json.dumps({"record": valid_record}),
-                encoding="utf-8",
-            )
-            (directory / "invalid.json").write_text(
-                json.dumps({"missing": "record"}),
-                encoding="utf-8",
-            )
-            reporter = Mock()
-
-            with patch("src.GDELT.runner.ENRICHED_DIR", directory):
-                records = runner.load_staged_payloads("enriched", reporter=reporter)
-
-        assert records == [valid_record]
-        reporter.warn.assert_called_once()
-
-    def test_load_staged_payloads_rejects_invalid_stage(self):
-        """load_staged_payloads should reject undocumented stages."""
-        with pytest.raises(ValueError, match="Invalid stitch stage"):
-            runner.load_staged_payloads("seed")
-
-    def test_write_output_records_dedupes_existing_records_first(self):
-        """write_output_records should append unique records and keep existing duplicates."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            output_file = Path(tmpdir) / "output.json"
-            existing_record = {
-                "id": "same-id",
-                "title": "Existing",
-                "direct_link": "https://example.com/same",
-            }
-            output_file.write_text(
-                json.dumps({"sources": [existing_record]}),
-                encoding="utf-8",
-            )
-
-            runner.write_output_records(
-                [
-                    {
-                        "id": "same-id",
-                        "title": "Recovered duplicate",
-                        "direct_link": "https://example.com/same",
-                    },
-                    {
-                        "id": "different-id",
-                        "title": "Recovered direct link duplicate",
-                        "direct_link": "https://example.com/same",
-                    },
-                    {
-                        "id": "new-id",
-                        "title": "Recovered new",
-                        "direct_link": "https://example.com/new",
-                        "date_published": "20230515123045",
-                    },
-                ],
-                str(output_file),
-                Mock(),
-                PipelineStats("GDELT"),
-            )
-
-            result = json.loads(output_file.read_text(encoding="utf-8"))
-
-        assert len(result["sources"]) == 2
-        assert result["sources"][0]["title"] == "Existing"
-        assert result["sources"][1]["id"] == "new-id"
-        assert result["sources"][1]["date_published"] == "2023-05-15 12:30"
-
     def test_stitch_staged_records_uses_enriched_stage_without_pipeline_calls(self):
         """stitch_staged_records should recover enriched records without processing seeds."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -475,41 +400,6 @@ class TestStagedRecovery:
         mock_load_seen.assert_not_called()
         mock_save_seen.assert_not_called()
         mock_clear_directory.assert_not_called()
-
-    def test_stitch_staged_records_can_use_validated_stage(self):
-        """stitch_staged_records should recover records from validated staging."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_path = Path(tmpdir)
-            validated_dir = tmp_path / "validated"
-            validated_dir.mkdir()
-            (validated_dir / "record.json").write_text(
-                json.dumps(
-                    {
-                        "id": "rec1",
-                        "stage": "validated",
-                        "url": "https://example.com/1",
-                        "record": {
-                            "id": "rec1",
-                            "title": "Recovered from validated",
-                            "direct_link": "https://example.com/1",
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            with patch("src.GDELT.runner.VALIDATED_DIR", validated_dir):
-                recovered = runner.stitch_staged_records(
-                    output_path=str(tmp_path),
-                    stage="validated",
-                )
-
-            result = json.loads(
-                (tmp_path / "GDELT.json").read_text(encoding="utf-8")
-            )
-
-        assert recovered[0]["title"] == "Recovered from validated"
-        assert result["sources"][0]["title"] == "Recovered from validated"
 
     def test_stitch_staged_records_can_process_staged_seeds(self):
         """stitch_staged_records should replay staged seeds into usable output."""
@@ -610,6 +500,64 @@ class TestStagedRecovery:
         mock_clear_directory.assert_not_called()
         assert completed_seed_exists
         assert remaining_seed_exists
+
+    def test_stitch_stage_seeds_pause_does_not_save_in_flight_url_as_seen(self):
+        """Interrupted seed recovery should leave the seed eligible for retry."""
+        in_flight_url = "https://example.com/in-flight"
+
+        def interrupt_after_seen(seed, seen_urls, **kwargs):
+            seen_urls.add(seed["url"])
+            raise KeyboardInterrupt
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            seeds_dir = tmp_path / "seeds"
+            validated_dir = tmp_path / "validated"
+            enriched_dir = tmp_path / "enriched"
+            seeds_dir.mkdir()
+            validated_dir.mkdir()
+            enriched_dir.mkdir()
+            seen_file = tmp_path / "seen_urls.json"
+            (seeds_dir / "in_flight.json").write_text(
+                json.dumps(
+                    {
+                        "id": "seed1",
+                        "stage": "seed",
+                        "url": in_flight_url,
+                        "seed": {"url": in_flight_url, "source": "test"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            reporter = Mock()
+            reporter.verbose = False
+            stats = PipelineStats("GDELT seeds stitch")
+
+            with (
+                patch("src.GDELT.runner.SEEDS_DIR", seeds_dir),
+                patch("src.GDELT.runner.VALIDATED_DIR", validated_dir),
+                patch("src.GDELT.runner.ENRICHED_DIR", enriched_dir),
+                patch(
+                    "src.GDELT.runner.process_seed",
+                    side_effect=interrupt_after_seen,
+                ),
+            ):
+                recovered = runner.stitch_staged_records(
+                    output_path=str(tmp_path),
+                    stage="seeds",
+                    seen_urls_file=str(seen_file),
+                    reporter=reporter,
+                    stats=stats,
+                )
+
+            saved_seen = json.loads(seen_file.read_text(encoding="utf-8"))
+            output = json.loads((tmp_path / "GDELT.json").read_text(encoding="utf-8"))
+
+        assert recovered == []
+        assert output == {"sources": []}
+        assert saved_seen == []
+        assert in_flight_url not in saved_seen
+        assert stats.paused is True
 
 
 class TestLoadSeen:

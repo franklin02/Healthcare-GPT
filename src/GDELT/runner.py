@@ -442,10 +442,12 @@ def process_staged_seeds(
 
     for i, seed in enumerate(seeds, start=1):
         stats.processed += 1
+        url = seed["url"]
+        was_seen = url in seen
+        completed_current = False
         try:
             if reporter.verbose:
                 reporter.detail(f"[{i}/{len(seeds)}]")
-            url = seed["url"]
             article_id = stable_id(url)
             rec = process_seed(
                 seed,
@@ -460,9 +462,12 @@ def process_staged_seeds(
                 )
                 persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
                 records.append(rec)
+                completed_current = True
             if not reporter.verbose:
                 reporter.progress(i, len(seeds), "staged GDELT seeds")
         except KeyboardInterrupt:
+            if not was_seen and not completed_current:
+                seen.discard(url)
             stats.paused = True
             reporter.finish_line()
             reporter.info(
@@ -844,11 +849,13 @@ def run(
     records = []
     for i, seed in enumerate(seeds, start=1):
         stats.processed += 1
+        url = seed["url"]
+        was_seen = url in seen
+        completed_current = False
         try:
             if reporter.verbose:
                 reporter.detail(f"[{i}/{len(seeds)}]")
             LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
-            url = seed["url"]
             article_id = stable_id(url)
             rec = process_seed(
                 seed,
@@ -863,6 +870,7 @@ def run(
                 )
                 persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
                 records.append(rec)
+                completed_current = True
                 if SUPABASE_AVAILABLE:
                     try:
                         handle_vuln(rec, reporter=reporter, stats=stats)
@@ -873,6 +881,8 @@ def run(
             if not reporter.verbose:
                 reporter.progress(i, len(seeds), "GDELT articles")
         except KeyboardInterrupt:
+            if not was_seen and not completed_current:
+                seen.discard(url)
             stats.paused = True
             reporter.finish_line()
             reporter.info(
@@ -908,7 +918,6 @@ def run(
     else:
         # Clear the seed files after a successful pipeline run.
         clear_directory(SEEDS_DIR)
-        clear_directory(GDELT_CACHE_DIR)
         reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")
         LOGGER.debug("Cleared seeds directory: %s", SEEDS_DIR)
 

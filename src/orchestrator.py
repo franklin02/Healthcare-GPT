@@ -111,6 +111,12 @@ def main(argv: list[str] | None = None) -> int:
             "than this. Applied to both GDELT files and HTML article dates."
         ),
     )
+    parser.add_argument(
+        "--sb-only",
+        action="store_true",
+        default=get_config_bool("HTML_SB_ONLY", False),
+        help="HTML pipeline: write to Supabase only, no local reads or writes",
+    )
 
     # GDELT-specific
     parser.add_argument(
@@ -222,6 +228,7 @@ def main(argv: list[str] | None = None) -> int:
                 verbose=args.verbose,
                 start_date=_parse_date(args.start_date),
                 end_date=_parse_date(args.end_date),
+                sb_only=args.sb_only,
                 reporter=reporter,
                 stats=PipelineStats(site["name"]),
             )

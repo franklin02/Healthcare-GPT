@@ -40,6 +40,9 @@ ingestion, and a FastAPI chat interface over processed records.
 - `src/scrapers/` - shared scraper and LLM helper utilities
 - `src/config/schema.json` - structured output schema reference
 - `src/` - FastAPI app, ingestion pipeline, classifier, scraper, and data models
+- `scripts/` - opt-in maintenance/validation scripts run on demand (not part of
+  the pytest suite); e.g. `scripts/validate_schemas.py` validates that every
+  schema populates every field. See CONTRIBUTING.md §7.
 
 ## Documentation
 The published Sphinx documentation is available at:
@@ -50,6 +53,40 @@ https://franklin02.github.io/Healthcare-GPT/index.html
 1. Review the published documentation or `docs/index.md`.
 2. Install the development tools listed below.
 3. Run a small GDELT smoke test or docs build before opening a pull request.
+
+## Optional Supabase Setup
+Supabase is used as an optional persistence and deduplication store. When
+`SUPABASE_URL` and `SUPABASE_KEY` are set, the GDELT and HTML pipelines can
+write accepted vulnerabilities, rejected noise articles, and duplicate records
+to Supabase. When those variables are missing, database writes are disabled and
+the local JSON/CSV outputs still work.
+
+1. Get the project URL and service-role key for the existing Healthcare-GPT
+   Supabase project from a maintainer.
+2. If the database needs to be initialized or updated, run the setup SQL files
+   in the Supabase SQL editor in this order:
+
+```sql
+-- src/config/schema.sql
+-- src/config/duplicate.sql
+-- src/config/dedup_rpc.sql
+```
+
+3. Add the provided credentials in a gitignored `.env` file:
+
+```bash
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_KEY=your-service-role-key
+```
+
+Use the service-role key only for local/private pipeline runs and never commit
+it. The schema enables row-level security, so an anon key will need explicit
+policies before it can insert or query rows.
+
+The main tables are:
+- `vulnerabilities` - accepted disruption records with optional embeddings
+- `noise` - rejected articles used to avoid reprocessing known noise
+- `duplicates` - duplicate records linked back to their original vulnerability
 
 ## Developer Tooling
 Install the development tools with:

@@ -704,10 +704,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     for site in HTML_SITES:
-        run_html_scraper(
+        stats = run_html_scraper(
             site,
             use_bert=args.use_bert,
             verbose=args.verbose,
             starting_page=args.start_page,
             page_cap=args.page_cap,
         )
+        if stats.paused:
+            break

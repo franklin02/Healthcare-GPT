@@ -550,6 +550,7 @@ def run(
         clear_directory(RAW_GDELT_DIR)
 
         open(LOG_FILE, "w").close()
+        open(LOG_DIR / "gdelt_seeds.log", "w").close()
 
         os.remove(PROJECT_ROOT / "data" / "processed" / "GDELT.json") if (
             PROJECT_ROOT / "data" / "processed" / "GDELT.json"

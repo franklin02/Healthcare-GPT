@@ -480,9 +480,7 @@ class TestStagedRecovery:
                     reporter=reporter,
                 )
 
-            result = json.loads(
-                (tmp_path / "GDELT.json").read_text(encoding="utf-8")
-            )
+            result = json.loads((tmp_path / "GDELT.json").read_text(encoding="utf-8"))
             completed_seed_exists = (seeds_dir / "completed.json").exists()
             remaining_seed_exists = (seeds_dir / "remaining.json").exists()
 

@@ -77,7 +77,7 @@ Check GDELT seed filtering without scraping:
   shell or scratch script to test the regex and theme filters without running
   article scraping or LLM validation.
 - For a GDELT module smoke test through the supported CLI path, run
-  `python -m src.GDELT.runner --num-files 20 --limit 30`.
+  `python -m src.GDELT.runner --num-files 1 --limit 0`.
 
 Test URL scraping and AI validation without GDELT:
 - Import `filter_with_gemma()` from `src/GDELT/gemma.py` and pass a

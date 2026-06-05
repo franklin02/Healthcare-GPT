@@ -181,14 +181,14 @@ def test_run_html_scraper_pause_during_fetch_flushes_empty_outputs():
 
 
 def test_run_html_scraper_allows_page_cap_override():
-    """A page_cap override of 2 should fetch page 1 and page 2."""
+    """A page cap of 2 should fetch page 1 and page 2."""
     site_config = {
         "name": "TestSite",
         "url": "https://example.com/page-1",
         "pagination_url": "https://example.com/page-{page}",
         "map": {
             "starting_page": 1,
-            "cap": 1,
+            "cap": 2,
         },
     }
     article = {
@@ -216,7 +216,6 @@ def test_run_html_scraper_allows_page_cap_override():
     ):
         html_engine.run_html_scraper(
             site_config,
-            page_cap=2,
             reporter=CliReporter(stream=io.StringIO()),
             stats=PipelineStats("TestSite"),
         )
@@ -229,7 +228,7 @@ def test_run_html_scraper_allows_page_cap_override():
 
 
 def test_run_html_scraper_start_page_override_can_skip_run():
-    """Starting after the cap should exit without fetching any pages."""
+    """An HTML_START_PAGE override past the cap should exit without fetching."""
     site_config = {
         "name": "TestSite",
         "url": "https://example.com/page-1",
@@ -242,6 +241,7 @@ def test_run_html_scraper_start_page_override_can_skip_run():
     with (
         patch("src.scrapers.html_engine.ensure_model_available"),
         patch("src.scrapers.html_engine.check_valid_file"),
+        patch("src.scrapers.html_engine.get_config_int", return_value=2),
         patch("src.scrapers.html_engine.fetch_html_page") as mock_fetch,
         patch("src.scrapers.html_engine.prepend_vuln_csv"),
         patch("src.scrapers.html_engine.prepend_noise_csv"),
@@ -249,7 +249,6 @@ def test_run_html_scraper_start_page_override_can_skip_run():
     ):
         html_engine.run_html_scraper(
             site_config,
-            starting_page=2,
             reporter=CliReporter(stream=io.StringIO()),
             stats=PipelineStats("TestSite"),
         )
@@ -291,3 +290,135 @@ def test_run_html_scraper_logs_model_failure_before_setup_or_fetching():
     )
     mock_check_file.assert_not_called()
     mock_fetch.assert_not_called()
+
+
+def test_run_html_scraper_sb_only_skips_local_writes():
+    """sb_only mode routes to Supabase and never touches the local corpus."""
+    site_config = {
+        "name": "TestSite",
+        "url": "https://example.com",
+        "map": {
+            "starting_page": 1,
+            "cap": 1,
+        },
+    }
+    articles = [
+        {
+            "title": "Hospital breach",
+            "link": "https://example.com/valid",
+            "body": "Confirmed breach",
+            "date": "2026-01-01",
+        },
+        {
+            "title": "Policy news",
+            "link": "https://example.com/noise",
+            "body": "Not a disruption",
+            "date": "2026-01-02",
+        },
+    ]
+
+    with (
+        patch("src.scrapers.html_engine.SUPABASE_AVAILABLE", True),
+        patch("src.scrapers.html_engine.ensure_model_available"),
+        patch("src.scrapers.html_engine.check_valid_file") as mock_check_file,
+        patch("src.scrapers.html_engine.load_cite", return_value=[]),
+        patch("src.scrapers.html_engine.is_known_db", return_value=False),
+        patch(
+            "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)
+        ),
+        patch(
+            "src.scrapers.html_engine.ai_check_validation",
+            side_effect=[(True, "cyber_attack"), (False, "No impact")],
+        ),
+        patch(
+            "src.scrapers.html_engine.extract_fields",
+            return_value=({"exec_summary": "Breach confirmed"}, {}),
+        ),
+        patch("src.scrapers.html_engine.handle_vuln") as mock_handle_vuln,
+        patch("src.scrapers.html_engine.insert_noise") as mock_insert_noise,
+        patch("src.scrapers.html_engine.prepend_vuln_csv") as mock_vuln_csv,
+        patch("src.scrapers.html_engine.prepend_noise_csv") as mock_noise_csv,
+        patch("src.scrapers.html_engine.prepend_json_sources") as mock_json,
+    ):
+        stats = html_engine.run_html_scraper(
+            site_config,
+            sb_only=True,
+            reporter=CliReporter(stream=io.StringIO()),
+            stats=PipelineStats("TestSite"),
+        )
+
+    # Validated -> Supabase, rejected -> Supabase noise
+    mock_handle_vuln.assert_called_once()
+    mock_insert_noise.assert_called_once()
+    # Local corpus is never seeded or written
+    mock_check_file.assert_not_called()
+    mock_vuln_csv.assert_not_called()
+    mock_noise_csv.assert_not_called()
+    mock_json.assert_not_called()
+    assert stats.validated == 1
+    assert stats.rejected == 1
+    assert stats.output_records == 1
+
+
+def test_run_html_scraper_local_mode_skips_supabase():
+    """Local mode must not call Supabase helpers even when creds are available."""
+    site_config = {
+        "name": "TestSite",
+        "url": "https://example.com",
+        "map": {
+            "starting_page": 1,
+            "cap": 1,
+        },
+    }
+    articles = [
+        {
+            "title": "Hospital breach",
+            "link": "https://example.com/valid",
+            "body": "Confirmed breach",
+            "date": "2026-01-01",
+        },
+        {
+            "title": "Policy news",
+            "link": "https://example.com/noise",
+            "body": "Not a disruption",
+            "date": "2026-01-02",
+        },
+    ]
+
+    with (
+        patch("src.scrapers.html_engine.SUPABASE_AVAILABLE", True),
+        patch("src.scrapers.html_engine.ensure_model_available"),
+        patch("src.scrapers.html_engine.check_valid_file"),
+        patch(
+            "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)
+        ),
+        patch(
+            "src.scrapers.html_engine.ai_check_validation",
+            side_effect=[(True, "cyber_attack"), (False, "No impact")],
+        ),
+        patch(
+            "src.scrapers.html_engine.extract_fields",
+            return_value=({"exec_summary": "Breach confirmed"}, {}),
+        ),
+        patch("src.scrapers.html_engine.load_cite") as mock_load_cite,
+        patch("src.scrapers.html_engine.handle_vuln") as mock_handle_vuln,
+        patch("src.scrapers.html_engine.insert_noise") as mock_insert_noise,
+        patch("src.scrapers.html_engine.prepend_vuln_csv") as mock_vuln_csv,
+        patch("src.scrapers.html_engine.prepend_noise_csv") as mock_noise_csv,
+        patch("src.scrapers.html_engine.prepend_json_sources") as mock_json,
+    ):
+        # sb_only defaults to False -> local path
+        html_engine.run_html_scraper(
+            site_config,
+            reporter=CliReporter(stream=io.StringIO()),
+            stats=PipelineStats("TestSite"),
+        )
+
+    # No Supabase reads or writes
+    mock_load_cite.assert_not_called()
+    mock_handle_vuln.assert_not_called()
+    mock_insert_noise.assert_not_called()
+    # Local writers are used instead
+    mock_vuln_csv.assert_called_once()
+    mock_noise_csv.assert_called_once()
+    mock_json.assert_called_once()

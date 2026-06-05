@@ -35,7 +35,6 @@ try:
         insert_noise,
         has_supabase_creds,
     )
-
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:
         LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
@@ -82,76 +81,76 @@ SUBSECTOR_FIELDS = list(SUBSECTOR_DATA_CLASSES.keys())
 
 
 HTML_SITES = [
-    # {
-    #     "name": "CyberScoop",
-    #     "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
-    #     "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
-    #     "map": {
-    #         "container": "li.search-results__item",
-    #         "title": None,
-    #         "link_selector": "a.post-item__title-link",
-    #         "body_selector": "div.single-article__content",
-    #         "date_selector": "time[datetime]",
-    #         "starting_page": 1,
-    #         "cap": 10,
-    #     },
-    # },
-    # {
-    #     "name": "StateScoop",
-    #     "url": "https://statescoop.com/search/healthcare/page/1/",
-    #     "pagination_url": "https://statescoop.com/search/healthcare/page/{page}/",
-    #     "map": {
-    #         "container": "article.post-item",
-    #         "title": None,
-    #         "link_selector": "a.post-item__title-link",
-    #         "body_selector": "div.single-article__content",
-    #         "date_selector": "time[datetime]",
-    #         "starting_page": 1,
-    #         "cap": 7,
-    #     },
-    # },
-    # {
-    #     "name": "FedScoop",
-    #     "url": "https://fedscoop.com/search/healthcare/",
-    #     "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
-    #     "map": {
-    #         "container": "article.post-item",
-    #         "title": None,
-    #         "link_selector": "a.post-item__title-link",
-    #         "body_selector": "div.single-article__content",
-    #         "date_selector": "time[datetime]",
-    #         "starting_page": 1,
-    #         "cap": 18,
-    #     },
-    # },
-    # {
-    #     "name": "MedicalNewsToday",
-    #     "url": "https://www.medicalnewstoday.com/news",
-    #     "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
-    #     "map": {
-    #         "container": "ol li",
-    #         "title": None,
-    #         "link_selector": "a:has(h2)",
-    #         "body_selector": "article.article-body",
-    #         "date_selector": "",
-    #         "starting_page": 1,
-    #         "cap": 1,
-    #     },
-    # },
-    # {
-    #     "name": "AHA",
-    #     "url": "https://www.aha.org/news",
-    #     "pagination_url": "https://www.aha.org/news?page=%2C{page}",
-    #     "map": {
-    #         "container": "section.views-latest-feed div.views-row",
-    #         "title": None,
-    #         "link_selector": "div.views-field-title span.field-content a",
-    #         "body_selector": "article .body",
-    #         "date_selector": "time[datetime]",
-    #         "starting_page": 0,
-    #         "cap": 10,
-    #     },
-    # },
+    {
+        "name": "CyberScoop",
+        "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
+        "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
+        "map": {
+            "container": "li.search-results__item",
+            "title": None,
+            "link_selector": "a.post-item__title-link",
+            "body_selector": "div.single-article__content",
+            "date_selector": "time[datetime]",
+            "starting_page": 1,
+            "cap": 10,
+        },
+    },
+    {
+        "name": "StateScoop",
+        "url": "https://statescoop.com/search/healthcare/page/1/",
+        "pagination_url": "https://statescoop.com/search/healthcare/page/{page}/",
+        "map": {
+            "container": "article.post-item",
+            "title": None,
+            "link_selector": "a.post-item__title-link",
+            "body_selector": "div.single-article__content",
+            "date_selector": "time[datetime]",
+            "starting_page": 1,
+            "cap": 7,
+        },
+    },
+    {
+        "name": "FedScoop",
+        "url": "https://fedscoop.com/search/healthcare/",
+        "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
+        "map": {
+            "container": "article.post-item",
+            "title": None,
+            "link_selector": "a.post-item__title-link",
+            "body_selector": "div.single-article__content",
+            "date_selector": "time[datetime]",
+            "starting_page": 1,
+            "cap": 18,
+        },
+    },
+    {
+        "name": "MedicalNewsToday",
+        "url": "https://www.medicalnewstoday.com/news",
+        "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
+        "map": {
+            "container": "ol li",
+            "title": None,
+            "link_selector": "a:has(h2)",
+            "body_selector": "article.article-body",
+            "date_selector": "",
+            "starting_page": 1,
+            "cap": 1,
+        },
+    },
+    {
+        "name": "AHA",
+        "url": "https://www.aha.org/news",
+        "pagination_url": "https://www.aha.org/news?page=%2C{page}",
+        "map": {
+            "container": "section.views-latest-feed div.views-row",
+            "title": None,
+            "link_selector": "div.views-field-title span.field-content a",
+            "body_selector": "article .body",
+            "date_selector": "time[datetime]",
+            "starting_page": 0,
+            "cap": 10,
+        },
+    },
     {
         "name": "HealthIT_News",
         "url": "https://www.techtarget.com/news/health-it",
@@ -326,7 +325,7 @@ def flush_html_outputs(
         reporter: Reporter used to print the flush summary.
         stats: Pipeline statistics updated with the number of flushed
             vulnerability records.
-
+    
     NOTE: only used when reading or writing locally
     """
     reporter.finish_line()
@@ -397,14 +396,20 @@ def run_html_scraper(
     except model_unavailable_error as exc:
         LOGGER.error("Model availability check failed: %s", exc)
         raise
-    check_valid_file(site_config["name"])
-
+    # Resolve the effective mode before any file/DB work: if sb_only was
+    # requested without creds, fall back to local so the guards below pick the
+    # right side (and check_valid_file seeds the dirs the local writers need).
     if not SUPABASE_AVAILABLE and sb_only:
         sb_only = False
         LOGGER.warning(
             "sb_only was selected, but no Supabase keys are found; "
             "falling back to local-only writes."
         )
+
+    # Local mode only: seed the per-site corpus dirs/files. In sb_only mode we
+    # never touch the local corpus, so skip this entirely.
+    if not sb_only:
+        check_valid_file(site_config["name"])
 
     db_known: list[dict[str, str]] = []
     if SUPABASE_AVAILABLE and sb_only:
@@ -525,7 +530,7 @@ def run_html_scraper(
                     if is_known_db(db_known, article["title"], body_snippet):
                         stats.skipped += 1
                         reporter.detail(
-                            f"[SKIP-DB] Already in Supabase: {article['title']}"
+                            f"      [SKIP-DB] Already in Supabase: {article['title']}"
                         )
                         _live_site_status(
                             reporter, site_config["name"], current_page, stats

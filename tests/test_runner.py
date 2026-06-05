@@ -342,7 +342,7 @@ class TestPersistStage:
 
 
 class TestStagedRecovery:
-    """Tests for stitching enriched GDELT staging files."""
+    """Tests for stitching staged GDELT files."""
 
     def test_load_staged_payloads_skips_malformed_files(self):
         """load_staged_payloads should load valid records and warn on bad files."""
@@ -475,38 +475,6 @@ class TestStagedRecovery:
         mock_load_seen.assert_not_called()
         mock_save_seen.assert_not_called()
         mock_clear_directory.assert_not_called()
-
-    def test_stitch_staged_records_uses_enriched_stage_by_default(self):
-        """stitch_staged_records should default to enriched staged records."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp_path = Path(tmpdir)
-            enriched_dir = tmp_path / "enriched"
-            enriched_dir.mkdir()
-            (enriched_dir / "record.json").write_text(
-                json.dumps(
-                    {
-                        "id": "rec1",
-                        "stage": "enriched",
-                        "url": "https://example.com/1",
-                        "record": {
-                            "id": "rec1",
-                            "title": "Recovered from enriched",
-                            "direct_link": "https://example.com/1",
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            with patch("src.GDELT.runner.ENRICHED_DIR", enriched_dir):
-                recovered = runner.stitch_staged_records(output_path=str(tmp_path))
-
-            result = json.loads(
-                (tmp_path / "GDELT.json").read_text(encoding="utf-8")
-            )
-
-        assert recovered[0]["title"] == "Recovered from enriched"
-        assert result["sources"][0]["title"] == "Recovered from enriched"
 
     def test_stitch_staged_records_can_use_validated_stage(self):
         """stitch_staged_records should recover records from validated staging."""

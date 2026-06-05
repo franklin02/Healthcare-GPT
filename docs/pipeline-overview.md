@@ -103,8 +103,25 @@ GDELT saves seen URLs, writes completed records, and keeps
 scraper runs flush buffered accepted/rejected rows for the active site before
 the orchestrator skips remaining HTML sites.
 
-This is state preservation, not automatic resume. Full resume/stitching remains
-future work.
+This is state preservation, not automatic resume. For GDELT crash recovery,
+run staged stitching from the GDELT runner. Accepted recovery stages are
+`seeds`, `validated`, and `enriched`. The default recovery path is `enriched`:
+
+```bash
+python -m src.GDELT.runner --stitch-stage enriched
+```
+
+You can also recover from the earlier stages:
+
+```bash
+python -m src.GDELT.runner --stitch-stage validated
+python -m src.GDELT.runner --stitch-stage seeds
+```
+
+The `validated` and `enriched` stages stitch already extracted record payloads
+into the final output. The `seeds` stage reuses any already staged validated or
+enriched records, then processes the remaining staged seeds through scraping,
+validation, and extraction.
 
 ## HTML Pagination Controls
 

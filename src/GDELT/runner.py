@@ -958,34 +958,29 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
         help=(
-            "Recover final output from a staged GDELT directory. Defaults to "
-            "the enriched stage."
+            "Recover final output from staged GDELT data using the default "
+            "enriched stage. Deprecated; prefer --stitch-stage enriched."
         ),
     )
     parser.add_argument(
         "--stitch-stage",
         choices=["seeds", "validated", "enriched"],
-        default="enriched",
+        default=None,
         help=(
-            "Stage to recover from when stitching: seeds, validated, or "
-            "enriched. Defaults to enriched."
+            "Recover final output from this staged GDELT stage: seeds, "
+            "validated, or enriched."
         ),
     )
     args = parser.parse_args()
 
-    stitch_stage_provided = any(
-        arg == "--stitch-stage" or arg.startswith("--stitch-stage=")
-        for arg in sys.argv[1:]
-    )
-
-    if args.stitch_staged or stitch_stage_provided:
+    if args.stitch_staged or args.stitch_stage:
         output_path_provided = any(
             arg in ("-o", "--output-path") or arg.startswith("--output-path=")
             for arg in sys.argv[1:]
         )
         stitch_staged_records(
             output_path=args.output_path if output_path_provided else None,
-            stage=args.stitch_stage,
+            stage=args.stitch_stage or "enriched",
             seen_urls_file=args.seen_urls_file,
             use_bert=args.use_bert,
             verbose=args.verbose,

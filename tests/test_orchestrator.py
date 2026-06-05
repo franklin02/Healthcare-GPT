@@ -36,7 +36,6 @@ def test_orchestrator_forwards_verbose_to_html_scraper():
     assert mock_scraper.call_args.kwargs["verbose"] is True
 
 
-
 def test_orchestrator_help_documents_html_limit_overrides(capsys):
     """CLI help should list the HTML pagination override flags."""
     with pytest.raises(SystemExit) as exc_info:

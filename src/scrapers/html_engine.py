@@ -35,6 +35,7 @@ try:
         insert_noise,
         has_supabase_creds,
     )
+
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:
         LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
@@ -325,7 +326,7 @@ def flush_html_outputs(
         reporter: Reporter used to print the flush summary.
         stats: Pipeline statistics updated with the number of flushed
             vulnerability records.
-    
+
     NOTE: only used when reading or writing locally
     """
     reporter.finish_line()

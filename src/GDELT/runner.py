@@ -498,11 +498,14 @@ def load_staged_payloads(
         )
 
     reporter = reporter or CliReporter()
-    directory = directory or {
-        "seeds": SEEDS_DIR,
-        "validated": VALIDATED_DIR,
-        "enriched": ENRICHED_DIR,
-    }[stage]
+    directory = (
+        directory
+        or {
+            "seeds": SEEDS_DIR,
+            "validated": VALIDATED_DIR,
+            "enriched": ENRICHED_DIR,
+        }[stage]
+    )
     payload_key = "seed" if stage == "seeds" else "record"
     payload_label = "seed" if stage == "seeds" else "record"
 

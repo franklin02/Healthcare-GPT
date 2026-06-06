@@ -1,13 +1,10 @@
 import os
 import uuid
 
-import httpx
 import pytest
 from dotenv import load_dotenv
 
 supabase = pytest.importorskip("supabase")
-create_client = supabase.create_client
-ClientOptions = supabase.ClientOptions
 
 load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -29,6 +26,12 @@ SEED_SOURCE = (
     "CyberScoop"  # already present in test_table per src/config/test_table.sql
 )
 
+# Defense-in-depth: the write guard below permits whatever TEST_TABLE names, so
+# pin it to the designated sandbox table. If this constant ever gets pointed at a
+# production table the guard would happily allow prod writes, so fail loudly here.
+assert TEST_TABLE == "test_table", "TEST_TABLE must be the sandbox table"
+assert TEST_TABLE not in {"vulnerabilities", "noise", "duplicates"}
+
 
 def _make_vuln(
     title: str = "pytest article",
@@ -49,12 +52,58 @@ def _make_vuln(
     )
 
 
+class _TestTableOnlyClient:
+    """Proxy around the live Supabase client that only permits the sandbox table.
+
+    Every supabase_function helper (insert_vuln, insert_noise, load_cite,
+    insert_duplicate) reaches the database through the module-global
+    ``sb.supabase`` client via ``.table(name)``. By swapping that client for this
+    proxy for the duration of the test module, any attempt to touch a table other
+    than TEST_TABLE — including the production defaults "vulnerabilities" /
+    "noise" / "duplicates" when a ``table=`` argument is forgotten — raises
+    immediately instead of writing to the live project. ``.rpc`` is blocked too
+    since these tests never exercise a live RPC. The surface is intentionally
+    minimal (only ``.table`` and ``.rpc``) so there is no bypass via other
+    client methods.
+    """
+
+    def __init__(self, real, allowed_table: str):
+        self._real = real
+        self._allowed_table = allowed_table
+
+    def table(self, name: str):
+        if name != self._allowed_table:
+            raise RuntimeError(
+                f"test_sb.py blocked write to non-sandbox table {name!r}; "
+                f"only {self._allowed_table!r} is allowed"
+            )
+        return self._real.table(name)
+
+    def rpc(self, *args, **kwargs):
+        raise RuntimeError("test_sb.py blocked a live Supabase RPC call")
+
+
 @pytest.fixture(scope="module", autouse=True)
-def restore_test_table_state():
-    """Snapshot test_table before any test runs, restore on teardown."""
-    client = create_client(
-        SUPABASE_URL, SUPABASE_KEY, options=ClientOptions(httpx_client=httpx.Client())
-    )
+def _guard_supabase_writes():
+    """Confine every supabase_function write in this module to the sandbox table."""
+    real = sb.supabase
+    sb.supabase = _TestTableOnlyClient(real, TEST_TABLE)
+    try:
+        yield
+    finally:
+        sb.supabase = real
+
+
+@pytest.fixture(scope="module", autouse=True)
+def restore_test_table_state(_guard_supabase_writes):
+    """Snapshot test_table before any test runs, restore on teardown.
+
+    Runs inside ``_guard_supabase_writes`` (declared as a dependency so the guard
+    installs first and tears down last), so the snapshot/wipe/restore all go
+    through the guarded client and the destructive ``delete()`` can only ever hit
+    the sandbox table.
+    """
+    client = sb.supabase
     baseline = client.table(TEST_TABLE).select("*").execute().data
     yield
     client.table(TEST_TABLE).delete().neq("id", IMPOSSIBLE_UUID).execute()
@@ -170,3 +219,13 @@ class TestInsertVuln:
         assert len(rows) == 1
         assert rows[0]["title"] == "round trip test"
         assert rows[0]["content"] == "round trip content body"
+
+
+class TestWriteGuard:
+    """The guard must block any write that targets a non-sandbox table."""
+
+    def test_guard_blocks_production_table(self):
+        """insert_vuln without table= defaults to 'vulnerabilities' and is blocked."""
+        vuln = _make_vuln(title="guard blocks prod test")
+        with pytest.raises(RuntimeError):
+            sb.insert_vuln(vuln)  # defaults to table="vulnerabilities"

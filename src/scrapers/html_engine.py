@@ -8,11 +8,9 @@ or shrink HTML runs without changing source configuration.
 import datetime
 import time
 import uuid
-from pathlib import Path
-from urllib.parse import urlparse
-
+import argparse
 from bs4 import BeautifulSoup
-
+from urllib.parse import urlparse
 from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from src.cli_reporter import CliReporter, PipelineStats
 from src.logging_utils import get_file_logger
@@ -23,6 +21,7 @@ from src.shared_utils import (
     ensure_model_available,
     extract_fields,
     get_config_bool,
+    get_config_date,
     get_config_int,
     get_page,
     is_known_article,
@@ -30,12 +29,26 @@ from src.shared_utils import (
     prepend_json_sources,
     prepend_noise_csv,
     prepend_vuln_csv,
+    _PROJECT_ROOT,
 )
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+LOGGER = get_file_logger(__name__, _PROJECT_ROOT / "data" / "logs" / "html_engine.log")
 
-LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "html_engine.log"
-LOGGER = get_file_logger(__name__, LOG_FILE)
+try:
+    from src.dedup import handle_vuln
+    from src.supabase_function import (
+        load_cite,
+        is_known_db,
+        insert_noise,
+        has_supabase_creds,
+    )
+
+    SUPABASE_AVAILABLE = has_supabase_creds()
+    if not SUPABASE_AVAILABLE:
+        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
+except Exception as e:
+    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
+    SUPABASE_AVAILABLE = False
 
 
 def _live_site_status(
@@ -72,31 +85,9 @@ def _bert_status() -> str:
         return "BERT pre-filter: enabled"
 
 
-try:
-    from src.supabase_function import (
-        load_cite,
-        is_known_db,
-        insert_noise,
-        has_supabase_creds,
-    )
-    from src.dedup import handle_vuln
-
-    SUPABASE_AVAILABLE = has_supabase_creds()
-    if not SUPABASE_AVAILABLE:
-        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
-
-except Exception as e:
-    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
-    SUPABASE_AVAILABLE = False
+SUBSECTOR_FIELDS = list(SUBSECTOR_DATA_CLASSES.keys())
 
 
-SUBSECTOR_FIELDS = [
-    "drug_shortage",
-    "medical_device_shortage",
-    "cyber_attack",
-    "natural_disaster",
-    "other",
-]
 HTML_SITES = [
     {
         "name": "CyberScoop",
@@ -140,20 +131,20 @@ HTML_SITES = [
             "cap": 18,
         },
     },
-    # {
-    #     "name": "MedicalNewsToday",
-    #     "url": "https://www.medicalnewstoday.com/news",
-    #     "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
-    #     "map": {
-    #         "container": "ol li",
-    #         "title": None,
-    #         "link_selector": "a:has(h2)",
-    #         "body_selector": "article.article-body",
-    #         "date_selector": "",
-    #         "starting_page": 1,
-    #         "cap": 1,
-    #     },
-    # },
+    {
+        "name": "MedicalNewsToday",
+        "url": "https://www.medicalnewstoday.com/news",
+        "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
+        "map": {
+            "container": "ol li",
+            "title": None,
+            "link_selector": "a:has(h2)",
+            "body_selector": "article.article-body",
+            "date_selector": "",
+            "starting_page": 1,
+            "cap": 1,
+        },
+    },
     {
         "name": "AHA",
         "url": "https://www.aha.org/news",
@@ -190,8 +181,10 @@ def fetch_html_page(
     page_url,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    sb_only: bool = False,
 ):
-    """Fetch one listing page and return article payloads plus a stop flag.
+    """
+    Fetch one listing page and return article payloads plus a stop flag.
 
     The listing page is parsed with the site's configured selectors, then each
     candidate link is fetched to collect article body text and publication date.
@@ -256,9 +249,7 @@ def fetch_html_page(
         if title_text:
             raw_links.append({"title": title_text, "link": href})
 
-    body_selector = m[
-        "body_selector"
-    ]  # NOTE:  this may need to be moved up to the for loop
+    body_selector = m["body_selector"]
     date_selector = m.get("date_selector", "")
 
     # For each article found, we go to that specific link and grab the body and date (if applicable)
@@ -278,28 +269,28 @@ def fetch_html_page(
                 )
                 if stats is not None:
                     stats.skipped += 1
-                time.sleep(0.5)
                 continue
 
             body = body_el.get_text(separator=" ", strip=True)
 
-            if is_known_article(site_config["name"], entry["title"], body):
-                reporter.detail(
-                    f"[FINISH] Reached known article on {site_config['name']}: "
-                    f"{entry['title']!r}"
-                )
-                stop = True
-                break
+            if not sb_only:  # local dedup check only applies to local mode
+                if is_known_article(site_config["name"], entry["title"], body):
+                    reporter.detail(
+                        f"[FINISH] Reached known article on {site_config['name']}: "
+                        f"{entry['title']!r}"
+                    )
+                    stop = True
+                    break
 
             date_el = article_soup.select_one(date_selector) if date_selector else None
             date = date_el.get("datetime", "") if date_el else ""
 
-            time.sleep(0.5)
+            time.sleep(0.25)
         except Exception as e:
             reporter.warn(
                 f"Could not fetch article body at {entry['link']}: {e}", stats
             )
-            LOGGER.warning("Error fetching article body at %s: %s", entry["link"], e)
+            LOGGER.warning("Error fetching article body:%s", e)
             if stats is not None:
                 stats.skipped += 1
             continue
@@ -342,6 +333,8 @@ def flush_html_outputs(
         reporter: Reporter used to print the flush summary.
         stats: Pipeline statistics updated with the number of flushed
             vulnerability records.
+
+    NOTE: only used when reading or writing locally
     """
     reporter.finish_line()
     prepend_vuln_csv(site_name, new_rows)
@@ -364,12 +357,14 @@ def run_html_scraper(
     site_config,
     use_bert: bool = False,
     verbose: bool = False,
-    starting_page: int | None = None,
-    page_cap: int | None = None,
+    start_date: datetime.date | None = None,
+    end_date: datetime.date | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    sb_only: bool = False,
 ) -> PipelineStats:
-    """Run one configured HTML scraper and return its run statistics.
+    """
+    Run one configured HTML scraper and return its run statistics.
 
     Args:
         site_config: One entry from ``HTML_SITES`` containing URL, selector,
@@ -378,10 +373,12 @@ def run_html_scraper(
             enabled for this run.
         verbose: Whether to print per-article progress details when a reporter
             is not supplied.
-        starting_page: Optional override for the site's configured first page.
-            ``None`` preserves the site's default.
-        page_cap: Optional override for the site's configured maximum page.
-            ``None`` preserves the site's default; ``-1`` means unlimited.
+        start_date: Newest article date to keep (inclusive, ceiling). Pages list
+            newest-first, so articles published after this date are skipped while
+            crawling continues toward the window. ``None`` means no upper bound.
+        end_date: Oldest article date to keep (inclusive, floor). When an article
+            published before this date is reached, crawling stops because nothing
+            older qualifies. ``None`` means no lower bound.
         reporter: Optional shared CLI reporter supplied by the orchestrator.
         stats: Optional stats object to update for the site.
 
@@ -407,10 +404,23 @@ def run_html_scraper(
     except model_unavailable_error as exc:
         LOGGER.error("Model availability check failed: %s", exc)
         raise
-    check_valid_file(site_config["name"])
+    # Resolve the effective mode before any file/DB work: if sb_only was
+    # requested without creds, fall back to local so the guards below pick the
+    # right side (and check_valid_file seeds the dirs the local writers need).
+    if not SUPABASE_AVAILABLE and sb_only:
+        sb_only = False
+        LOGGER.warning(
+            "sb_only was selected, but no Supabase keys are found; "
+            "falling back to local-only writes."
+        )
+
+    # Local mode only: seed the per-site corpus dirs/files. In sb_only mode we
+    # never touch the local corpus, so skip this entirely.
+    if not sb_only:
+        check_valid_file(site_config["name"])
 
     db_known: list[dict[str, str]] = []
-    if SUPABASE_AVAILABLE:
+    if SUPABASE_AVAILABLE and sb_only:
         try:
             db_known = load_cite(site_config["name"])
         except Exception as e:
@@ -418,16 +428,11 @@ def run_html_scraper(
             LOGGER.warning(message)
             reporter.warn(message, stats)
 
-    starting_page = (
-        starting_page
-        if starting_page is not None
-        else get_config_int("HTML_START_PAGE", site_config["map"]["starting_page"])
+    starting_page = get_config_int(
+        "HTML_START_PAGE", site_config["map"]["starting_page"]
     )
-    cap = (
-        page_cap
-        if page_cap is not None
-        else get_config_int("HTML_PAGE_CAP", site_config["map"]["cap"])
-    )
+
+    cap = site_config["map"]["cap"]
     current_page = starting_page
 
     """
@@ -457,10 +462,7 @@ def run_html_scraper(
 
         try:
             articles, stop = fetch_html_page(
-                site_config,
-                page_url,
-                reporter=reporter,
-                stats=stats,
+                site_config, page_url, reporter=reporter, stats=stats, sb_only=sb_only
             )
         except KeyboardInterrupt:
             stats.paused = True
@@ -497,6 +499,8 @@ def run_html_scraper(
             break
 
         stats.discovered += len(articles)
+        reached_floor = False
+
         for article_index, article in enumerate(articles, start=1):
             body_snippet = (article["body"] or "")[:250].replace("\n", " ")
             stats.processed += 1
@@ -505,12 +509,36 @@ def run_html_scraper(
                     f"[{article_index}/{len(articles)}] {article['title'][:90]}"
                 )
 
-            if SUPABASE_AVAILABLE and db_known:
+            # Date-window filter: skip newer-than-start, stop at older-than-end.
+            if (start_date or end_date) and article.get("date"):
+                try:
+                    pub_date = datetime.date.fromisoformat(article["date"][:10])
+                except ValueError:
+                    pub_date = None
+                if pub_date is not None:
+                    if start_date and pub_date > start_date:
+                        stats.skipped += 1
+                        reporter.detail(
+                            f"[      SKIP-DATE] Newer than {start_date}: {article['title']}"
+                        )
+                        _live_site_status(
+                            reporter, site_config["name"], current_page, stats
+                        )
+                        continue
+                    if end_date and pub_date < end_date:
+                        reporter.detail(
+                            f"[FINISH] Reached article older than {end_date} on "
+                            f"{site_config['name']}: {article['title']!r}"
+                        )
+                        reached_floor = True
+                        break
+
+            if SUPABASE_AVAILABLE and db_known and sb_only:
                 try:
                     if is_known_db(db_known, article["title"], body_snippet):
                         stats.skipped += 1
                         reporter.detail(
-                            f"[SKIP-DB] Already in Supabase: {article['title']}"
+                            f"      [SKIP-DB] Already in Supabase: {article['title']}"
                         )
                         _live_site_status(
                             reporter, site_config["name"], current_page, stats
@@ -526,9 +554,10 @@ def run_html_scraper(
                 )
                 if is_threat:
                     if detail not in SUBSECTOR_FIELDS:
-                        LOGGER.warning(
-                            f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
-                        )
+                        # LOGGER.warning(
+                        #     f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
+                        # )
+                        stats.skipped += 1
                         continue
                     stats.validated += 1
                     sector_data, ss_data = extract_fields(
@@ -563,44 +592,36 @@ def run_html_scraper(
                         subsector_data=subsector_data,
                     )
 
-                    content_preview = (vuln.content or "")[:250].replace("\n", " ")
-                    new_rows.append(
-                        [
-                            vuln.date_accessed,
-                            vuln.date_published,
-                            vuln.source_name,
-                            vuln.subsector,
-                            vuln.title,
-                            vuln.direct_link,
-                            vuln.exec_summary,
-                            content_preview,
-                        ]
-                    )
-                    new_vulns.append(vuln)
-                    LOGGER.info(f"Validated article: {vuln.title}")
+                    LOGGER.info("Validated article: %s", vuln.title)
 
-                    if SUPABASE_AVAILABLE:
+                    if sb_only:
                         try:
                             handle_vuln(vuln, reporter=reporter, stats=stats)
+                            stats.output_records += 1
                         except Exception as e:
                             LOGGER.warning(
-                                "insert_vuln failed for %s: %s", vuln.title, e
+                                "handle_vuln failed for %s: %s", vuln.title, e
                             )
+                    else:
+                        content_preview = (vuln.content or "")[:250].replace("\n", " ")
+                        new_rows.append(
+                            [
+                                vuln.date_accessed,
+                                vuln.date_published,
+                                vuln.source_name,
+                                vuln.subsector,
+                                vuln.title,
+                                vuln.direct_link,
+                                vuln.exec_summary,
+                                content_preview,
+                            ]
+                        )
+                        new_vulns.append(vuln)
                 else:
                     stats.rejected += 1
                     body_preview = (article["body"] or "")[:250].replace("\n", " ")
-                    new_noise_rows.append(
-                        [
-                            datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                            site_config["name"],
-                            article["title"],
-                            article["link"],
-                            detail,
-                            body_preview,
-                        ]
-                    )
 
-                    if SUPABASE_AVAILABLE:
+                    if sb_only:
                         try:
                             insert_noise(
                                 source_name=site_config["name"],
@@ -616,6 +637,17 @@ def run_html_scraper(
                             LOGGER.warning(
                                 "insert_noise failed for %s: %s", article["title"], e
                             )
+                    else:
+                        new_noise_rows.append(
+                            [
+                                datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                site_config["name"],
+                                article["title"],
+                                article["link"],
+                                detail,
+                                body_preview,
+                            ]
+                        )
             except KeyboardInterrupt:
                 stats.paused = True
                 reporter.finish_line()
@@ -638,12 +670,12 @@ def run_html_scraper(
         if stats.paused:
             break
 
-        if stop:
+        if stop or reached_floor:
             break
 
         current_page += 1
         try:
-            time.sleep(0.5)
+            time.sleep(0.25)
         except KeyboardInterrupt:
             stats.paused = True
             reporter.finish_line()
@@ -657,22 +689,29 @@ def run_html_scraper(
             )
             break
 
-    flush_html_outputs(
-        site_config["name"],
-        new_rows,
-        new_noise_rows,
-        new_vulns,
-        reporter,
-        stats,
-    )
+    if not sb_only:
+        flush_html_outputs(
+            site_config["name"],
+            new_rows,
+            new_noise_rows,
+            new_vulns,
+            reporter,
+            stats,
+        )
+    else:
+        reporter.finish_line()
+        reporter.info(f"Finished {site_config['name']}: {stats.output_records} vuln(s)")
+        LOGGER.info(
+            "Finished %s (Supabase): %d vuln(s)",
+            site_config["name"],
+            stats.output_records,
+        )
     if local_reporter:
         reporter.summary(stats)
     return stats
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(
         description="HTML scraper for healthcare news sites"
     )
@@ -690,17 +729,26 @@ if __name__ == "__main__":
         help="Show detailed per-article scraper output",
     )
     parser.add_argument(
-        "--start-page",
-        type=int,
-        default=get_config_int("HTML_START_PAGE", None),
-        help="Override configured starting page for every HTML site",
+        "--start-date",
+        type=datetime.date.fromisoformat,
+        default=get_config_date("HTML_START_DATE", None),
+        metavar="YYYY-MM-DD",
+        help="Newest article date to keep, newer articles are skipped (ceiling)",
     )
     parser.add_argument(
-        "--page-cap",
-        type=int,
-        default=get_config_int("HTML_PAGE_CAP", None),
-        help="Override configured max page number for every HTML site (-1 for unlimited)",
+        "--end-date",
+        type=datetime.date.fromisoformat,
+        default=get_config_date("HTML_END_DATE", None),
+        metavar="YYYY-MM-DD",
+        help="Oldest article date to keep, crawling stops at older articles (floor)",
     )
+    parser.add_argument(
+        "--sb-only",
+        action="store_true",
+        default=get_config_bool("HTML_SB_ONLY", False),
+        help="Use Supabase only, no local reads or writes",
+    )
+
     args = parser.parse_args()
 
     for site in HTML_SITES:
@@ -708,8 +756,9 @@ if __name__ == "__main__":
             site,
             use_bert=args.use_bert,
             verbose=args.verbose,
-            starting_page=args.start_page,
-            page_cap=args.page_cap,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            sb_only=args.sb_only,
         )
         if stats.paused:
             break

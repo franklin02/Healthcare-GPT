@@ -8,6 +8,7 @@ source-specific defaults and implementation details.
 from __future__ import annotations
 
 import argparse
+import datetime
 import sys
 from pathlib import Path
 
@@ -25,6 +26,19 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
+
+
+def _parse_date(s: str | None) -> datetime.date | None:
+    """Parse a YYYY-MM-DD or YYYYMMDD string into a date, or return None."""
+    if s is None:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            return datetime.datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    LOGGER.warning("Could not parse date %r; ignoring for HTML engine", s)
+    return None
 
 
 def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
@@ -81,6 +95,28 @@ def main(argv: list[str] | None = None) -> int:
         default=get_config_bool("VERBOSE", False),
         help="Show detailed per-article pipeline output",
     )
+    parser.add_argument(
+        "--start-date",
+        default=get_config_value("GDELT_START_DATE", None),
+        help=(
+            "Ceiling date (YYYYMMDD or YYYY-MM-DD): articles newer than this are "
+            "skipped. Applied to both GDELT files and HTML article dates."
+        ),
+    )
+    parser.add_argument(
+        "--end-date",
+        default=get_config_value("GDELT_END_DATE", None),
+        help=(
+            "Floor date (YYYYMMDD or YYYY-MM-DD): crawling stops at articles older "
+            "than this. Applied to both GDELT files and HTML article dates."
+        ),
+    )
+    parser.add_argument(
+        "--sb-only",
+        action="store_true",
+        default=get_config_bool("HTML_SB_ONLY", False),
+        help="HTML pipeline: write to Supabase only, no local reads or writes",
+    )
 
     # GDELT-specific
     parser.add_argument(
@@ -102,16 +138,6 @@ def main(argv: list[str] | None = None) -> int:
         "-o",
         default=get_config_value("OUTPUT_PATH", "data/output/results.json"),
         help="Output JSON file or directory for GDELT results",
-    )
-    parser.add_argument(
-        "--start-date",
-        default=get_config_value("GDELT_START_DATE", None),
-        help="Earliest GDELT file date to include (YYYYMMDD or YYYY-MM-DD)",
-    )
-    parser.add_argument(
-        "--end-date",
-        default=get_config_value("GDELT_END_DATE", None),
-        help="Latest GDELT file date to include (YYYYMMDD or YYYY-MM-DD)",
     )
     parser.add_argument(
         "--seen-urls-file",
@@ -207,8 +233,9 @@ def main(argv: list[str] | None = None) -> int:
                 site,
                 use_bert=args.use_bert,
                 verbose=args.verbose,
-                starting_page=args.html_start_page,
-                page_cap=args.html_page_cap,
+                start_date=_parse_date(args.start_date),
+                end_date=_parse_date(args.end_date),
+                sb_only=args.sb_only,
                 reporter=reporter,
                 stats=PipelineStats(site["name"]),
             )

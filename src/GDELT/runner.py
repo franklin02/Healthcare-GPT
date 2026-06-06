@@ -1021,6 +1021,8 @@ if __name__ == "__main__":
             "Recover final output from this staged GDELT stage: seeds, "
             "validated, or enriched."
         ),
+    )
+    parser.add_argument(
         "--clean",
         action="store_true",
         default=get_config_bool("CLEAN", False),

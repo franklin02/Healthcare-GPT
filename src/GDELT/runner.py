@@ -34,6 +34,7 @@ import hashlib
 import json
 import shutil
 import sys
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -734,6 +735,7 @@ def run(
     verbose: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    clean: bool = False,
 ) -> list[dict]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -760,6 +762,22 @@ def run(
         ``write_output_records``, preserves seed staging, and returns the
         completed records collected before the interrupt.
     """
+    if clean:
+        clear_directory(GDELT_CACHE_DIR)
+        clear_directory(RAW_GDELT_DIR)
+
+        open(LOG_FILE, "w").close()
+        open(LOG_DIR / "gdelt_seeds.log", "w").close()
+
+        os.remove(PROJECT_ROOT / "data" / "processed" / "GDELT.json") if (
+            PROJECT_ROOT / "data" / "processed" / "GDELT.json"
+        ).exists() else None
+        os.remove(PROJECT_ROOT / "data" / "seen_urls.json") if (
+            PROJECT_ROOT / "data" / "seen_urls.json"
+        ).exists() else None
+        LOGGER.info("Cleaning modified directories and files before run")
+        get_file_logger(__name__, LOG_FILE)
+
     LOGGER.debug(
         "Run started num_files=%s limit=%s subsectors=%s start_date=%s end_date=%s output_path=%s",
         num_files,
@@ -1003,6 +1021,10 @@ if __name__ == "__main__":
             "Recover final output from this staged GDELT stage: seeds, "
             "validated, or enriched."
         ),
+        "--clean",
+        action="store_true",
+        default=get_config_bool("CLEAN", False),
+        help="Clear all modified directories and files before running",
     )
     args = parser.parse_args()
 
@@ -1041,4 +1063,5 @@ if __name__ == "__main__":
         seen_urls_file=args.seen_urls_file,
         use_bert=args.use_bert,
         verbose=args.verbose,
+        clean=args.clean,
     )

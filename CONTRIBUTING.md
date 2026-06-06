@@ -185,36 +185,29 @@ python -c "from src.shared_utils import AI_MODEL; print(AI_MODEL)"
 
 Expected result: it prints the configured model name, currently `llama3.2`.
 
-### Optional extraction-only LLM smoke
+### Optional schema-population validator
 
-Run this when you specifically need to confirm that `extract_fields()` returns
-typed `sector_data` and `subsector_data` for a known subsector. Keep Ollama
-running first and confirm the configured model appears in `ollama list`.
+Run this when you want to confirm that every schema actually populates every
+field end-to-end. The standalone script `scripts/validate_schemas.py` feeds a
+hand-crafted "perfect" article (one that explicitly states a value for every
+field) through the real `extract_fields()` extractor for each subsector and
+prints a per-field PASS/FAIL report. It is opt-in and is **not** part of the
+pytest suite, so it never runs in CI.
+
+Keep Ollama running first and confirm the configured model appears in
+`ollama list`. Run from the repo root with the venv activated:
 
 ```bash
-python3 -c "
-from src.shared_utils import extract_fields
-
-title = 'Ransomware attack hits Ascension Health hospitals, disrupts patient records'
-body = '''Ascension Health confirmed a ransomware attack on May 8 affecting 140 hospitals across 19 states.
-Electronic health records were taken offline. The attack encrypted systems affecting radiology, lab results,
-and pharmacy. Approximately 500,000 patient records may have been exposed. The FBI has been contacted.
-Staff diverted ambulances to nearby facilities. Systems restored after 12 days of downtime.'''
-
-sector, subsector = extract_fields('cyber_attack', title, body)
-print('\\n=== sector_data ===')
-print(sector)
-print('\\n=== subsector_data ===')
-print(subsector)
-"
+python -m scripts.validate_schemas               # validate all 5 schemas
+python -m scripts.validate_schemas drug_shortage # validate one schema
 ```
 
-Expected result: `sector_data` contains only the shared fields
-(`exec_summary`, `geography_scope`, dates, and mitigation), and
-`subsector_data` contains only `cyber_attack` fields such as `attack_type`,
-`systems_affected`, `downtime_days`, and related breach metadata. Fields not
-explicitly supported by the text should be `None`/`null` rather than copied
-boilerplate.
+Expected result: every field reports `✓` and each subsector prints
+`N/N fields populated`. A `✗` means either the sample article wording drifted
+from the extractor's strict rules or there is a real prompt/schema gap worth
+fixing -- it is a diagnostic signal, not necessarily a code bug. The script
+exits non-zero if any field came back unpopulated. See the module docstring in
+`scripts/validate_schemas.py` for details on what each subsector check exercises.
 
 ### Optional slower integration smoke
 

@@ -52,6 +52,21 @@ Command arguments:
 
 - `--seen-urls-file`: Path for the JSON file of processed URLs. Defaults to `data/seen_urls.json`.
 
+- `--stitch-stage`: Recover the final output from a staged GDELT stage. Accepted values are `seeds`, `validated`, and `enriched`. Use `enriched` for the default recovery path.
+
+- `--stitch-staged`: Backward-compatible shortcut for `--stitch-stage enriched`.
+
+
+## Subsector Detection
+
+GDELT themes are only discovery hints.
+
+- One article can match more than one supported subsector.
+- Raw seed records keep `subsector` as the primary label.
+- Raw seed records may also include `detected_subsectors` with all GDELT theme matches.
+- Final validated records still have one `subsector`, chosen by the LLM.
+- `subsector_data` uses the schema for that final subsector.
+
 
 ## Single-Stage Debugging
 
@@ -85,12 +100,41 @@ URL history (list of processed URLs to prevent future duplicates):
 
 Raw seeds (candidate URLs before scraping): 
 - `data/raw/gdelt/seeds/`
+- May include `detected_subsectors` when one article matches multiple subsectors.
 
 Validated data (articles confirmed as threats by the LLM):
 - `data/raw/gdelt/validated/`
 
 Extracted data (articles with fully extracted JSON metadata):
 - `data/raw/gdelt/enriched/`
+
+## Crash Recovery
+
+If the GDELT pipeline stops after staging files have been written, manually
+stitch staged data into the final JSON file with `--stitch-stage`. Accepted
+values are `seeds`, `validated`, and `enriched`. The default recovery path is
+`enriched`, which recovers from `data/raw/gdelt/enriched/`:
+
+`python -m src.GDELT.runner --stitch-stage enriched`
+
+You can also choose an earlier recovery stage:
+
+`python -m src.GDELT.runner --stitch-stage validated`
+
+`python -m src.GDELT.runner --stitch-stage seeds`
+
+The older `--stitch-staged` flag still works as a shortcut for
+`--stitch-stage enriched`.
+
+The `validated` and `enriched` stages stitch staged record payloads into the
+final output without fetching pages or calling the LLM. The `seeds` stage first
+reuses any records already staged in `data/raw/gdelt/enriched/` or
+`data/raw/gdelt/validated/`, then processes the remaining candidate URLs from
+`data/raw/gdelt/seeds/` through scraping, validation, and extraction before
+writing the final output. Keep Ollama running when recovering from `seeds`.
+
+Use `--output-path` with `--stitch-stage` to recover into a custom file or
+directory. Stitching leaves staging files in place.
 
 ## Graceful Interrupts
 
@@ -100,6 +144,7 @@ completed records to the configured GDELT output file, and preserves
 `data/raw/gdelt/seeds/` so later recovery or stitching work can inspect the
 remaining staged seeds.
 
-This is a graceful stop with state preservation, not an automatic resume. When
-run through the orchestrator, a paused GDELT stage also prevents later pipeline
-stages from starting.
+This is a graceful stop with state preservation, not an automatic resume. After
+a stop, run one of the `--stitch-stage` commands above to build the final JSON
+from the preserved stage files. When run through the orchestrator, a paused
+GDELT stage also prevents later pipeline stages from starting.

@@ -165,6 +165,12 @@ def main(argv: list[str] | None = None) -> int:
             "(-1 for unlimited)"
         ),
     )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        default=get_config_bool("CLEAN", False),
+        help="Clear all modified directories and files before running",
+    )
 
     args = parser.parse_args(argv)
     reporter = CliReporter(verbose=args.verbose)
@@ -207,6 +213,7 @@ def main(argv: list[str] | None = None) -> int:
             verbose=args.verbose,
             reporter=reporter,
             stats=gdelt_stats,
+            clean=args.clean,
         )
         summaries.append(gdelt_stats)
         if gdelt_stats.paused:

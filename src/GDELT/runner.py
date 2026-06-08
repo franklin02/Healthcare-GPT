@@ -325,7 +325,15 @@ def save_seen(seen: set, seen_file: Path | None = None) -> None:
 
 
 def _record_identities(record: dict) -> list[tuple[str, str]]:
-    """Return stable identities used to deduplicate final output records."""
+    """
+    Return stable identities used to deduplicate a final output record.
+
+    Parameters:
+        record: The output record containing an optional ID and direct link.
+
+    Returns:
+        A list of identity type and value pairs for the record.
+    """
     identities = []
     record_id = record.get("id")
     if record_id:
@@ -337,7 +345,16 @@ def _record_identities(record: dict) -> list[tuple[str, str]]:
 
 
 def _dedupe_output_records(records: list[dict]) -> list[dict]:
-    """Deduplicate final output records by id or direct_link."""
+    """
+    Deduplicate final output records by ID or direct link while preserving
+    their original order.
+
+    Parameters:
+        records: The output records to deduplicate.
+
+    Returns:
+        A list containing only the first record for each ID or direct link.
+    """
     seen = set()
     unique = []
     for record in records:
@@ -432,7 +449,18 @@ def process_staged_seeds(
     stats: PipelineStats | None = None,
 ) -> list[Vulnerability]:
     """
-    Process staged GDELT seeds through validation and extraction.
+    Process staged GDELT seeds through validation and extraction while
+    preserving progress if processing is interrupted.
+
+    Parameters:
+        seeds: The staged seed dictionaries to process.
+        seen_urls_path: The path used to load and save processed URLs.
+        use_bert: Whether to run a BERT pre-filter before LLM validation.
+        reporter: Optional CliReporter for logging progress and details.
+        stats: Optional PipelineStats for tracking processing statistics.
+
+    Returns:
+        A list of vulnerabilities completed from the staged seeds.
     """
     reporter = reporter or CliReporter()
     stats = stats or PipelineStats("GDELT seed stitch")
@@ -491,7 +519,17 @@ def load_staged_payloads(
     directory: Path | None = None,
 ) -> list[dict]:
     """
-    Load staged GDELT payloads for the requested recovery stage.
+    Load valid staged GDELT payloads for the requested recovery stage,
+    skipping files that are malformed or missing the expected payload.
+
+    Parameters:
+        stage: The recovery stage to load: seeds, validated, or enriched.
+        reporter: Optional CliReporter for reporting malformed staged files.
+        stats: Optional PipelineStats updated when staged files are skipped.
+        directory: Optional staging directory override for the requested stage.
+
+    Returns:
+        A list of payload dictionaries loaded from the staging directory.
     """
     if stage not in STITCH_STAGES:
         raise ValueError(
@@ -543,7 +581,21 @@ def stitch_staged_records(
     verbose: bool = False,
 ) -> list[dict]:
     """
-    Stitch a staged GDELT pipeline stage into the final output file.
+    Recover records from a staged GDELT pipeline stage and write the
+    deduplicated records to the final output file. Seed recovery resumes
+    validation and extraction for seeds without completed staged records.
+
+    Parameters:
+        output_path: Optional JSON file or directory path for the final output.
+        stage: The recovery stage to stitch: seeds, validated, or enriched.
+        seen_urls_file: Optional path to the JSON file containing processed URLs.
+        use_bert: Whether to run a BERT pre-filter during seed recovery.
+        reporter: Optional CliReporter for logging progress and details.
+        stats: Optional PipelineStats for tracking recovery statistics.
+        verbose: Whether to show detailed per-article output.
+
+    Returns:
+        A deduplicated list of recovered records with formatted publication dates.
     """
     if stage not in STITCH_STAGES:
         raise ValueError(

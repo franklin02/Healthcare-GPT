@@ -201,6 +201,13 @@ def dedupe_raw_seeds(raw_seeds: list[dict]) -> list[dict]:
     The first seed for a URL stays canonical so existing single-subsector seed
     metadata remains backward compatible. Later duplicates only contribute
     unique subsector labels to the canonical seed's detected_subsectors list.
+
+    Parameters:
+        raw_seeds: The raw seed dictionaries to deduplicate by URL.
+
+    Returns:
+        A list of unique seed dictionaries with all distinct subsector labels
+        preserved in detected_subsectors.
     """
     seeds_by_url: dict[str, dict] = {}
     detected_by_url: dict[str, list[str]] = {}

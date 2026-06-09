@@ -745,19 +745,21 @@ def process_seed(
         LOGGER.debug("Invalid subsector url=%s subsector=%s", url, subsector)
         return None
 
-    if stats is not None:
-        stats.validated += 1
     reporter.detail(f"     OK  disruption confirmed: {subsector}")
     LOGGER.info("Disruption confirmed url=%s subsector=%s", url, subsector)
 
     try:
         sector_data, subsector_data_dict = extract_fields(subsector, title, excerpt)
     except MissingSubsectorFieldsError as exc:
+        seen.discard(url)
         if stats is not None:
             stats.skipped += 1
         reporter.warn(f"Skipping extraction for {url[:90]}: {exc}", stats)
         LOGGER.warning("Skipping extraction url=%s: %s", url, exc)
         return None
+
+    if stats is not None:
+        stats.validated += 1
 
     LOGGER.debug(
         "Extracted fields url=%s sector_keys=%s subsector_keys=%s",

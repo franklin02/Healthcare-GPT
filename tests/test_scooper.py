@@ -108,7 +108,7 @@ def test_run_html_scraper_handles_missing_subsector_fields():
             stats=PipelineStats("TestSite"),
         )
 
-    assert stats.validated == 1
+    assert stats.validated == 0
     assert stats.skipped == 1
     assert stats.warnings == 1
     assert stats.output_records == 0

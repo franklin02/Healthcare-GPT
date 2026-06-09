@@ -576,7 +576,7 @@ def run_html_scraper(
                         continue
                     stats.validated += 1
 
-                # Wrap the raw dict from the LLM in the matching SubsectorData
+                    # Wrap the raw dict from the LLM in the matching SubsectorData
                     # subclass so Vulnerability.to_dict() can call .to_dict() on it.
                     subsector_cls = SUBSECTOR_DATA_CLASSES.get(detail)
                     subsector_data = (

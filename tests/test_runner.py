@@ -786,7 +786,7 @@ class TestRun:
             patch("src.GDELT.runner.backfill_cyber_seeds") as mock_backfill,
         ):
             with pytest.raises(SystemExit):
-                runner.run(num_files=1, limit=1, subsectors="all")
+                runner.run(num_files=1, limit=1)
 
         mock_model_check.assert_called_once_with()
         mock_log_error.assert_called_once_with(
@@ -830,39 +830,12 @@ class TestRun:
             result = runner.run(
                 num_files=1,
                 limit=1,
-                subsectors="all",
                 output_path=tmpdir,
             )
 
         assert len(result) == 1
         assert isinstance(result[0], Vulnerability)
         assert result[0].subsector == "drug_shortage"
-
-    @patch("src.GDELT.runner.save_seen")
-    @patch("src.GDELT.runner.load_seen")
-    @patch("src.GDELT.runner.persist_raw_seeds")
-    @patch("src.GDELT.runner.backfill_cyber_seeds")
-    @patch("src.GDELT.runner.process_seed")
-    @patch("src.GDELT.runner.persist_stage")
-    @patch("src.GDELT.runner.ensure_raw_dirs")
-    def test_run_with_invalid_subsector(
-        self,
-        mock_ensure_dirs,
-        mock_persist_stage,
-        mock_process_seed,
-        mock_backfill,
-        mock_persist_raw,
-        mock_load_seen,
-        mock_save_seen,
-    ):
-        """run should return empty list for invalid subsectors."""
-        result = runner.run(
-            num_files=1,
-            limit=1,
-            subsectors="invalid_subsector",
-        )
-
-        assert result == []
 
     @patch("src.GDELT.runner.save_seen")
     @patch("src.GDELT.runner.load_seen")
@@ -889,7 +862,7 @@ class TestRun:
         mock_backfill.return_value = seeds
         mock_process_seed.return_value = None
 
-        runner.run(num_files=1, limit=2, subsectors="all")
+        runner.run(num_files=1, limit=2)
 
         # process_seed should only be called 2 times due to limit
         assert mock_process_seed.call_count == 2
@@ -917,40 +890,9 @@ class TestRun:
         mock_process_seed.return_value = None
 
         with patch("builtins.open", mock_open()) as mock_file:
-            runner.run(num_files=1, limit=1, subsectors="all", output_path=None)
+            runner.run(num_files=1, limit=1, output_path=None)
             # Verify file operations were called
             mock_file.assert_called()
-
-    @patch("src.GDELT.runner.save_seen")
-    @patch("src.GDELT.runner.load_seen")
-    @patch("src.GDELT.runner.persist_raw_seeds")
-    @patch("src.GDELT.runner.backfill_cyber_seeds")
-    @patch("src.GDELT.runner.process_seed")
-    @patch("src.GDELT.runner.persist_stage")
-    @patch("src.GDELT.runner.ensure_raw_dirs")
-    def test_run_specific_subsector(
-        self,
-        mock_ensure_dirs,
-        mock_persist_stage,
-        mock_process_seed,
-        mock_backfill,
-        mock_persist_raw,
-        mock_load_seen,
-        mock_save_seen,
-    ):
-        """run should filter to specific subsectors."""
-        mock_load_seen.return_value = set()
-        mock_backfill.return_value = [{"url": "https://example.com/1"}]
-        mock_process_seed.return_value = None
-
-        runner.run(
-            num_files=1,
-            limit=1,
-            subsectors="drug_shortage,cyber_attack",
-        )
-
-        # backfill_cyber_seeds should be called for each specified subsector
-        assert mock_backfill.call_count == 2
 
     @patch("src.GDELT.runner.save_seen")
     @patch("src.GDELT.runner.load_seen")
@@ -971,21 +913,17 @@ class TestRun:
     ):
         """run should process duplicate URLs once across requested subsectors."""
         mock_load_seen.return_value = set()
-        mock_backfill.side_effect = [
-            [
-                {
-                    "url": "https://example.com/shared",
-                    "source": "cyber source",
-                    "subsector": "cyber_attack",
-                }
-            ],
-            [
-                {
-                    "url": "https://example.com/shared",
-                    "source": "drug source",
-                    "subsector": "drug_shortage",
-                }
-            ],
+        mock_backfill.return_value = [
+            {
+                "url": "https://example.com/shared",
+                "source": "cyber source",
+                "subsector": "cyber_attack",
+            },
+            {
+                "url": "https://example.com/shared",
+                "source": "drug source",
+                "subsector": "drug_shortage",
+            },
         ]
         mock_process_seed.return_value = None
 
@@ -993,7 +931,6 @@ class TestRun:
             runner.run(
                 num_files=1,
                 limit=None,
-                subsectors="cyber_attack,drug_shortage",
                 output_path=tmpdir,
             )
 
@@ -1040,7 +977,6 @@ class TestRun:
             runner.run(
                 num_files=1,
                 limit=1,
-                subsectors="all",
                 seen_urls_file=str(seen_file),
             )
 
@@ -1070,7 +1006,6 @@ class TestRun:
         mock_backfill.return_value = [{"url": "https://example.com/new"}]
         mock_process_seed.return_value = _make_vuln(
             id_value="new_id",
-            subsector="cyber_attack",
             direct_link="https://example.com/new",
             source_name="test",
             title="New",
@@ -1093,7 +1028,6 @@ class TestRun:
             runner.run(
                 num_files=1,
                 limit=1,
-                subsectors="all",
                 output_path=str(output_file),
             )
 
@@ -1123,7 +1057,6 @@ class TestRun:
         mock_backfill.return_value = [{"url": "https://example.com/new"}]
         mock_process_seed.return_value = _make_vuln(
             id_value="new_id",
-            subsector="cyber_attack",
             direct_link="https://example.com/new",
             source_name="test",
             title="New",
@@ -1138,7 +1071,6 @@ class TestRun:
             runner.run(
                 num_files=1,
                 limit=1,
-                subsectors="all",
                 output_path=str(output_file),
             )
 
@@ -1169,7 +1101,6 @@ class TestRun:
         mock_backfill.return_value = [{"url": "https://example.com/new"}]
         mock_process_seed.return_value = _make_vuln(
             id_value="new_id",
-            subsector="cyber_attack",
             direct_link="https://example.com/new",
             source_name="test",
             title="New",
@@ -1184,7 +1115,6 @@ class TestRun:
             runner.run(
                 num_files=1,
                 limit=1,
-                subsectors="all",
                 output_path=str(output_file),
             )
 
@@ -1216,7 +1146,6 @@ class TestRun:
         mock_backfill.return_value = [{"url": "https://example.com/new"}]
         mock_process_seed.return_value = _make_vuln(
             id_value="new_id",
-            subsector="cyber_attack",
             direct_link="https://example.com/new",
             source_name="test",
             title="New",
@@ -1229,7 +1158,6 @@ class TestRun:
             runner.run(
                 num_files=1,
                 limit=1,
-                subsectors="all",
                 output_path=str(output_file),
             )
 
@@ -1256,7 +1184,6 @@ class TestRun:
                 runner.run(
                     num_files=1,
                     limit=1,
-                    subsectors="all",
                     seen_urls_file=str(seen_dir),
                 )
 
@@ -1288,7 +1215,7 @@ class TestRun:
         mock_process_seed.return_value = None
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            runner.run(num_files=1, limit=1, subsectors="all", output_path=tmpdir)
+            runner.run(num_files=1, limit=1, output_path=tmpdir)
 
         output = capsys.readouterr().out
         assert "Progress: [██████████] 100% GDELT articles (1/1)" in output
@@ -1321,7 +1248,6 @@ class TestRun:
             runner.run(
                 num_files=1,
                 limit=1,
-                subsectors="all",
                 output_path=tmpdir,
                 verbose=True,
             )
@@ -1361,7 +1287,6 @@ class TestRun:
                 result = runner.run(
                     num_files=1,
                     limit=2,
-                    subsectors="all",
                     output_path=tmpdir,
                     stats=stats,
                 )
@@ -1399,7 +1324,6 @@ class TestRun:
                 result = runner.run(
                     num_files=1,
                     limit=1,
-                    subsectors="all",
                     output_path=tmpdir,
                     stats=stats,
                 )

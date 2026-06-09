@@ -32,7 +32,7 @@ from src.shared_utils import (
     _PROJECT_ROOT,
 )
 
-LOGGER = get_file_logger(__name__, _PROJECT_ROOT / "data" / "logs" / "html_engine.log")
+LOGGER = get_file_logger(__name__, _PROJECT_ROOT / "data" / "logs" / "scooper.log")
 
 try:
     from src.dedup import handle_vuln

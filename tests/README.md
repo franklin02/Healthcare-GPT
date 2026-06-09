@@ -6,7 +6,7 @@ This directory contains test files for the Healthcare-GPT project.
 
 - `test_gdelt_seeds.py` — Tests for GDELT data seed filtering and validation
 - `test_helpers.py` — Tests for helper utility functions
-- `test_html_engine.py` — Tests for HTML parsing and scraping engine
+- `test_scooper.py` — Tests for HTML parsing and scraping engine
 - `test_runner.py` — Tests for the main GDELT runner
 
 ## Prerequisites
@@ -32,7 +32,7 @@ pytest
 ```bash
 pytest tests/test_gdelt_seeds.py
 pytest tests/test_helpers.py
-pytest tests/test_html_engine.py
+pytest tests/test_scooper.py
 pytest tests/test_runner.py
 ```
 

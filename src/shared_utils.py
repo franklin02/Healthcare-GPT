@@ -839,8 +839,17 @@ def ai_check_validation(
         - Cyber THREATS / advisories / vulnerabilities not yet exploited against a named victim ("CISA warns…", "researchers discover bug", "hardening guidance")
         - Cyber attacks on entities OUTSIDE healthcare (generic router malware, espionage campaigns, non-healthcare ransomware)
         - Workforce / burnout / compensation trends without a current named-facility care stoppage
+        - Crimes, accidents, or arrests that merely INVOLVE a healthcare object or location but do NOT stop care or operations at a named facility — e.g. a stolen ambulance, theft of medical equipment, a car crash involving an ambulance, a shooting or assault in a hospital parking lot, vandalism. The word "ambulance" or "hospital" appearing in the article is NOT enough; the article must describe care or operations actually being halted.
+        - Individual human-interest or patient stories (one person's illness, death, long wait, or recovery) without a named facility halting operations
         - Interviews, executive profiles, conferences, op-eds, opinion pieces
         - Anything hedged with "potential", "could", "may affect", "future risk", "expected to"
+
+        ===== CONCRETE NO EXAMPLES (these MUST be marked NO) =====
+
+        - "Man steals an ambulance and leads police on a chase" — a crime involving a vehicle; no named facility stopped care -> NO
+        - "Shooting in hospital parking lot; operations continue normally" — crime at a location, care not disrupted -> NO
+        - "Nurses vote to authorize a possible strike; no date set" — hedged future threat, no current stoppage -> NO
+        - "Family mourns father who died awaiting a transplant" — individual patient story, no facility disruption -> NO
 
         ===== JSON OUTPUT CONTRACT — FOLLOW EXACTLY =====
 
@@ -862,43 +871,6 @@ def ai_check_validation(
         TITLE: {title}
         EXCERPT: {body}
 
-    """
-
-    prompt = f"""
-    You are a strict Healthcare Operations Auditor. Your ONLY job is to flag articles that describe a REAL, ALREADY-OCCURRING healthcare disruption or a CONFIRMED breach at a named healthcare entity.
-
-    DEFAULT TO NO. Reject the article unless the evidence is explicit, named, and concrete. The vast majority of healthcare news is NOT a disruption.
-
-    ===== ACCEPT (mark YES) ONLY IF (A) OR (B) IS TRUE =====
-
-    (A) ACTIVE CARE DISRUPTION — the article states that a NAMED facility (hospital, clinic, pharmacy, lab, healthcare network) is CURRENTLY or RECENTLY:
-        - Diverting ambulances, cancelling surgeries, or turning patients away
-        - Operating on downtime / paper procedures because EHR is offline
-        - Suspending services or evacuating due to fire, flood, storm, or other physical event
-        - Physically out of a specific drug or medical device that patients need now (real supply outage, not pricing or formulary debate)
-        - Cut off from operations by a workforce strike, power outage, or other concrete event
-
-    (B) CONFIRMED HEALTHCARE BREACH / CYBERATTACK — both must be true:
-        Part 1: Named healthcare entity (hospitals, clinics, pharmacies, insurers, device manufacturers, EHR vendors, labs)
-        Part 2: Incident already confirmed (ransomware, PHI exposed, breach disclosed, systems impacted)
-
-    ===== REJECT (mark NO) =====
-    - Earnings, funding, IPOs, partnerships, product launches
-    - Policy, legislation, regulation, research, clinical trials
-    - Drug pricing without actual supply outage
-    - Cyber threats/advisories not yet exploited
-    - Op-eds, interviews, wellness articles, anything hedged with "could" or "may"
-
-    ===== OUTPUT =====
-    Respond with EXACTLY this JSON and nothing else:
-    {{
-    "analysis": "One factual sentence: name the entity and impact, OR reason for rejection.",
-    "is_operational_disruption": true or false,
-    "subsector": "drug_shortage" | "medical_device_shortage" | "cyber_attack" | "natural_disaster" | "other" | "none"
-    }}
-
-    TITLE: {title}
-    EXCERPT: {body}
     """
 
     try:

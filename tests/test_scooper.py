@@ -87,24 +87,24 @@ def test_run_html_scraper_handles_missing_subsector_fields():
     ]
 
     with (
-        patch("src.scrapers.html_engine.ensure_model_available"),
-        patch("src.scrapers.html_engine.check_valid_file"),
+        patch("src.scrapers.scooper.ensure_model_available"),
+        patch("src.scrapers.scooper.check_valid_file"),
         patch(
-            "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)
+            "src.scrapers.scooper.fetch_html_page", return_value=(articles, True)
         ),
         patch(
-            "src.scrapers.html_engine.ai_check_validation",
+            "src.scrapers.scooper.ai_check_validation",
             return_value=(True, "cyber_attack"),
         ),
         patch(
-            "src.scrapers.html_engine.extract_fields",
-            side_effect=html_engine.MissingSubsectorFieldsError("No fields found"),
+            "src.scrapers.scooper.extract_fields",
+            side_effect=scooper.MissingSubsectorFieldsError("No fields found"),
         ),
-        patch("src.scrapers.html_engine.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.html_engine.prepend_noise_csv"),
-        patch("src.scrapers.html_engine.prepend_json_sources"),
+        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
+        patch("src.scrapers.scooper.prepend_noise_csv"),
+        patch("src.scrapers.scooper.prepend_json_sources"),
     ):
-        stats = html_engine.run_html_scraper(
+        stats = scooper.run_html_scraper(
             site_config,
             reporter=CliReporter(stream=io.StringIO()),
             stats=PipelineStats("TestSite"),

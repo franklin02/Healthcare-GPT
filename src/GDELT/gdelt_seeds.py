@@ -195,17 +195,12 @@ def _matches_any_theme(theme_str, theme_set):
     return any(any(expected in token for token in tokens) for expected in theme_set)
 
 
-def themes_match(theme_str, subsector="all"):
+def themes_match(theme_str):
     """
     Check if themes match a requested subsector.
 
-    Supported subsector values:
-    - a specific subsector name in SUBSECTOR_THEMES
-    - "all" to match any supported subsector
-
     Parameters:
         theme_str: The theme string from GDELT's V1Themes field.
-        subsector: The subsector to check against.
 
     Returns:
         True if the themes match the requested subsector, False otherwise.
@@ -213,14 +208,9 @@ def themes_match(theme_str, subsector="all"):
     if not _matches_any_theme(theme_str, HEALTH_THEMES):
         return False
 
-    if subsector == "all":
-        return any(
-            _matches_any_theme(theme_str, theme_set)
-            for theme_set in SUBSECTOR_THEMES.values()
-        )
-
-    return subsector in SUBSECTOR_THEMES and _matches_any_theme(
-        theme_str, SUBSECTOR_THEMES[subsector]
+    return any(
+        _matches_any_theme(theme_str, theme_set)
+        for theme_set in SUBSECTOR_THEMES.values()
     )
 
 
@@ -364,7 +354,6 @@ def _normalize_date_bound(value, end=False):
 
 def process_gkg_file(
     link,
-    subsector="all",
     cache_dir: Path | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
@@ -383,7 +372,7 @@ def process_gkg_file(
         A tuple containing a list of candidate seed records (dicts) and the total number of rows processed from the GKG file. Each seed record includes the URL, source, themes, subsector, date, and file name.
     """
     reporter = reporter or CliReporter(verbose=True)
-    LOGGER.debug("Processing GKG file link=%s subsector=%s", link, subsector)
+    LOGGER.debug("Processing GKG file link=%s", link)
 
     fname = link.split("/")[-1]
     cached_path = (cache_dir / fname) if cache_dir else None
@@ -442,7 +431,7 @@ def process_gkg_file(
         total = len(df)
         LOGGER.debug("Loaded %s rows for link=%s", total, link)
         # Filter for the requested subsector, or all supported subsectors, excluding noise
-        subsector_match = df["themes"].apply(lambda t: themes_match(t, subsector))
+        subsector_match = df["themes"].apply(lambda t: themes_match(t))
         noise = df["themes"].apply(lambda t: themes_match_noise(t))
         df = df[subsector_match & ~noise].copy()
         if df.empty:
@@ -467,16 +456,12 @@ def process_gkg_file(
         LOGGER.info("File %s produced %s leads from %s rows", fname, len(df), total)
         seeds = []
         for _, row in df.iterrows():
-            detected_subsectors = (
-                detect_subsectors(row["themes"]) if subsector == "all" else []
-            )
+            detected_subsectors = detect_subsectors(row["themes"])
             seed = {
                 "url": row["url"],
                 "source": row["source"],
                 "themes": row["themes"],
-                "subsector": subsector
-                if subsector != "all"
-                else (detected_subsectors[0] if detected_subsectors else "other"),
+                "subsector": detected_subsectors[0] if detected_subsectors else "other",
                 "date": row["date"],
                 "file": fname,
             }
@@ -492,7 +477,6 @@ def process_gkg_file(
 
 def backfill_cyber_seeds(
     num_files=20,
-    subsector="all",
     start_date=None,
     end_date=None,
     cache_dir: Path | None = None,
@@ -516,9 +500,8 @@ def backfill_cyber_seeds(
     reporter = reporter or CliReporter(verbose=True)
     reporter.detail("Fetching GDELT master file list...")
     LOGGER.debug(
-        "Backfill start num_files=%s subsector=%s start_date=%s end_date=%s",
+        "Backfill start num_files=%s start_date=%s end_date=%s",
         num_files,
-        subsector,
         start_date,
         end_date,
     )
@@ -538,12 +521,11 @@ def backfill_cyber_seeds(
     if end_date:
         links = [link for link in links if link.split("/")[-1][:14] <= end_date]
     recent = links if (start_date or end_date) else links[-num_files:]
-    scope_label = "all subsectors" if subsector == "all" else subsector
     reporter.info(
-        f"Scanning {len(recent)} GDELT files for {scope_label} "
+        f"Scanning {len(recent)} GDELT files for all subsectors "
         f"(~{len(recent) * 15 / 60:.1f} hours)"
     )
-    LOGGER.debug("Scanning %s files for %s", len(recent), scope_label)
+    LOGGER.debug("Scanning %s files", len(recent))
 
     all_seeds = []
     total_rows = 0
@@ -576,7 +558,6 @@ def backfill_cyber_seeds(
         else:
             seeds, rows = process_gkg_file(
                 link,
-                subsector=subsector,
                 cache_dir=cache_dir,
                 reporter=reporter,
                 stats=stats,

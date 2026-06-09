@@ -1274,7 +1274,7 @@ class TestRun:
         mock_save_seen,
         capsys,
     ):
-        """Default run output should show progress but not verbose item numbering."""
+        """Default run output should show high-level progress but not item numbering."""
         mock_load_seen.return_value = set()
         mock_backfill.return_value = [{"url": "https://example.com/1"}]
         mock_process_seed.return_value = None
@@ -1283,7 +1283,7 @@ class TestRun:
             runner.run(num_files=1, limit=1, subsectors="all", output_path=tmpdir)
 
         output = capsys.readouterr().out
-        assert "Progress: [██████████] 100% GDELT articles (1/1)" in output
+        assert "Processing 1 GDELT seeds" in output
         assert "[1/1]" not in output
 
     @patch("src.GDELT.runner.save_seen")

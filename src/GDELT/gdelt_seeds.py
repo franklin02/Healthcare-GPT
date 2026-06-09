@@ -545,6 +545,10 @@ def backfill_cyber_seeds(
     )
     LOGGER.debug("Scanning %s files for %s", len(recent), scope_label)
 
+    gdelt_bar = reporter.instance("GDELT")
+    gdelt_bar.reset(total=len(recent))
+    gdelt_bar.set_step("scanning GDELT files")
+
     all_seeds = []
     total_rows = 0
     for index, link in enumerate(recent, start=1):
@@ -570,8 +574,7 @@ def backfill_cyber_seeds(
             reporter.detail(f"  Reusing {len(cached_seeds)} cached seeds from {fname}")
             LOGGER.info("Reusing %s cached seeds from %s", len(cached_seeds), fname)
             all_seeds.extend(cached_seeds)
-            if recent and not reporter.verbose:
-                reporter.progress(index, len(recent), "GDELT files")
+            gdelt_bar.advance(1)
             continue
         else:
             seeds, rows = process_gkg_file(
@@ -583,8 +586,7 @@ def backfill_cyber_seeds(
             )
         all_seeds.extend(seeds)
         total_rows += rows
-        if recent and not reporter.verbose:
-            reporter.progress(index, len(recent), "GDELT files")
+        gdelt_bar.advance(1)
 
     seen, unique = set(), []
     for s in all_seeds:

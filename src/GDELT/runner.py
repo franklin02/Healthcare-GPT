@@ -43,6 +43,7 @@ from src.cli_reporter import CliReporter, PipelineStats
 from src.logging_utils import get_file_logger
 from src.shared_utils import (
     AI_MODEL,
+    AI_URL,
     ai_check_validation,
     BODY_CHAR_LIMIT,
     ensure_model_available,
@@ -473,6 +474,9 @@ def process_staged_seeds(
     records = []
     stats.discovered = len(seeds)
     reporter.info(f"Processing {len(seeds)} staged GDELT seeds")
+    stitch_bar = reporter.instance("GDELT")
+    stitch_bar.reset(total=len(seeds))
+    stitch_bar.set_step("processing staged seeds")
 
     for i, seed in enumerate(seeds, start=1):
         stats.processed += 1
@@ -497,8 +501,8 @@ def process_staged_seeds(
                 persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
                 records.append(rec)
                 completed_current = True
-            if not reporter.verbose:
-                reporter.progress(i, len(seeds), "staged GDELT seeds")
+            stitch_bar.set_step(f"staged {i}/{len(seeds)}")
+            stitch_bar.advance(1)
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)
@@ -848,6 +852,7 @@ def run(
     if local_reporter:
         reporter.phase("GDELT pipeline")
     reporter.status(f"LLM model: {AI_MODEL}")
+    gdelt_bar = reporter.register_instance("GDELT", model=AI_MODEL, endpoint=AI_URL)
     if use_bert:
         reporter.status(_bert_status())
 
@@ -922,6 +927,8 @@ def run(
     LOGGER.debug("Processing %s seeds after limit", len(seeds))
 
     reporter.info(f"Processing {len(seeds)} GDELT seeds")
+    gdelt_bar.reset(total=len(seeds))
+    gdelt_bar.set_step("processing seeds")
     records = []
     for i, seed in enumerate(seeds, start=1):
         stats.processed += 1
@@ -954,8 +961,8 @@ def run(
                         LOGGER.warning("dedup/insert failed for %r: %s", rec.title, e)
             else:
                 LOGGER.debug("Seed skipped url=%s", url)
-            if not reporter.verbose:
-                reporter.progress(i, len(seeds), "GDELT articles")
+            gdelt_bar.set_step(f"{i}/{len(seeds)}")
+            gdelt_bar.advance(1)
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)

@@ -12,9 +12,11 @@ import datetime
 import sys
 from pathlib import Path
 
-from src.cli_reporter import CliReporter, PipelineStats
+from src.cli_reporter import CliReporter, InstanceSpec, PipelineStats
 from src.logging_utils import get_file_logger
 from src.shared_utils import (
+    AI_MODEL,
+    AI_URL,
     ensure_model_available,
     get_config_bool,
     get_config_int,
@@ -173,83 +175,103 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
+    run_gdelt = not args.skip_gdelt
+    run_html = not args.skip_html
 
-    if not (args.skip_gdelt and args.skip_html):
-        try:
-            ensure_model_available()
-        except model_unavailable_error as exc:
-            LOGGER.error("Model availability check failed: %s", exc)
-            print(exc, file=sys.stderr)
-            return 1
+    with CliReporter(verbose=args.verbose) as reporter:
+        if run_gdelt or run_html:
+            try:
+                ensure_model_available()
+            except model_unavailable_error as exc:
+                LOGGER.error("Model availability check failed: %s", exc)
+                print(exc, file=sys.stderr)
+                return 1
 
-    if not args.skip_gdelt:
-        import src.GDELT.runner as runner
+        # Register every instance bar up front (GDELT + one per HTML site) so the
+        # overall bar and the per-instance bars are visible from the start.
+        specs: list[InstanceSpec] = []
+        if run_gdelt:
+            specs.append(InstanceSpec("GDELT", model=AI_MODEL, endpoint=AI_URL))
+        scooper = None
+        if run_html:
+            import src.scrapers.scooper as scooper
 
-        n_provided = _option_provided(raw_args, ("-n", "--num-files"))
-        l_provided = _option_provided(raw_args, ("-l", "--limit"))
-        effective_limit = args.limit
-        if not l_provided:
-            config_limit = get_config_int("GDELT_LIMIT", None)
-            effective_limit = (
-                config_limit
-                if config_limit is not None
-                else (None if n_provided else 3)
+            specs.extend(
+                InstanceSpec(site["name"], model=AI_MODEL, endpoint=AI_URL)
+                for site in scooper.HTML_SITES
             )
+        if specs:
+            reporter.build_instances(specs, model_label=AI_MODEL)
+            reporter.set_overall_total(len(specs))
+            reporter.set_overall_step("Initializing")
 
-        gdelt_stats = PipelineStats("GDELT")
-        reporter.phase("Running GDELT pipeline")
-        LOGGER.info("Running GDELT pipeline with args: %s", args)
-        runner.run(
-            num_files=args.num_files,
-            limit=effective_limit,
-            subsectors=args.subsectors,
-            output_path=args.output_path,
-            start_date=args.start_date,
-            end_date=args.end_date,
-            seen_urls_file=args.seen_urls_file,
-            use_bert=args.use_bert,
-            verbose=args.verbose,
-            reporter=reporter,
-            stats=gdelt_stats,
-            clean=args.clean,
-        )
-        summaries.append(gdelt_stats)
-        if gdelt_stats.paused:
-            reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
-            reporter.summary(summaries)
-            LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
-            return 0
+        if run_gdelt:
+            import src.GDELT.runner as runner
 
-    if not args.skip_html:
-        import src.scrapers.scooper as scooper
+            n_provided = _option_provided(raw_args, ("-n", "--num-files"))
+            l_provided = _option_provided(raw_args, ("-l", "--limit"))
+            effective_limit = args.limit
+            if not l_provided:
+                config_limit = get_config_int("GDELT_LIMIT", None)
+                effective_limit = (
+                    config_limit
+                    if config_limit is not None
+                    else (None if n_provided else 3)
+                )
 
-        html_stats = PipelineStats("HTML")
-        reporter.phase("Running HTML/Scooper pipeline")
-        LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
-        for site in scooper.HTML_SITES:
-            site_stats = scooper.run_html_scraper(
-                site,
+            gdelt_stats = PipelineStats("GDELT")
+            reporter.set_overall_step("GDELT")
+            LOGGER.info("Running GDELT pipeline with args: %s", args)
+            runner.run(
+                num_files=args.num_files,
+                limit=effective_limit,
+                subsectors=args.subsectors,
+                output_path=args.output_path,
+                start_date=args.start_date,
+                end_date=args.end_date,
+                seen_urls_file=args.seen_urls_file,
                 use_bert=args.use_bert,
                 verbose=args.verbose,
-                start_date=_parse_date(args.start_date),
-                end_date=_parse_date(args.end_date),
-                sb_only=args.sb_only,
                 reporter=reporter,
-                stats=PipelineStats(site["name"]),
+                stats=gdelt_stats,
+                clean=args.clean,
             )
-            html_stats.merge(site_stats)
-            if site_stats.paused:
-                summaries.append(html_stats)
-                reporter.info("HTML scraper paused; skipping remaining pipelines.")
+            summaries.append(gdelt_stats)
+            reporter.advance_overall(1)
+            if gdelt_stats.paused:
+                reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
                 reporter.summary(summaries)
-                LOGGER.info("HTML scraper paused; skipping remaining pipelines")
+                LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
                 return 0
-        summaries.append(html_stats)
 
-    if summaries:
-        reporter.summary(summaries)
+        if run_html:
+            html_stats = PipelineStats("HTML")
+            LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
+            for site in scooper.HTML_SITES:
+                reporter.set_overall_step(site["name"])
+                site_stats = scooper.run_html_scraper(
+                    site,
+                    use_bert=args.use_bert,
+                    verbose=args.verbose,
+                    start_date=_parse_date(args.start_date),
+                    end_date=_parse_date(args.end_date),
+                    sb_only=args.sb_only,
+                    reporter=reporter,
+                    stats=PipelineStats(site["name"]),
+                )
+                html_stats.merge(site_stats)
+                reporter.advance_overall(1)
+                if site_stats.paused:
+                    summaries.append(html_stats)
+                    reporter.info("HTML scraper paused; skipping remaining pipelines.")
+                    reporter.summary(summaries)
+                    LOGGER.info("HTML scraper paused; skipping remaining pipelines")
+                    return 0
+            summaries.append(html_stats)
+
+        if summaries:
+            reporter.summary(summaries)
     LOGGER.info("Orchestrator run complete with summaries: %s", summaries)
     return 0
 

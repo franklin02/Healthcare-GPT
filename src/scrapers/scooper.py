@@ -16,6 +16,7 @@ from src.cli_reporter import CliReporter, PipelineStats
 from src.logging_utils import get_file_logger
 from src.shared_utils import (
     AI_MODEL,
+    AI_URL,
     ai_check_validation,
     check_valid_file,
     ensure_model_available,
@@ -57,16 +58,10 @@ def _live_site_status(
     page: int,
     stats: PipelineStats,
 ) -> None:
-    """Update the per-site sticky counter line (no-op in verbose mode)."""
-    if reporter.verbose:
-        return
-    reporter.tick(
-        site_name,
-        page=page,
-        processed=stats.processed,
-        validated=stats.validated,
-        rejected=stats.rejected,
-        skipped=stats.skipped,
+    """Update the per-site instance bar's current-step line."""
+    reporter.instance(site_name).set_step(
+        f"page {page} | proc {stats.processed} val {stats.validated} "
+        f"rej {stats.rejected} skip {stats.skipped}"
     )
 
 
@@ -397,6 +392,9 @@ def run_html_scraper(
     stats.sites_scanned += 1
     reporter.phase(f"HTML scraper: {site_config['name']}")
     reporter.status(f"LLM model: {AI_MODEL}")
+    site_bar = reporter.register_instance(
+        site_config["name"], model=AI_MODEL, endpoint=AI_URL
+    )
     if use_bert:
         reporter.status(_bert_status())
     try:
@@ -434,6 +432,8 @@ def run_html_scraper(
 
     cap = site_config["map"]["cap"]
     current_page = starting_page
+    if cap != -1:
+        site_bar.set_total(max(cap - starting_page + 1, 1))
 
     """
     Buffer this run's new vulns + CSV rows so we can prepend them in one shot
@@ -499,6 +499,7 @@ def run_html_scraper(
             break
 
         stats.discovered += len(articles)
+        site_bar.set_step(f"page {current_page} | {len(articles)} articles")
         reached_floor = False
 
         for article_index, article in enumerate(articles, start=1):
@@ -673,6 +674,7 @@ def run_html_scraper(
         if stop or reached_floor:
             break
 
+        site_bar.advance(1)
         current_page += 1
         try:
             time.sleep(0.25)

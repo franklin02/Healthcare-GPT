@@ -16,3 +16,4 @@ beautifulsoup4
 lxml
 torch
 supabase
+tqdm==4.67.3

@@ -52,7 +52,7 @@ from src.shared_utils import (
     get_config_int,
     get_config_value,
     model_unavailable_error,
-    MissingSubsectorFieldsError
+    MissingSubsectorFieldsError,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

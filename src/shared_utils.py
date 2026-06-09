@@ -554,81 +554,45 @@ def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None
         raise
 
 
-def get_title(url: str) -> str:
-    """Fetch and return the page title for a URL.
+def _extract_title_from_soup(soup: BeautifulSoup, fallback_url: str) -> str:
+    """Extract and clean the page title from a parsed BeautifulSoup tree.
 
-    Extracts the HTML <title> tag and strips common site-name suffixes
-    (e.g. " | Reuters", " - NBC News").  Falls back to the raw URL if no
-    usable ``<title>`` tag is found or the request fails.
+    Looks for the HTML ``<title>`` tag, strips common site-name suffixes
+    (e.g. " | Reuters", " - NBC News"), and falls back to *fallback_url*
+    when no usable title is found.
 
     Args:
-        url (str): The URL to fetch.  ``https://`` is prepended if the scheme
-            is missing.
+        soup: A parsed BeautifulSoup document.
+        fallback_url: The value returned when no ``<title>`` tag is present
+            or when the tag text is empty.
 
     Returns:
-        str: Cleaned page title, or the URL on failure.
+        str: Cleaned page title, or *fallback_url*.
     """
-    if not url:
-        return url
-
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    try:
-        resp = requests.get(url, timeout=30, headers=HEADERS)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
-        return url
-
-    soup = BeautifulSoup(resp.text, "html.parser")
     title_tag = soup.find("title")
     if title_tag:
         raw = title_tag.get_text(strip=True)
         if raw:
             cleaned = _TITLE_SITE_SUFFIX_RE.sub("", raw).strip()
             return cleaned if cleaned else raw
-    return url
+    return fallback_url
 
 
-def get_body(url: str) -> str:
-    """Fetch and return the main article text for a URL.
+def _extract_body_from_soup(soup: BeautifulSoup, url: str) -> str:
+    """Extract the main article text from a parsed BeautifulSoup tree.
 
-    The function performs a simple HTML scrape using `requests` and
-    `BeautifulSoup`, removes common non-content tags and noisy selectors
-    (ads, sidebars, footers), and returns the concatenated paragraph text
-    when available. Network errors or missing content return an empty string.
+    Removes common non-content tags and noisy selectors (ads, sidebars,
+    footers), then returns the concatenated paragraph text when available.
 
     Args:
-        url (str): The URL to fetch. If the scheme is missing, `https://` is
-            prepended.
+        soup: A parsed BeautifulSoup document.  **Note:** this function
+            mutates the tree by decomposing non-content elements.
+        url: The original URL (used only for log messages).
 
     Returns:
-        str: Cleaned article text, or an empty string on error or if no body
-            content is found.
-
-    Notes:
-        - This is a heuristic extractor and may not work for all sites.
-        - The returned body may be long; callers should truncate if needed.
+        str: Cleaned article text, or an empty string if no body content
+            is found.
     """
-    if not url:
-        LOGGER.warning("Empty URL provided to get_body()")
-        return ""
-
-    # Normalize URL
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    # Fetch
-    try:
-        resp = requests.get(url, timeout=30, headers=HEADERS)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
-        return ""
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-
     # Strip non-content tags
     for tag in soup(
         [
@@ -714,6 +678,123 @@ def get_body(url: str) -> str:
 
     LOGGER.debug("No content chunks found after filtering for URL %s", url)
     return ""
+
+
+def get_title(url: str) -> str:
+    """Fetch and return the page title for a URL.
+
+    Extracts the HTML <title> tag and strips common site-name suffixes
+    (e.g. " | Reuters", " - NBC News").  Falls back to the raw URL if no
+    usable ``<title>`` tag is found or the request fails.
+
+    Args:
+        url (str): The URL to fetch.  ``https://`` is prepended if the scheme
+            is missing.
+
+    Returns:
+        str: Cleaned page title, or the URL on failure.
+    """
+    if not url:
+        return url
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
+        return url
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    return _extract_title_from_soup(soup, url)
+
+
+def get_body(url: str) -> str:
+    """Fetch and return the main article text for a URL.
+
+    The function performs a simple HTML scrape using `requests` and
+    `BeautifulSoup`, removes common non-content tags and noisy selectors
+    (ads, sidebars, footers), and returns the concatenated paragraph text
+    when available. Network errors or missing content return an empty string.
+
+    Args:
+        url (str): The URL to fetch. If the scheme is missing, `https://` is
+            prepended.
+
+    Returns:
+        str: Cleaned article text, or an empty string on error or if no body
+            content is found.
+
+    Notes:
+        - This is a heuristic extractor and may not work for all sites.
+        - The returned body may be long; callers should truncate if needed.
+    """
+    if not url:
+        LOGGER.warning("Empty URL provided to get_body()")
+        return ""
+
+    # Normalize URL
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    # Fetch
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
+        return ""
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    return _extract_body_from_soup(soup, url)
+
+
+def get_body_and_title(url: str) -> tuple[str, str]:
+    """Fetch a URL once and return both the article body and cleaned title.
+
+    Combines the work of :func:`get_body` and :func:`get_title` into a
+    single HTTP request, halving outbound traffic when both values are
+    needed for the same page.
+
+    The title is extracted **before** the body because
+    :func:`_extract_body_from_soup` mutates the soup tree by decomposing
+    non-content elements (which could remove the ``<title>`` tag).
+
+    Args:
+        url: The URL to fetch.  ``https://`` is prepended when the scheme
+            is missing.
+
+    Returns:
+        A ``(body, title)`` tuple.  On network errors the body is ``""``
+        and the title falls back to the (normalised) URL.  On empty /
+        missing content the body is ``""`` while the title may still be
+        valid.
+    """
+    if not url:
+        LOGGER.warning("Empty URL provided to get_body_and_title()")
+        return "", url or ""
+
+    # Normalize URL
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    # Fetch once
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
+        return "", url
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Extract title first — _extract_body_from_soup mutates the tree.
+    title = _extract_title_from_soup(soup, url)
+    body = _extract_body_from_soup(soup, url)
+
+    return body, title
 
 
 _classifier = None

@@ -223,13 +223,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     if not args.skip_html:
-        import src.scrapers.html_engine as html_engine
+        import src.scrapers.scooper as scooper
 
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
-        for site in html_engine.HTML_SITES:
-            site_stats = html_engine.run_html_scraper(
+        for site in scooper.HTML_SITES:
+            site_stats = scooper.run_html_scraper(
                 site,
                 use_bert=args.use_bert,
                 verbose=args.verbose,

@@ -162,7 +162,7 @@ Run the quick checks from the repo root with the venv activated.
 These checks should finish quickly and do not call live websites or the LLM:
 
 ```bash
-python -m pytest tests/test_orchestrator.py tests/test_html_engine.py tests/test_logging_utils.py -q
+python -m pytest tests/test_orchestrator.py tests/test_scooper.py tests/test_logging_utils.py -q
 python -m src.orchestrator --skip-gdelt --html-start-page 1 --html-page-cap 0 --verbose
 ```
 

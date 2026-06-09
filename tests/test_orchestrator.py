@@ -25,8 +25,8 @@ def test_orchestrator_forwards_verbose_to_html_scraper():
     sites = [{"name": "TestSite"}]
     with (
         patch("src.orchestrator.ensure_model_available"),
-        patch("src.scrapers.html_engine.HTML_SITES", sites),
-        patch("src.scrapers.html_engine.run_html_scraper") as mock_scraper,
+        patch("src.scrapers.scooper.HTML_SITES", sites),
+        patch("src.scrapers.scooper.run_html_scraper") as mock_scraper,
         patch("src.cli_reporter.CliReporter.summary"),
     ):
         mock_scraper.return_value = PipelineStats("TestSite")
@@ -71,7 +71,7 @@ def test_orchestrator_skips_html_after_gdelt_pause():
     with (
         patch("src.orchestrator.ensure_model_available"),
         patch("src.GDELT.runner.run", side_effect=pause_gdelt) as mock_run,
-        patch("src.scrapers.html_engine.run_html_scraper") as mock_scraper,
+        patch("src.scrapers.scooper.run_html_scraper") as mock_scraper,
         patch("src.cli_reporter.CliReporter.summary") as mock_summary,
     ):
         result = orchestrator.main([])
@@ -90,9 +90,9 @@ def test_orchestrator_skips_remaining_html_sites_after_html_pause():
     with (
         patch("src.orchestrator.ensure_model_available"),
         patch("src.GDELT.runner.run"),
-        patch("src.scrapers.html_engine.HTML_SITES", sites),
+        patch("src.scrapers.scooper.HTML_SITES", sites),
         patch(
-            "src.scrapers.html_engine.run_html_scraper",
+            "src.scrapers.scooper.run_html_scraper",
             return_value=paused_stats,
         ) as mock_scraper,
         patch("src.cli_reporter.CliReporter.summary") as mock_summary,
@@ -114,7 +114,7 @@ def test_orchestrator_logs_model_availability_failure_before_pipelines():
         ) as mock_model_check,
         patch("src.orchestrator.LOGGER.error") as mock_log_error,
         patch("src.GDELT.runner.run") as mock_run,
-        patch("src.scrapers.html_engine.run_html_scraper") as mock_scraper,
+        patch("src.scrapers.scooper.run_html_scraper") as mock_scraper,
     ):
         result = orchestrator.main([])
 

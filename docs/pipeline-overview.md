@@ -128,7 +128,7 @@ Ollama running when recovering from `seeds`.
 ## HTML Pagination Controls
 
 Configured HTML sources keep their selector and pagination defaults in
-`src/scrapers/html_engine.py` because each site starts and paginates
+`src/scrapers/scooper.py` because each site starts and paginates
 differently. The orchestrator exposes `--html-start-page` and
 `--html-page-cap` as run-time overrides so larger HTML runs do not require
 source edits. When those arguments are omitted, each source uses its configured

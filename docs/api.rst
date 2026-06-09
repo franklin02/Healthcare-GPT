@@ -51,7 +51,7 @@ GDELT Pipeline
 Scraper Utilities
 -----------------
 
-.. automodule:: src.scrapers.html_engine
+.. automodule:: src.scrapers.scooper
    :members:
    :undoc-members:
 

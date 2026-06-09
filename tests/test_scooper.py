@@ -89,9 +89,7 @@ def test_run_html_scraper_handles_missing_subsector_fields():
     with (
         patch("src.scrapers.scooper.ensure_model_available"),
         patch("src.scrapers.scooper.check_valid_file"),
-        patch(
-            "src.scrapers.scooper.fetch_html_page", return_value=(articles, True)
-        ),
+        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
         patch(
             "src.scrapers.scooper.ai_check_validation",
             return_value=(True, "cyber_attack"),

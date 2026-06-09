@@ -1051,16 +1051,6 @@ if __name__ == "__main__":
 
     if args.clean:
         run_clean()
-    raw_seeds = [
-        seed
-        for seed in backfill_cyber_seeds(
-            num_files=args.num_files,
-            start_date=args.start_date,
-            end_date=args.end_date,
-            cache_dir=GDELT_CACHE_DIR,
-            reporter=CliReporter(verbose=args.verbose),
-        )
-    ]
 
     run(
         num_files=args.num_files,
@@ -1071,6 +1061,5 @@ if __name__ == "__main__":
         seen_urls_file=args.seen_urls_file,
         use_bert=args.use_bert,
         verbose=args.verbose,
-        raw_seeds=raw_seeds,
         reporter=CliReporter(verbose=args.verbose),
     )

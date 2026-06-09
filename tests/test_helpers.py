@@ -345,6 +345,98 @@ class TestGetTitle:
         assert args[0] == "https://example.com"
 
 
+class TestGetBodyAndTitle:
+    """Test suite for get_body_and_title function"""
+
+    @patch("src.shared_utils.requests.get")
+    def test_returns_body_and_title(self, mock_get):
+        """Test that both body and title are extracted from a single request"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title>Hospital Ransomware Attack | Reuters</title></head>"
+            "<body><article><p>Paragraph 1</p><p>Paragraph 2</p></article></body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        body, title = helpers.get_body_and_title("https://example.com")
+
+        assert "Paragraph 1" in body
+        assert "Paragraph 2" in body
+        assert title == "Hospital Ransomware Attack"
+        assert "Reuters" not in title
+
+    @patch("src.shared_utils.requests.get")
+    def test_single_request(self, mock_get):
+        """Test that only one HTTP request is made (not two)"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title>Test</title></head>"
+            "<body><article><p>Content</p></article></body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        helpers.get_body_and_title("https://example.com")
+        assert mock_get.call_count == 1
+
+    def test_empty_url(self):
+        """Test with empty URL returns empty body and empty title"""
+        body, title = helpers.get_body_and_title("")
+        assert body == ""
+        assert title == ""
+
+    def test_none_url(self):
+        """Test with None URL returns empty body and empty title"""
+        body, title = helpers.get_body_and_title(None)
+        assert body == ""
+        assert title == ""
+
+    @patch("src.shared_utils.requests.get")
+    def test_network_error(self, mock_get):
+        """Test that network errors return empty body and URL as title"""
+        mock_get.side_effect = requests.RequestException("Connection failed")
+
+        body, title = helpers.get_body_and_title("https://example.com")
+        assert body == ""
+        assert title == "https://example.com"
+
+    @patch("src.shared_utils.requests.get")
+    def test_empty_body_valid_title(self, mock_get):
+        """Test page with title but no meaningful body content"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title>Valid Title</title></head>"
+            "<body>"
+            "<div>Skip to main content</div>"
+            "<div>Close</div>"
+            "<div>© Copyright 2026 | Terms of Use | Privacy Policy</div>"
+            "<div>Powered by BLOX Content Management System</div>"
+            "</body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        body, title = helpers.get_body_and_title("https://example.com")
+        assert body == ""
+        assert title == "Valid Title"
+
+    @patch("src.shared_utils.requests.get")
+    def test_normalizes_url_without_scheme(self, mock_get):
+        """Test that URLs without a scheme get https:// prepended"""
+        mock_response = MagicMock()
+        mock_response.text = (
+            "<html><head><title>Test</title></head>"
+            "<body><article><p>Content</p></article></body></html>"
+        )
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        helpers.get_body_and_title("example.com")
+        args, _ = mock_get.call_args
+        assert args[0] == "https://example.com"
+
+
 class TestAiCheckValidation:
     """Test suite for ai_check_validation function"""
 

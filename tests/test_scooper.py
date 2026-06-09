@@ -5,12 +5,12 @@ import pytest
 
 from src.cli_reporter import CliReporter, PipelineStats
 from src.shared_utils import model_unavailable_error
-import src.scrapers.html_engine as html_engine
+import src.scrapers.scooper as scooper
 
 
 @pytest.fixture(autouse=True)
 def _disable_supabase(monkeypatch):
-    monkeypatch.setattr(html_engine, "SUPABASE_AVAILABLE", False)
+    monkeypatch.setattr(scooper, "SUPABASE_AVAILABLE", False)
 
 
 def test_run_html_scraper_counts_validated_and_rejected_articles():
@@ -39,24 +39,22 @@ def test_run_html_scraper_counts_validated_and_rejected_articles():
     ]
 
     with (
-        patch("src.scrapers.html_engine.ensure_model_available"),
-        patch("src.scrapers.html_engine.check_valid_file"),
+        patch("src.scrapers.scooper.ensure_model_available"),
+        patch("src.scrapers.scooper.check_valid_file"),
+        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
         patch(
-            "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)
-        ),
-        patch(
-            "src.scrapers.html_engine.ai_check_validation",
+            "src.scrapers.scooper.ai_check_validation",
             side_effect=[(True, "cyber_attack"), (False, "No impact")],
         ),
         patch(
-            "src.scrapers.html_engine.extract_fields",
+            "src.scrapers.scooper.extract_fields",
             return_value=({"exec_summary": "Breach confirmed"}, {}),
         ),
-        patch("src.scrapers.html_engine.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.html_engine.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.html_engine.prepend_json_sources") as mock_json,
+        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
+        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
+        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
     ):
-        stats = html_engine.run_html_scraper(
+        stats = scooper.run_html_scraper(
             site_config,
             reporter=CliReporter(stream=io.StringIO()),
             stats=PipelineStats("TestSite"),
@@ -152,13 +150,11 @@ def test_run_html_scraper_pause_flushes_buffered_outputs():
     ]
 
     with (
-        patch("src.scrapers.html_engine.ensure_model_available"),
-        patch("src.scrapers.html_engine.check_valid_file"),
+        patch("src.scrapers.scooper.ensure_model_available"),
+        patch("src.scrapers.scooper.check_valid_file"),
+        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
         patch(
-            "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)
-        ),
-        patch(
-            "src.scrapers.html_engine.ai_check_validation",
+            "src.scrapers.scooper.ai_check_validation",
             side_effect=[
                 (True, "cyber_attack"),
                 (False, "No impact"),
@@ -166,14 +162,14 @@ def test_run_html_scraper_pause_flushes_buffered_outputs():
             ],
         ),
         patch(
-            "src.scrapers.html_engine.extract_fields",
+            "src.scrapers.scooper.extract_fields",
             return_value=({"exec_summary": "Breach confirmed"}, {}),
         ),
-        patch("src.scrapers.html_engine.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.html_engine.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.html_engine.prepend_json_sources") as mock_json,
+        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
+        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
+        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
     ):
-        stats = html_engine.run_html_scraper(
+        stats = scooper.run_html_scraper(
             site_config,
             reporter=CliReporter(stream=io.StringIO()),
             stats=PipelineStats("TestSite"),
@@ -205,17 +201,17 @@ def test_run_html_scraper_pause_during_fetch_flushes_empty_outputs():
     }
 
     with (
-        patch("src.scrapers.html_engine.ensure_model_available"),
-        patch("src.scrapers.html_engine.check_valid_file"),
+        patch("src.scrapers.scooper.ensure_model_available"),
+        patch("src.scrapers.scooper.check_valid_file"),
         patch(
-            "src.scrapers.html_engine.fetch_html_page",
+            "src.scrapers.scooper.fetch_html_page",
             side_effect=KeyboardInterrupt(),
         ),
-        patch("src.scrapers.html_engine.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.html_engine.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.html_engine.prepend_json_sources") as mock_json,
+        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
+        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
+        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
     ):
-        stats = html_engine.run_html_scraper(
+        stats = scooper.run_html_scraper(
             site_config,
             reporter=CliReporter(stream=io.StringIO()),
             stats=PipelineStats("TestSite"),
@@ -247,22 +243,22 @@ def test_run_html_scraper_allows_page_cap_override():
     }
 
     with (
-        patch("src.scrapers.html_engine.ensure_model_available"),
-        patch("src.scrapers.html_engine.check_valid_file"),
+        patch("src.scrapers.scooper.ensure_model_available"),
+        patch("src.scrapers.scooper.check_valid_file"),
         patch(
-            "src.scrapers.html_engine.fetch_html_page",
+            "src.scrapers.scooper.fetch_html_page",
             return_value=([article], False),
         ) as mock_fetch,
         patch(
-            "src.scrapers.html_engine.ai_check_validation",
+            "src.scrapers.scooper.ai_check_validation",
             return_value=(False, "No impact"),
         ),
-        patch("src.scrapers.html_engine.prepend_vuln_csv"),
-        patch("src.scrapers.html_engine.prepend_noise_csv"),
-        patch("src.scrapers.html_engine.prepend_json_sources"),
-        patch("src.scrapers.html_engine.time.sleep"),
+        patch("src.scrapers.scooper.prepend_vuln_csv"),
+        patch("src.scrapers.scooper.prepend_noise_csv"),
+        patch("src.scrapers.scooper.prepend_json_sources"),
+        patch("src.scrapers.scooper.time.sleep"),
     ):
-        html_engine.run_html_scraper(
+        scooper.run_html_scraper(
             site_config,
             reporter=CliReporter(stream=io.StringIO()),
             stats=PipelineStats("TestSite"),
@@ -287,15 +283,15 @@ def test_run_html_scraper_start_page_override_can_skip_run():
     }
 
     with (
-        patch("src.scrapers.html_engine.ensure_model_available"),
-        patch("src.scrapers.html_engine.check_valid_file"),
-        patch("src.scrapers.html_engine.get_config_int", return_value=2),
-        patch("src.scrapers.html_engine.fetch_html_page") as mock_fetch,
-        patch("src.scrapers.html_engine.prepend_vuln_csv"),
-        patch("src.scrapers.html_engine.prepend_noise_csv"),
-        patch("src.scrapers.html_engine.prepend_json_sources"),
+        patch("src.scrapers.scooper.ensure_model_available"),
+        patch("src.scrapers.scooper.check_valid_file"),
+        patch("src.scrapers.scooper.get_config_int", return_value=2),
+        patch("src.scrapers.scooper.fetch_html_page") as mock_fetch,
+        patch("src.scrapers.scooper.prepend_vuln_csv"),
+        patch("src.scrapers.scooper.prepend_noise_csv"),
+        patch("src.scrapers.scooper.prepend_json_sources"),
     ):
-        html_engine.run_html_scraper(
+        scooper.run_html_scraper(
             site_config,
             reporter=CliReporter(stream=io.StringIO()),
             stats=PipelineStats("TestSite"),
@@ -317,15 +313,15 @@ def test_run_html_scraper_logs_model_failure_before_setup_or_fetching():
 
     with (
         patch(
-            "src.scrapers.html_engine.ensure_model_available",
+            "src.scrapers.scooper.ensure_model_available",
             side_effect=model_unavailable_error("model unavailable"),
         ) as mock_model_check,
-        patch("src.scrapers.html_engine.LOGGER.error") as mock_log_error,
-        patch("src.scrapers.html_engine.check_valid_file") as mock_check_file,
-        patch("src.scrapers.html_engine.fetch_html_page") as mock_fetch,
+        patch("src.scrapers.scooper.LOGGER.error") as mock_log_error,
+        patch("src.scrapers.scooper.check_valid_file") as mock_check_file,
+        patch("src.scrapers.scooper.fetch_html_page") as mock_fetch,
     ):
         with pytest.raises(model_unavailable_error):
-            html_engine.run_html_scraper(
+            scooper.run_html_scraper(
                 site_config,
                 reporter=CliReporter(stream=io.StringIO()),
                 stats=PipelineStats("TestSite"),
@@ -366,29 +362,27 @@ def test_run_html_scraper_sb_only_skips_local_writes():
     ]
 
     with (
-        patch("src.scrapers.html_engine.SUPABASE_AVAILABLE", True),
-        patch("src.scrapers.html_engine.ensure_model_available"),
-        patch("src.scrapers.html_engine.check_valid_file") as mock_check_file,
-        patch("src.scrapers.html_engine.load_cite", return_value=[]),
-        patch("src.scrapers.html_engine.is_known_db", return_value=False),
+        patch("src.scrapers.scooper.SUPABASE_AVAILABLE", True),
+        patch("src.scrapers.scooper.ensure_model_available"),
+        patch("src.scrapers.scooper.check_valid_file") as mock_check_file,
+        patch("src.scrapers.scooper.load_cite", return_value=[]),
+        patch("src.scrapers.scooper.is_known_db", return_value=False),
+        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
         patch(
-            "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)
-        ),
-        patch(
-            "src.scrapers.html_engine.ai_check_validation",
+            "src.scrapers.scooper.ai_check_validation",
             side_effect=[(True, "cyber_attack"), (False, "No impact")],
         ),
         patch(
-            "src.scrapers.html_engine.extract_fields",
+            "src.scrapers.scooper.extract_fields",
             return_value=({"exec_summary": "Breach confirmed"}, {}),
         ),
-        patch("src.scrapers.html_engine.handle_vuln") as mock_handle_vuln,
-        patch("src.scrapers.html_engine.insert_noise") as mock_insert_noise,
-        patch("src.scrapers.html_engine.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.html_engine.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.html_engine.prepend_json_sources") as mock_json,
+        patch("src.scrapers.scooper.handle_vuln") as mock_handle_vuln,
+        patch("src.scrapers.scooper.insert_noise") as mock_insert_noise,
+        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
+        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
+        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
     ):
-        stats = html_engine.run_html_scraper(
+        stats = scooper.run_html_scraper(
             site_config,
             sb_only=True,
             reporter=CliReporter(stream=io.StringIO()),
@@ -434,29 +428,27 @@ def test_run_html_scraper_local_mode_skips_supabase():
     ]
 
     with (
-        patch("src.scrapers.html_engine.SUPABASE_AVAILABLE", True),
-        patch("src.scrapers.html_engine.ensure_model_available"),
-        patch("src.scrapers.html_engine.check_valid_file"),
+        patch("src.scrapers.scooper.SUPABASE_AVAILABLE", True),
+        patch("src.scrapers.scooper.ensure_model_available"),
+        patch("src.scrapers.scooper.check_valid_file"),
+        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
         patch(
-            "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)
-        ),
-        patch(
-            "src.scrapers.html_engine.ai_check_validation",
+            "src.scrapers.scooper.ai_check_validation",
             side_effect=[(True, "cyber_attack"), (False, "No impact")],
         ),
         patch(
-            "src.scrapers.html_engine.extract_fields",
+            "src.scrapers.scooper.extract_fields",
             return_value=({"exec_summary": "Breach confirmed"}, {}),
         ),
-        patch("src.scrapers.html_engine.load_cite") as mock_load_cite,
-        patch("src.scrapers.html_engine.handle_vuln") as mock_handle_vuln,
-        patch("src.scrapers.html_engine.insert_noise") as mock_insert_noise,
-        patch("src.scrapers.html_engine.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.html_engine.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.html_engine.prepend_json_sources") as mock_json,
+        patch("src.scrapers.scooper.load_cite") as mock_load_cite,
+        patch("src.scrapers.scooper.handle_vuln") as mock_handle_vuln,
+        patch("src.scrapers.scooper.insert_noise") as mock_insert_noise,
+        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
+        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
+        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
     ):
         # sb_only defaults to False -> local path
-        html_engine.run_html_scraper(
+        scooper.run_html_scraper(
             site_config,
             reporter=CliReporter(stream=io.StringIO()),
             stats=PipelineStats("TestSite"),

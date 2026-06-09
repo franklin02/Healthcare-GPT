@@ -3,8 +3,7 @@ GDELT end-to-end runner.
 
 Pipeline:
   gdelt_seeds.backfill_cyber_seeds     -- collect candidate seeds from GDELT GKG
-  src.shared_utils.get_body            -- scrape page body
-  src.shared_utils.get_title           -- scrape page title (skipped on empty body)
+  src.shared_utils.get_body_and_title  -- scrape page body + title in one request
   src.shared_utils.ai_check_validation -- LLM validates as active disruption
   src.shared_utils.extract_fields      -- LLM extracts schema-specific fields
 
@@ -48,13 +47,12 @@ from src.shared_utils import (
     BODY_CHAR_LIMIT,
     ensure_model_available,
     extract_fields,
-    get_body,
+    get_body_and_title,
     get_config_bool,
     get_config_int,
     get_config_value,
-    get_title,
-    MissingSubsectorFieldsError,
     model_unavailable_error,
+    MissingSubsectorFieldsError
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -705,15 +703,13 @@ def process_seed(
         return None
 
     reporter.detail(f"  -> fetching {url[:90]}")
-    body = get_body(url)
+    body, title = get_body_and_title(url)
     if not body:
         if stats is not None:
             stats.skipped += 1
         reporter.detail("     [skip] empty body")
         LOGGER.debug("Empty body for url=%s", url)
         return None
-
-    title = get_title(url)
     excerpt = body[:BODY_CHAR_LIMIT]
 
     is_disruption, detail = ai_check_validation(

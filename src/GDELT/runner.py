@@ -17,7 +17,6 @@ Functions:
     ensure_raw_dirs(): Ensure that the raw directories for seeds, validated, and enriched data exist. Creates them if they don't.
     ensure_cache_dir(): Ensure that the GDELT zip cache directory exists. Creates it if it doesn't.
     save_json(path, data): Save a dictionary as JSON to the specified path, creating parent directories if needed.
-    clear_directory(directory): Delete all files and subdirectories inside a directory.
     persist_raw_seeds(raw_seeds): Persist raw seeds to the seeds directory, using stable IDs for filenames.
     persist_stage(directory, article_id, stage, url, data): Persist data for a specific stage (validated, enriched) using a stable ID for the filename.
     load_staged_payloads(stage, reporter, stats): Load staged payloads for the requested GDELT stitch stage.
@@ -32,13 +31,11 @@ Functions:
 import argparse
 import hashlib
 import json
-import shutil
 import sys
-import os
 from datetime import datetime
 from pathlib import Path
 
-from src.GDELT.gdelt_seeds import SUBSECTOR_THEMES, backfill_cyber_seeds
+from src.GDELT.gdelt_seeds import backfill_cyber_seeds
 from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from src.cli_reporter import CliReporter, PipelineStats
 from src.logging_utils import get_file_logger
@@ -54,6 +51,8 @@ from src.shared_utils import (
     get_config_value,
     get_title,
     model_unavailable_error,
+    run_clean,
+    clear_directory,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -171,27 +170,6 @@ def save_json(path: Path, data: dict) -> None:
     """
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2, default=str)
-
-
-def clear_directory(directory: Path) -> None:
-    """
-    Delete all files and subdirectories inside a directory.
-
-    Parameters:
-        directory: The path to the directory to clear.
-    """
-    if not directory.exists():
-        LOGGER.debug("Directory does not exist, skipping clear: %s", directory)
-        return
-    # Iterate over all items in the directory and remove them
-    for item in directory.iterdir():
-        try:
-            if item.is_file() or item.is_symlink():
-                item.unlink()
-            elif item.is_dir():
-                shutil.rmtree(item)
-        except Exception as exc:
-            LOGGER.warning("Failed to remove %s: %s", item, exc)
 
 
 def dedupe_raw_seeds(raw_seeds: list[dict]) -> list[dict]:
@@ -785,7 +763,6 @@ def process_seed(
 def run(
     num_files: int,
     limit: int | None,
-    subsectors: str,
     output_path: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
@@ -794,7 +771,7 @@ def run(
     verbose: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
-    clean: bool = False,
+    raw_seeds: list[dict] | None = None,
 ) -> list[dict]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -811,6 +788,8 @@ def run(
         verbose: Whether to show detailed per-article output.
         reporter: Optional CliReporter for logging progress and details.
         stats: Optional PipelineStats for tracking statistics.
+        clean: Whether to clear modified directories and files before running.
+        raw_seeds: Raw seed dictionaries to process
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -821,27 +800,10 @@ def run(
         ``write_output_records``, preserves seed staging, and returns the
         completed records collected before the interrupt.
     """
-    if clean:
-        clear_directory(GDELT_CACHE_DIR)
-        clear_directory(RAW_GDELT_DIR)
-
-        open(LOG_FILE, "w").close()
-        open(LOG_DIR / "gdelt_seeds.log", "w").close()
-
-        os.remove(PROJECT_ROOT / "data" / "processed" / "GDELT.json") if (
-            PROJECT_ROOT / "data" / "processed" / "GDELT.json"
-        ).exists() else None
-        os.remove(PROJECT_ROOT / "data" / "seen_urls.json") if (
-            PROJECT_ROOT / "data" / "seen_urls.json"
-        ).exists() else None
-        LOGGER.info("Cleaning modified directories and files before run")
-        get_file_logger(__name__, LOG_FILE)
-
     LOGGER.debug(
-        "Run started num_files=%s limit=%s subsectors=%s start_date=%s end_date=%s output_path=%s",
+        "Run started num_files=%s limit=%s start_date=%s end_date=%s output_path=%s",
         num_files,
         limit,
-        subsectors,
         start_date,
         end_date,
         output_path,
@@ -855,12 +817,6 @@ def run(
     if use_bert:
         reporter.status(_bert_status())
 
-    subsector_list = (
-        ["all"]
-        if subsectors == "all"
-        else [s.strip() for s in subsectors.split(",") if s.strip()]
-    )
-
     if seen_urls_file:
         seen_urls_path = Path(seen_urls_file)
         if seen_urls_path.suffix.lower() != ".json":
@@ -870,20 +826,6 @@ def run(
             get_config_value("SEEN_URLS_FILE", None),
             PROJECT_ROOT / "data" / "seen_urls.json",
         )
-
-    # Validate subsectors early
-    valid_subsectors = set(SUBSECTOR_THEMES.keys()) | {"all"}
-    invalid = [s for s in subsector_list if s not in valid_subsectors]
-    if invalid:
-        reporter.error(f"Invalid subsector(s): {', '.join(invalid)}", stats)
-        reporter.info(
-            "Valid subsectors are: cyber_attack, drug_shortage, "
-            "medical_device_shortage, natural_disaster, or all"
-        )
-        LOGGER.warning("Invalid subsectors requested: %s", invalid)
-        if local_reporter:
-            reporter.summary(stats)
-        return []
 
     try:
         ensure_model_available()
@@ -898,20 +840,19 @@ def run(
     # Load seen URLs once at the start
     seen = load_seen(seen_urls_path)
 
-    raw_seeds = [
-        seed
-        for subsector in subsector_list
-        for seed in backfill_cyber_seeds(
-            num_files=num_files,
-            subsector=subsector,
-            start_date=start_date,
-            end_date=end_date,
-            cache_dir=GDELT_CACHE_DIR,
-            reporter=reporter,
-            stats=stats,
-        )
-    ]
-    raw_seeds = dedupe_raw_seeds(raw_seeds)
+    if raw_seeds is None:
+        raw_seeds = [
+            seed
+            for seed in backfill_cyber_seeds(
+                num_files=num_files,
+                start_date=start_date,
+                end_date=end_date,
+                cache_dir=GDELT_CACHE_DIR,
+                reporter=reporter,
+            )
+        ]
+
+    raw_seeds = dedupe_raw_seeds(raw_seeds or [])
     LOGGER.debug("Collected %s raw seeds", len(raw_seeds))
     stats.discovered = len(raw_seeds)
     persist_raw_seeds(raw_seeds)
@@ -1045,12 +986,6 @@ if __name__ == "__main__":
         help="Path to store/load seen URLs JSON file (default: data/seen_urls.json)",
     )
     parser.add_argument(
-        "--subsectors",
-        "-s",
-        default=get_config_value("GDELT_SUBSECTORS", "all"),
-        help="Comma-separated subsectors to scan, or all",
-    )
-    parser.add_argument(
         "--use-bert",
         action="store_true",
         default=get_config_bool("USE_BERT", False),
@@ -1114,15 +1049,28 @@ if __name__ == "__main__":
     if not l_provided:
         effective_limit = None if n_provided else 3
 
+    if args.clean:
+        run_clean()
+    raw_seeds = [
+        seed
+        for seed in backfill_cyber_seeds(
+            num_files=args.num_files,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            cache_dir=GDELT_CACHE_DIR,
+            reporter=CliReporter(verbose=args.verbose),
+        )
+    ]
+
     run(
         num_files=args.num_files,
         limit=effective_limit,
-        subsectors=args.subsectors,
         output_path=args.output_path,
         start_date=args.start_date,
         end_date=args.end_date,
         seen_urls_file=args.seen_urls_file,
         use_bert=args.use_bert,
         verbose=args.verbose,
-        clean=args.clean,
+        raw_seeds=raw_seeds,
+        reporter=CliReporter(verbose=args.verbose),
     )

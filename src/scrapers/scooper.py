@@ -135,20 +135,6 @@ HTML_SITES = [
         },
     },
     {
-        "name": "MedicalNewsToday",
-        "url": "https://www.medicalnewstoday.com/news",
-        "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
-        "map": {
-            "container": "ol li",
-            "title": None,
-            "link_selector": "a:has(h2)",
-            "body_selector": "article.article-body",
-            "date_selector": "",
-            "starting_page": 1,
-            "cap": 1,
-        },
-    },
-    {
         "name": "AHA",
         "url": "https://www.aha.org/news",
         "pagination_url": "https://www.aha.org/news?page=%2C{page}",

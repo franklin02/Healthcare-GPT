@@ -9,6 +9,8 @@ import datetime
 import time
 import uuid
 import argparse
+from pathlib import Path
+import pandas as pd
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
@@ -16,19 +18,16 @@ from src.cli_reporter import CliReporter, PipelineStats
 from src.logging_utils import get_file_logger
 from src.shared_utils import (
     AI_MODEL,
+    NOISE_CSV_HEADER,
+    VULN_CSV_HEADER,
     ai_check_validation,
-    check_valid_file,
     ensure_model_available,
     extract_fields,
     get_config_bool,
     get_config_date,
     get_config_int,
     get_page,
-    is_known_article,
     model_unavailable_error,
-    prepend_json_sources,
-    prepend_noise_csv,
-    prepend_vuln_csv,
     _PROJECT_ROOT,
 )
 
@@ -49,6 +48,52 @@ try:
 except Exception as e:
     LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
     SUPABASE_AVAILABLE = False
+
+
+# Consolidated local corpus: one vuln CSV and one noise CSV for all sites. scooper
+# only READS these; the orchestrator owns writing them back.
+VULN_CSV_PATH = _PROJECT_ROOT / "data" / "vulnerabilities" / "vulnerabilities.csv"
+NOISE_CSV_PATH = _PROJECT_ROOT / "data" / "noise" / "noise.csv"
+
+
+def _load_csv(path: Path, columns: list[str]) -> pd.DataFrame:
+    """Read a consolidated CSV into a DataFrame.
+
+    Returns an empty DataFrame with the expected ``columns`` when the file does
+    not exist yet (first run) or contains no rows, so callers always get the
+    expected schema.
+    """
+    if path.exists():
+        try:
+            return pd.read_csv(path, dtype=str).fillna("")
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame(columns=columns)
+    return pd.DataFrame(columns=columns)
+
+
+def _build_seen_keys(
+    vuln_df: pd.DataFrame, noise_df: pd.DataFrame
+) -> set[tuple[str, str]]:
+    """Build an O(1) ``(source_name, link)`` lookup set from both corpora.
+
+    Vuln rows key on ``direct_link`` and noise rows on ``url`` (the column names
+    differ across the two CSV schemas but both hold the article link).
+    """
+    keys = set(zip(vuln_df["source_name"], vuln_df["direct_link"]))
+    keys |= set(zip(noise_df["source_name"], noise_df["url"]))
+    return keys
+
+
+def _assemble_df(
+    loaded_df: pd.DataFrame, new_rows: list[list[str]], columns: list[str]
+) -> pd.DataFrame:
+    """Append newly collected rows to the loaded DataFrame (loaded first)."""
+    if not new_rows:
+        return loaded_df
+    return pd.concat(
+        [loaded_df, pd.DataFrame(new_rows, columns=columns)],
+        ignore_index=True,
+    )
 
 
 def _live_site_status(
@@ -181,15 +226,14 @@ def fetch_html_page(
     page_url,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
-    sb_only: bool = False,
 ):
     """
-    Fetch one listing page and return article payloads plus a stop flag.
+    Fetch one listing page and return its article payloads.
 
     The listing page is parsed with the site's configured selectors, then each
     candidate link is fetched to collect article body text and publication date.
-    The stop flag is set when a previously processed article is encountered so
-    pagination can end early.
+    Dedup against the local corpus happens in ``run_html_scraper`` (set-based),
+    so this function performs no known-article check and never short-circuits.
     """
     reporter = reporter or CliReporter(verbose=True)
     response = get_page(page_url)
@@ -208,7 +252,7 @@ def fetch_html_page(
             m["container"],
             page_url,
         )
-        return [], False
+        return []
 
     # Creates a set of valid articles with their respective links
     seen_urls = set()
@@ -254,7 +298,6 @@ def fetch_html_page(
 
     # For each article found, we go to that specific link and grab the body and date (if applicable)
     articles = []
-    stop = False
     for entry in raw_links:
         try:
             article_resp = get_page(entry["link"])
@@ -272,15 +315,6 @@ def fetch_html_page(
                 continue
 
             body = body_el.get_text(separator=" ", strip=True)
-
-            if not sb_only:  # local dedup check only applies to local mode
-                if is_known_article(site_config["name"], entry["title"], body):
-                    reporter.detail(
-                        f"[FINISH] Reached known article on {site_config['name']}: "
-                        f"{entry['title']!r}"
-                    )
-                    stop = True
-                    break
 
             date_el = article_soup.select_one(date_selector) if date_selector else None
             date = date_el.get("datetime", "") if date_el else ""
@@ -305,52 +339,7 @@ def fetch_html_page(
         )
 
     LOGGER.info("Fetched %d articles from %s", len(articles), page_url)
-    return articles, stop
-
-
-def flush_html_outputs(
-    site_name: str,
-    new_rows: list[list[str]],
-    new_noise_rows: list[list[str]],
-    new_vulns: list[Vulnerability],
-    reporter: CliReporter,
-    stats: PipelineStats,
-) -> None:
-    """
-    Flush buffered HTML scraper outputs to the configured destination helpers.
-
-    HTML site runs accumulate accepted vulnerability rows, rejected/noise rows,
-    and JSON-ready vulnerability objects in memory while a site is processed.
-    This helper provides one shared write path for normal completion and
-    graceful interrupt handling so a paused run does not lose buffered work.
-
-    Parameters:
-        site_name: Configured HTML source name used to select destination files.
-        new_rows: Vulnerability CSV rows collected during the current site run.
-        new_noise_rows: Rejected/noise CSV rows collected during the current
-            site run.
-        new_vulns: Vulnerability objects collected during the current site run.
-        reporter: Reporter used to print the flush summary.
-        stats: Pipeline statistics updated with the number of flushed
-            vulnerability records.
-
-    NOTE: only used when reading or writing locally
-    """
-    reporter.finish_line()
-    prepend_vuln_csv(site_name, new_rows)
-    prepend_noise_csv(site_name, new_noise_rows)
-    prepend_json_sources(site_name, new_vulns)
-    stats.output_records += len(new_vulns)
-    reporter.info(
-        f"Finished {site_name}: {len(new_vulns)} vuln(s), "
-        f"{len(new_noise_rows)} rejected"
-    )
-    LOGGER.info(
-        "Finished %s: %d vuln(s), %d rejected",
-        site_name,
-        len(new_vulns),
-        len(new_noise_rows),
-    )
+    return articles
 
 
 def run_html_scraper(
@@ -362,9 +351,9 @@ def run_html_scraper(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     sb_only: bool = False,
-) -> PipelineStats:
+) -> tuple[PipelineStats, pd.DataFrame, pd.DataFrame]:
     """
-    Run one configured HTML scraper and return its run statistics.
+    Run one configured HTML scraper and return its stats and corpus DataFrames.
 
     Args:
         site_config: One entry from ``HTML_SITES`` containing URL, selector,
@@ -383,13 +372,17 @@ def run_html_scraper(
         stats: Optional stats object to update for the site.
 
     Returns:
-        The populated ``PipelineStats`` for the site.
+        A tuple of the populated ``PipelineStats`` and two in-memory DataFrames
+        (vuln, noise): the loaded consolidated CSVs plus any rows collected this
+        run. In sb_only mode the DataFrames are just the loaded corpus (or empty)
+        with no new local rows. scooper never writes files; the orchestrator
+        persists the returned DataFrames.
 
     Interrupt behavior:
         Pressing ``Ctrl-C`` during page fetch, article validation, extraction,
-        or inter-page delay marks the site stats as paused, flushes any buffered
-        outputs through ``flush_html_outputs``, and returns the stats object to
-        the orchestrator so remaining sites can be skipped.
+        or inter-page delay marks the site stats as paused and returns the
+        collected DataFrames so the orchestrator can skip remaining sites. No
+        flush is needed because results are held in memory.
     """
     local_reporter = reporter is None
     reporter = reporter or CliReporter(verbose=verbose)
@@ -406,7 +399,7 @@ def run_html_scraper(
         raise
     # Resolve the effective mode before any file/DB work: if sb_only was
     # requested without creds, fall back to local so the guards below pick the
-    # right side (and check_valid_file seeds the dirs the local writers need).
+    # right side.
     if not SUPABASE_AVAILABLE and sb_only:
         sb_only = False
         LOGGER.warning(
@@ -414,10 +407,11 @@ def run_html_scraper(
             "falling back to local-only writes."
         )
 
-    # Local mode only: seed the per-site corpus dirs/files. In sb_only mode we
-    # never touch the local corpus, so skip this entirely.
-    if not sb_only:
-        check_valid_file(site_config["name"])
+    # Load the consolidated corpus into memory and build the O(1) dedup set.
+    # This is read-only: in sb_only mode the DataFrames are returned untouched.
+    loaded_vuln_df = _load_csv(VULN_CSV_PATH, VULN_CSV_HEADER)
+    loaded_noise_df = _load_csv(NOISE_CSV_PATH, NOISE_CSV_HEADER)
+    seen_keys = _build_seen_keys(loaded_vuln_df, loaded_noise_df)
 
     db_known: list[dict[str, str]] = []
     if SUPABASE_AVAILABLE and sb_only:
@@ -435,13 +429,9 @@ def run_html_scraper(
     cap = site_config["map"]["cap"]
     current_page = starting_page
 
-    """
-    Buffer this run's new vulns + CSV rows so we can prepend them in one shot
-    at the end. Order in these lists is newest-first because pagination
-    progresses oldest-page-last and each page lists articles newest-first.
-    """
-    new_vulns: list[Vulnerability] = []
-    new_rows: list[list[str]] = []
+    # Buffer this run's accepted/rejected rows; they are appended to the loaded
+    # DataFrames once the run finishes (set-based dedup makes order irrelevant).
+    new_vuln_rows: list[list[str]] = []
     new_noise_rows: list[list[str]] = []
 
     while True:
@@ -461,15 +451,14 @@ def run_html_scraper(
                 page_url = f"{site_config['url']}{sep}{page_param}={current_page}"
 
         try:
-            articles, stop = fetch_html_page(
-                site_config, page_url, reporter=reporter, stats=stats, sb_only=sb_only
+            articles = fetch_html_page(
+                site_config, page_url, reporter=reporter, stats=stats
             )
         except KeyboardInterrupt:
             stats.paused = True
             reporter.finish_line()
             reporter.info(
-                f"HTML scraper paused by operator during {site_config['name']}; "
-                "flushing completed records."
+                f"HTML scraper paused by operator during {site_config['name']}."
             )
             LOGGER.info(
                 "HTML scraper paused by operator while fetching %s page %d",
@@ -489,7 +478,11 @@ def run_html_scraper(
                 page_url,
                 e,
             )
-            return stats
+            return (
+                stats,
+                _assemble_df(loaded_vuln_df, new_vuln_rows, VULN_CSV_HEADER),
+                _assemble_df(loaded_noise_df, new_noise_rows, NOISE_CSV_HEADER),
+            )
 
         if not articles:
             reporter.warn(
@@ -503,6 +496,7 @@ def run_html_scraper(
 
         for article_index, article in enumerate(articles, start=1):
             body_snippet = (article["body"] or "")[:250].replace("\n", " ")
+            article_key = (site_config["name"], article["link"])
             stats.processed += 1
             if reporter.verbose:
                 reporter.detail(
@@ -547,6 +541,16 @@ def run_html_scraper(
                 except Exception as e:
                     reporter.warn(f"is_known_db check failed: {e}", stats)
                     LOGGER.warning("is_known_db check failed: %s", e)
+
+            # Local dedup: skip articles already in the consolidated corpus.
+            # This is a SKIP, never a pagination stop.
+            if not sb_only and article_key in seen_keys:
+                stats.skipped += 1
+                reporter.detail(
+                    f"      [SKIP-SEEN] Already collected: {article['title']}"
+                )
+                _live_site_status(reporter, site_config["name"], current_page, stats)
+                continue
 
             try:
                 is_threat, detail = ai_check_validation(
@@ -604,7 +608,7 @@ def run_html_scraper(
                             )
                     else:
                         content_preview = (vuln.content or "")[:250].replace("\n", " ")
-                        new_rows.append(
+                        new_vuln_rows.append(
                             [
                                 vuln.date_accessed,
                                 vuln.date_published,
@@ -616,7 +620,8 @@ def run_html_scraper(
                                 content_preview,
                             ]
                         )
-                        new_vulns.append(vuln)
+                        seen_keys.add(article_key)
+                        stats.output_records += 1
                 else:
                     stats.rejected += 1
                     body_preview = (article["body"] or "")[:250].replace("\n", " ")
@@ -648,12 +653,12 @@ def run_html_scraper(
                                 body_preview,
                             ]
                         )
+                        seen_keys.add(article_key)
             except KeyboardInterrupt:
                 stats.paused = True
                 reporter.finish_line()
                 reporter.info(
-                    f"HTML scraper paused by operator during {site_config['name']}; "
-                    "flushing completed records."
+                    f"HTML scraper paused by operator during {site_config['name']}."
                 )
                 LOGGER.info(
                     "HTML scraper paused by operator while processing %s article %s",
@@ -670,7 +675,7 @@ def run_html_scraper(
         if stats.paused:
             break
 
-        if stop or reached_floor:
+        if reached_floor:
             break
 
         current_page += 1
@@ -680,8 +685,7 @@ def run_html_scraper(
             stats.paused = True
             reporter.finish_line()
             reporter.info(
-                f"HTML scraper paused by operator during {site_config['name']}; "
-                "flushing completed records."
+                f"HTML scraper paused by operator during {site_config['name']}."
             )
             LOGGER.info(
                 "HTML scraper paused by operator between %s pages",
@@ -689,17 +693,22 @@ def run_html_scraper(
             )
             break
 
+    vuln_df = _assemble_df(loaded_vuln_df, new_vuln_rows, VULN_CSV_HEADER)
+    noise_df = _assemble_df(loaded_noise_df, new_noise_rows, NOISE_CSV_HEADER)
+
+    reporter.finish_line()
     if not sb_only:
-        flush_html_outputs(
+        reporter.info(
+            f"Finished {site_config['name']}: {len(new_vuln_rows)} vuln(s), "
+            f"{len(new_noise_rows)} rejected"
+        )
+        LOGGER.info(
+            "Finished %s: %d vuln(s), %d rejected",
             site_config["name"],
-            new_rows,
-            new_noise_rows,
-            new_vulns,
-            reporter,
-            stats,
+            len(new_vuln_rows),
+            len(new_noise_rows),
         )
     else:
-        reporter.finish_line()
         reporter.info(f"Finished {site_config['name']}: {stats.output_records} vuln(s)")
         LOGGER.info(
             "Finished %s (Supabase): %d vuln(s)",
@@ -708,7 +717,7 @@ def run_html_scraper(
         )
     if local_reporter:
         reporter.summary(stats)
-    return stats
+    return stats, vuln_df, noise_df
 
 
 if __name__ == "__main__":
@@ -752,13 +761,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     for site in HTML_SITES:
-        stats = run_html_scraper(
+        stats, vuln_df, noise_df = run_html_scraper(
             site,
             use_bert=args.use_bert,
             verbose=args.verbose,
             start_date=args.start_date,
             end_date=args.end_date,
             sb_only=args.sb_only,
+        )
+        print(
+            f"{site['name']}: vuln_df={len(vuln_df)} rows, "
+            f"noise_df={len(noise_df)} rows"
         )
         if stats.paused:
             break

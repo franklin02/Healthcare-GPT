@@ -1,6 +1,6 @@
 ---
 name: create-issue
-description: Draft and open a GitHub issue from a user's request, bug report, or feature idea (never from a git diff), matching this repository's conventions — a Conventional-Commit title prefix, a ## Problem section, an optional ## Suggested fix, and a ## Checklist items list. Inspects the codebase and existing repo labels first, shows the draft for confirmation, then runs `gh issue create`; falls back to a copy-pasteable markdown block if creation fails. Use when the user asks to file, open, create, track, or "make an issue" out of a problem or feature.
+description: Draft and open a GitHub issue from a user's request, bug report, or feature idea (never from a git diff), matching this repository's conventions — a Conventional-Commit title prefix, a ## Problem section, an optional ## Suggested fix, a ## Checklist items list, and the required AI provenance label (`codex-generated` or `claude-generated`). Inspects the codebase and existing repo labels first, shows the draft for confirmation, then runs `gh issue create`; falls back to a copy-pasteable markdown block if creation fails. Use when the user asks to file, open, create, track, or "make an issue" out of a problem or feature.
 allowed-tools: Bash, Read, Grep, Glob
 ---
 
@@ -87,13 +87,20 @@ Rules:
 
 - Run `gh label list` and apply only labels that already exist AND are clearly
   relevant.
+- Always include the AI provenance label for the current agent:
+  `codex-generated` for Codex-created issues, or `claude-generated` for Claude
+  Code-created issues. These labels have the same meaning: the issue was
+  AI-generated and needs human validation before it is treated as authoritative.
 - Never create a new label. Never add the Conventional-Commit type as a label —
   the type lives in the title.
 - Typical mappings when relevant: `feat` → `enhancement`; a defect → `bug`;
   `docs` → `documentation`; work in the GDELT area → `GDELT`. Apply a priority
   label (`priority-low` / `priority-medium` / `priority-high`) only if the user
   signals urgency.
-- If nothing clearly applies, attach no labels.
+- If the expected AI provenance label is missing, do not substitute a different
+  agent label and do not create the issue through `gh`. Show the draft with a
+  note that the required label must be added to the repository first. If no
+  topical labels clearly apply, attach only the AI provenance label.
 
 ### 6. Preflight, confirm, then create
 

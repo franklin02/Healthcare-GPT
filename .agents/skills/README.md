@@ -12,7 +12,7 @@ of them — the only difference is where each agent looks for skills.
 
 | Skill | What it does |
 | --- | --- |
-| [`create-issue`](create-issue/SKILL.md) | Draft and open a GitHub issue from a request or problem, matching this repo's issue style, with a copy-pasteable markdown fallback. |
+| [`create-issue`](create-issue/SKILL.md) | Draft and open a GitHub issue from a request or problem, matching this repo's issue style, with a copy-pasteable markdown fallback and an AI provenance label. |
 
 > `create-issue` uses the [GitHub CLI](https://cli.github.com) (`gh`) to open
 > the issue. `gh` is **optional**: if it isn't installed or authenticated, the
@@ -90,6 +90,14 @@ gh auth status     # should report you're logged in
 
 After that, `/create-issue` (Claude) or the `create-issue` skill (Codex) can
 open issues without any extra steps.
+
+## AI-generated issue labels
+
+Issues created through shared skills must carry an agent provenance label:
+`codex-generated` for Codex-created issues or `claude-generated` for Claude
+Code-created issues. Both labels mean the same thing: the issue was
+AI-generated and needs human validation before the team treats it as
+authoritative.
 
 ## Adding a new skill
 

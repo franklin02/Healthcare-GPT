@@ -30,3 +30,6 @@ how to add a new skill.
   `## Suggested fix`, and a `## Checklist items` list.
 - Labels are applied from the repository's existing label set only; the
   Conventional-Commit type is **not** a label (it lives in the title).
+- Issues created by an AI agent must also carry the matching provenance label:
+  `codex-generated` for Codex or `claude-generated` for Claude Code. Both
+  labels mean the issue was AI-generated and needs human validation.

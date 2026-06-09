@@ -72,6 +72,54 @@ def test_run_html_scraper_counts_validated_and_rejected_articles():
     mock_json.assert_called_once()
 
 
+def test_run_html_scraper_handles_missing_subsector_fields():
+    """Missing extraction fields should skip the article without stopping the run."""
+    site_config = {
+        "name": "TestSite",
+        "url": "https://example.com",
+        "map": {"starting_page": 1, "cap": 1},
+    }
+    articles = [
+        {
+            "title": "Hospital breach",
+            "link": "https://example.com/valid",
+            "body": "Confirmed breach",
+            "date": "2026-01-01",
+        }
+    ]
+
+    with (
+        patch("src.scrapers.html_engine.ensure_model_available"),
+        patch("src.scrapers.html_engine.check_valid_file"),
+        patch(
+            "src.scrapers.html_engine.fetch_html_page", return_value=(articles, True)
+        ),
+        patch(
+            "src.scrapers.html_engine.ai_check_validation",
+            return_value=(True, "cyber_attack"),
+        ),
+        patch(
+            "src.scrapers.html_engine.extract_fields",
+            side_effect=html_engine.MissingSubsectorFieldsError("No fields found"),
+        ),
+        patch("src.scrapers.html_engine.prepend_vuln_csv") as mock_vuln_csv,
+        patch("src.scrapers.html_engine.prepend_noise_csv"),
+        patch("src.scrapers.html_engine.prepend_json_sources"),
+    ):
+        stats = html_engine.run_html_scraper(
+            site_config,
+            reporter=CliReporter(stream=io.StringIO()),
+            stats=PipelineStats("TestSite"),
+        )
+
+    assert stats.validated == 1
+    assert stats.skipped == 1
+    assert stats.warnings == 1
+    assert stats.output_records == 0
+    mock_vuln_csv.assert_called_once()
+    assert mock_vuln_csv.call_args.args[1] == []
+
+
 def test_run_html_scraper_pause_flushes_buffered_outputs():
     """Ctrl-C during HTML processing should flush accepted and rejected rows."""
     site_config = {

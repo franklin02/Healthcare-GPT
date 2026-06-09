@@ -535,9 +535,16 @@ class TestExtractFields:
     """Test suite for extract_fields function"""
 
     def test_extract_fields_invalid_subsector(self):
-        """Test with invalid subsector exits."""
-        with pytest.raises(SystemExit):
+        """Test with invalid subsector raises a recoverable error."""
+        with pytest.raises(helpers.MissingSubsectorFieldsError):
             helpers.extract_fields("invalid_subsector", "Title", "Body")
+
+    def test_extract_fields_empty_subsector_fields(self, monkeypatch):
+        """Test a configured subsector with no fields raises a recoverable error."""
+        monkeypatch.setitem(helpers.SUBSECTOR_FIELDS, "empty_subsector", [])
+
+        with pytest.raises(helpers.MissingSubsectorFieldsError):
+            helpers.extract_fields("empty_subsector", "Title", "Body")
 
     @patch("src.shared_utils.requests.post")
     def test_extract_fields_drug_shortage(self, mock_post):

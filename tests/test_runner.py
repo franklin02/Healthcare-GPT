@@ -720,6 +720,30 @@ class TestProcessSeed:
     @patch("src.GDELT.runner.get_title")
     @patch("src.GDELT.runner.get_body")
     @patch("src.GDELT.runner.ai_check_validation")
+    def test_process_seed_handles_missing_subsector_fields(
+        self, mock_ai_check, mock_get_body, mock_get_title, mock_extract_fields
+    ):
+        """process_seed should skip when extraction fields are unavailable."""
+        seed = {"url": "https://example.com/test"}
+        seen = set()
+        stats = PipelineStats("GDELT")
+        mock_get_body.return_value = "Some content"
+        mock_get_title.return_value = "Test Title"
+        mock_ai_check.return_value = (True, "drug_shortage")
+        mock_extract_fields.side_effect = runner.MissingSubsectorFieldsError(
+            "No fields found"
+        )
+
+        result = runner.process_seed(seed, seen, stats=stats)
+
+        assert result is None
+        assert stats.skipped == 1
+        assert stats.warnings == 1
+
+    @patch("src.GDELT.runner.extract_fields")
+    @patch("src.GDELT.runner.get_title")
+    @patch("src.GDELT.runner.get_body")
+    @patch("src.GDELT.runner.ai_check_validation")
     def test_process_seed_all_valid_subsectors(
         self, mock_ai_check, mock_get_body, mock_get_title, mock_extract_fields
     ):

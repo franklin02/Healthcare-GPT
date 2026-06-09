@@ -98,60 +98,6 @@ class TestMatchesAnyTheme:
         assert gdelt_seeds._matches_any_theme("CYBER_ATTACK", set()) is False
 
 
-class TestThemesMatch:
-    """Tests for themes_match function."""
-
-    def test_match_all_subsectors(self):
-        """Should match when theme contains both health and subsector theme."""
-        # Contains HEALTH_THEMES and CYBER_THEMES
-        assert (
-            gdelt_seeds.themes_match("HEALTHCARE;CYBER_ATTACK", subsector="all") is True
-        )
-
-    def test_match_specific_subsector(self):
-        """Should match specific subsector."""
-        assert (
-            gdelt_seeds.themes_match(
-                "HEALTHCARE;CYBER_ATTACK", subsector="cyber_attack"
-            )
-            is True
-        )
-
-    def test_no_match_missing_health_theme(self):
-        """Should return False if missing HEALTH_THEMES."""
-        assert gdelt_seeds.themes_match("CYBER_ATTACK", subsector="all") is False
-
-    def test_no_match_missing_subsector_theme(self):
-        """Should return False if missing subsector theme."""
-        assert (
-            gdelt_seeds.themes_match("HEALTHCARE;SPORTS", subsector="cyber_attack")
-            is False
-        )
-
-    def test_invalid_subsector(self):
-        """Should return False for invalid subsector."""
-        assert (
-            gdelt_seeds.themes_match("HEALTHCARE;CYBER_ATTACK", subsector="invalid")
-            is False
-        )
-
-    def test_drug_shortage_subsector(self):
-        """Should match drug shortage subsector."""
-        assert (
-            gdelt_seeds.themes_match("HEALTHCARE;SHORTAGE", subsector="drug_shortage")
-            is True
-        )
-
-    def test_device_shortage_subsector(self):
-        """Should match device shortage subsector."""
-        assert (
-            gdelt_seeds.themes_match(
-                "HEALTHCARE;MEDICAL_EQUIPMENT", subsector="medical_device_shortage"
-            )
-            is True
-        )
-
-
 class TestDetectSubsector:
     """Tests for detect_subsector function."""
 
@@ -374,9 +320,7 @@ class TestProcessGkgFile:
         mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
 
-        seeds, total = gdelt_seeds.process_gkg_file(
-            "http://example.com/test.zip", subsector="cyber_attack"
-        )
+        seeds, total = gdelt_seeds.process_gkg_file("http://example.com/test.zip")
 
         assert isinstance(seeds, list)
         assert total > 0
@@ -495,9 +439,7 @@ class TestProcessGkgFileFilters:
         response.raise_for_status = Mock()
         mock_get.return_value = response
 
-        seeds, total = gdelt_seeds.process_gkg_file(
-            "http://example.com/test.zip", subsector="cyber_attack"
-        )
+        seeds, total = gdelt_seeds.process_gkg_file("http://example.com/test.zip")
 
         assert total == 2
         assert len(seeds) == 1
@@ -522,9 +464,7 @@ class TestProcessGkgFileFilters:
         response.raise_for_status = Mock()
         mock_get.return_value = response
 
-        seeds, total = gdelt_seeds.process_gkg_file(
-            "http://example.com/test.zip", subsector="all"
-        )
+        seeds, total = gdelt_seeds.process_gkg_file("http://example.com/test.zip")
 
         assert total == 1
         assert len(seeds) == 1
@@ -554,9 +494,7 @@ class TestProcessGkgFileFilters:
         response.raise_for_status = Mock()
         mock_get.return_value = response
 
-        seeds, total = gdelt_seeds.process_gkg_file(
-            "http://example.com/test.zip", subsector="cyber_attack"
-        )
+        seeds, total = gdelt_seeds.process_gkg_file("http://example.com/test.zip")
 
         assert total == 2
         assert len(seeds) == 1
@@ -582,9 +520,7 @@ class TestProcessGkgFileFilters:
         response.raise_for_status = Mock()
         mock_get.return_value = response
 
-        seeds, total = gdelt_seeds.process_gkg_file(
-            "http://example.com/test.zip", subsector="cyber_attack"
-        )
+        seeds, total = gdelt_seeds.process_gkg_file("http://example.com/test.zip")
 
         assert total == 2
         assert len(seeds) == 0
@@ -609,9 +545,7 @@ class TestProcessGkgFileFilters:
         response.raise_for_status = Mock()
         mock_get.return_value = response
 
-        seeds, total = gdelt_seeds.process_gkg_file(
-            "http://example.com/test.zip", subsector="cyber_attack"
-        )
+        seeds, total = gdelt_seeds.process_gkg_file("http://example.com/test.zip")
 
         # Both rows should pass theme filter but be filtered out by location filter
         assert total == 2
@@ -637,9 +571,7 @@ class TestProcessGkgFileFilters:
         response.raise_for_status = Mock()
         mock_get.return_value = response
 
-        seeds, total = gdelt_seeds.process_gkg_file(
-            "http://example.com/test.zip", subsector="cyber_attack"
-        )
+        seeds, total = gdelt_seeds.process_gkg_file("http://example.com/test.zip")
 
         # Both rows pass theme and location filters but fail URL quality (shorteners and non-US TLD)
         assert total == 2

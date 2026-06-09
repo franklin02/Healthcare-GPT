@@ -95,26 +95,38 @@ Rules:
   signals urgency.
 - If nothing clearly applies, attach no labels.
 
-### 6. Confirm, then create
+### 6. Preflight, confirm, then create
 
 1. Show the user the final draft: the title, the rendered body, and the chosen
    labels.
 2. Ask for confirmation before creating — opening an issue is an outward-facing
    action.
-3. On approval, create it:
+3. On approval, preflight the GitHub CLI before running anything that opens an
+   issue:
+   - `command -v gh` — is `gh` installed?
+   - `gh auth status` — is it authenticated to the right host?
+   If either check fails, skip creation and go straight to the fallback in
+   step 7 — do not run a command you already expect to error.
+4. When both checks pass, create it:
    ```bash
    gh issue create --title "<title>" --body "<body>" [--label "<label>" ...]
    ```
-   Then report the issue URL that `gh` prints.
+   Report the issue URL that `gh` prints. If the command still fails (network,
+   a label that does not exist, no remote, etc.), fall back to step 7.
 
-### 7. Fallback when creation isn't possible
+### 7. Fallback when `gh` is unavailable
 
-If `gh issue create` fails for any reason (gh not installed, not authenticated,
-no GitHub remote, network error), do NOT stop with an error. Instead, output a
-single fenced ` ```md ` block containing the complete issue — a `Title:` line
-followed by the body — so the user can copy-paste it straight into GitHub's
-new-issue form. Briefly state why it fell back (e.g. "`gh` isn't
-authenticated").
+`gh` is optional — the skill must still produce a usable result without it. If
+`gh` is missing, unauthenticated, or `gh issue create` fails for any reason, do
+NOT stop with an error. Instead:
+
+1. Output a single fenced ` ```md ` block containing the complete issue — a
+   `Title:` line, the full body, and a `Labels:` line listing the suggested
+   labels — so the user can paste it straight into GitHub's new-issue form at
+   `https://github.com/<owner>/<repo>/issues/new` (derive `<owner>/<repo>` from
+   the `origin` remote when available).
+2. Briefly state why it fell back and how to enable one-step creation next time:
+   install the GitHub CLI (<https://cli.github.com>) and run `gh auth login`.
 
 ## Output discipline
 

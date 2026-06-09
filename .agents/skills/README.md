@@ -14,6 +14,12 @@ of them — the only difference is where each agent looks for skills.
 | --- | --- |
 | [`create-issue`](create-issue/SKILL.md) | Draft and open a GitHub issue from a request or problem, matching this repo's issue style, with a copy-pasteable markdown fallback. |
 
+> `create-issue` uses the [GitHub CLI](https://cli.github.com) (`gh`) to open
+> the issue. `gh` is **optional**: if it isn't installed or authenticated, the
+> skill instead prints the finished issue as copy-pasteable markdown for the
+> GitHub web form. To enable one-step creation, install `gh` and run
+> `gh auth login`.
+
 ## Using these skills
 
 ### Codex — works out of the box

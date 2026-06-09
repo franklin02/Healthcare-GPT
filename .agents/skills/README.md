@@ -17,8 +17,8 @@ of them — the only difference is where each agent looks for skills.
 > `create-issue` uses the [GitHub CLI](https://cli.github.com) (`gh`) to open
 > the issue. `gh` is **optional**: if it isn't installed or authenticated, the
 > skill instead prints the finished issue as copy-pasteable markdown for the
-> GitHub web form. To enable one-step creation, install `gh` and run
-> `gh auth login`.
+> GitHub web form. See [GitHub CLI (`gh`)](#github-cli-gh) below to enable
+> one-step creation.
 
 ## Using these skills
 
@@ -32,24 +32,64 @@ so cloning the repo is all it takes. Skills can be invoked explicitly
 ### Claude Code — one-time local activation
 
 Claude Code discovers skills under `.claude/skills/`, and this repo's `.claude/`
-is gitignored (it holds per-developer settings), so we bridge to this folder
-with a symlink:
+is gitignored (it holds per-developer settings), so we bridge to this folder.
+**From the repository root**, run:
 
 ```bash
 python scripts/install_skills.py
 ```
 
-This points `.claude/skills` at `.agents/skills`. Restart your Claude Code
-session afterward, then run `/create-issue`.
+This points `.claude/skills` at `.agents/skills`. (The script finds the repo
+root from its own location, so it works from any directory, but running it from
+the root keeps things obvious.) Restart your Claude Code session afterward, then
+run `/create-issue`.
 
-> **Windows:** symlink creation may need Developer Mode or admin. If it fails,
-> copy `.agents/skills/` to `.claude/skills/` instead (re-copy after updates).
+> **Windows:** symlinks need Developer Mode or admin. If the command above fails
+> with a permissions error, copy the skills instead — also from the repo root:
+>
+> ```powershell
+> python scripts\install_skills.py --copy
+> ```
+>
+> A copy is a snapshot, so re-run it after the skills change.
 
 ### Other agents
 
 Any tool that reads [`AGENTS.md`](../../AGENTS.md) is pointed at this folder
 there. Tools that support the `.agents/skills/` convention pick these up
 automatically.
+
+## GitHub CLI (`gh`)
+
+The `create-issue` skill uses the [GitHub CLI](https://cli.github.com) to open
+issues directly. It is **optional** — without it, the skill falls back to
+printing copy-pasteable markdown — but installing it enables one-step creation.
+
+Install it:
+
+```bash
+# macOS (Homebrew)
+brew install gh
+
+# Windows (winget)
+winget install --id GitHub.cli
+
+# Debian / Ubuntu
+sudo apt install gh
+```
+
+Other platforms and package managers are covered in the
+[official install guide](https://github.com/cli/cli#installation).
+
+Then authenticate once and confirm:
+
+```bash
+gh auth login      # follow the prompts (GitHub.com → HTTPS or SSH)
+gh auth status     # should report you're logged in
+```
+
+After that, `/create-issue` (Claude) or the `create-issue` skill (Codex) can
+open issues without any extra steps.
 
 ## Adding a new skill
 

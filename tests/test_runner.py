@@ -628,9 +628,7 @@ class TestProcessSeed:
 
     @patch("src.GDELT.runner.get_body_and_title")
     @patch("src.GDELT.runner.ai_check_validation")
-    def test_process_seed_empty_body(
-        self, mock_ai_check, mock_get_body_and_title
-    ):
+    def test_process_seed_empty_body(self, mock_ai_check, mock_get_body_and_title):
         """process_seed should return None if body is empty."""
         seed = {"url": "https://example.com/test", "source": "test"}
         seen = set()
@@ -670,7 +668,10 @@ class TestProcessSeed:
             "date": "2023-05-15",
         }
         seen = set()
-        mock_get_body_and_title.return_value = ("Content about drug shortage", "Drug Shortage Confirmed")
+        mock_get_body_and_title.return_value = (
+            "Content about drug shortage",
+            "Drug Shortage Confirmed",
+        )
         mock_ai_check.return_value = (True, "drug_shortage")
         mock_extract_fields.return_value = (
             {
@@ -748,7 +749,10 @@ class TestProcessSeed:
             "date": "2023-05-15",
         }
         seen = set()
-        mock_get_body_and_title.return_value = ("Body content", "Hospital Ransomware Attack Disrupts Services")
+        mock_get_body_and_title.return_value = (
+            "Body content",
+            "Hospital Ransomware Attack Disrupts Services",
+        )
         mock_ai_check.return_value = (True, "cyber_attack")
         mock_extract_fields.return_value = ({}, {})
 

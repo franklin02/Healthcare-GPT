@@ -817,6 +817,32 @@ class TestExtractFields:
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["options"]["temperature"] == 0.0
 
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_prompt_distinguishes_boolean_values(self, mock_post):
+        """Boolean guidance distinguishes affirmative, negative, and missing."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "response": json.dumps(
+                {
+                    "ransom_paid": False,
+                    "law_enforcement_involved": True,
+                    "hhs_breach_portal_listed": None,
+                }
+            )
+        }
+        mock_post.return_value = mock_response
+
+        _, subsector_data = helpers.extract_fields(
+            "cyber_attack", "Ransomware", "Body"
+        )
+
+        prompt = mock_post.call_args[1]["json"]["prompt"]
+        assert "false for an explicit negative statement" in prompt
+        assert "did not pay the ransom" in prompt
+        assert subsector_data["ransom_paid"] is False
+        assert subsector_data["law_enforcement_involved"] is True
+        assert subsector_data["hhs_breach_portal_listed"] is None
+
 
 class TestRunBertAndUseBert:
     """Test suite for _run_bert and ai_check_validation(use_bert=True)."""

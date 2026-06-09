@@ -54,6 +54,7 @@ from src.classes.vulnerability import SUBSECTOR_DATA_CLASSES
 from src.shared_utils import (
     AI_MODEL,
     LLM_SECTOR_FIELDS,
+    MissingSubsectorFieldsError,
     SUBSECTOR_FIELDS,
     ensure_model_available,
     extract_fields,
@@ -250,11 +251,17 @@ def validate(subsector: str) -> bool:
     """
     article = PERFECT_ARTICLES[subsector]
     expected_sector = list(LLM_SECTOR_FIELDS)
-    expected_subsector = list(SUBSECTOR_FIELDS[subsector])
 
-    sector_data, subsector_data = extract_fields(
-        subsector, article["title"], article["body"]
-    )
+    try:
+        sector_data, subsector_data = extract_fields(
+            subsector, article["title"], article["body"]
+        )
+    except MissingSubsectorFieldsError as exc:
+        print(f"\n=== {subsector} ===")
+        print(f"  [ERROR] {exc}")
+        return False
+
+    expected_subsector = list(SUBSECTOR_FIELDS[subsector])
 
     print(f"\n=== {subsector} ===")
     print(f"{article['description']}\n")

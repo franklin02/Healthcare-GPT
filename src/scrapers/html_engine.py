@@ -25,6 +25,7 @@ from src.shared_utils import (
     get_config_int,
     get_page,
     is_known_article,
+    MissingSubsectorFieldsError,
     model_unavailable_error,
     prepend_json_sources,
     prepend_noise_csv,
@@ -560,9 +561,20 @@ def run_html_scraper(
                         stats.skipped += 1
                         continue
                     stats.validated += 1
-                    sector_data, ss_data = extract_fields(
-                        detail, article["title"], article["body"]
-                    )
+                    try:
+                        sector_data, ss_data = extract_fields(
+                            detail, article["title"], article["body"]
+                        )
+                    except MissingSubsectorFieldsError as exc:
+                        stats.skipped += 1
+                        reporter.warn(
+                            f"Skipping extraction for {article['title']!r}: {exc}",
+                            stats,
+                        )
+                        LOGGER.warning(
+                            "Skipping extraction for %s: %s", article["title"], exc
+                        )
+                        continue
 
                     # Wrap the raw dict from the LLM in the matching SubsectorData
                     # subclass so Vulnerability.to_dict() can call .to_dict() on it.

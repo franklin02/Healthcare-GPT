@@ -53,6 +53,7 @@ from src.shared_utils import (
     get_config_int,
     get_config_value,
     get_title,
+    MissingSubsectorFieldsError,
     model_unavailable_error,
 )
 
@@ -753,7 +754,15 @@ def process_seed(
     reporter.detail(f"     OK  disruption confirmed: {subsector}")
     LOGGER.info("Disruption confirmed url=%s subsector=%s", url, subsector)
 
-    sector_data, subsector_data_dict = extract_fields(subsector, title, excerpt)
+    try:
+        sector_data, subsector_data_dict = extract_fields(subsector, title, excerpt)
+    except MissingSubsectorFieldsError as exc:
+        if stats is not None:
+            stats.skipped += 1
+        reporter.warn(f"Skipping extraction for {url[:90]}: {exc}", stats)
+        LOGGER.warning("Skipping extraction url=%s: %s", url, exc)
+        return None
+
     LOGGER.debug(
         "Extracted fields url=%s sector_keys=%s subsector_keys=%s",
         url,

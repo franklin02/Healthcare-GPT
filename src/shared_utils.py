@@ -999,6 +999,10 @@ def get_extraction_template(subsector: str) -> dict:
     return template
 
 
+class MissingSubsectorFieldsError(ValueError):
+    """Raised when a subsector has no configured extraction fields."""
+
+
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
     """Extract universal and subsector fields for a validated article.
 
@@ -1015,15 +1019,26 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         A tuple with the universal ``LLM_SECTOR_FIELDS`` values first and the
         matching ``SUBSECTOR_FIELDS`` values second.
 
+    Raises:
+        MissingSubsectorFieldsError: If the subsector is unknown or has no
+            configured extraction fields.
+
     Note:
         The AI currently decides which values can be extracted from the article.
         That keeps extraction flexible, but it is not ideal as a long-term
         structured-data contract.
     """
-    subsector_fields = SUBSECTOR_FIELDS.get(subsector)
+    try:
+        subsector_fields = SUBSECTOR_FIELDS[subsector]
+    except KeyError as exc:
+        message = f"No fields found for subsector {subsector!r}"
+        LOGGER.error(message)
+        raise MissingSubsectorFieldsError(message) from exc
+
     if not subsector_fields:
-        LOGGER.error("No fields found for subsector %s", subsector)
-        exit(1)
+        message = f"No fields found for subsector {subsector!r}"
+        LOGGER.error(message)
+        raise MissingSubsectorFieldsError(message)
 
     # generate typed json template for the LLM
     template_dict = get_extraction_template(subsector)

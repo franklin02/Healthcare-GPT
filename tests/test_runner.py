@@ -411,7 +411,6 @@ class TestStagedRecovery:
             seeds_dir.mkdir()
             validated_dir.mkdir()
             enriched_dir.mkdir()
-            seen_file = tmp_path / "seen_urls.json"
             completed_seed = {
                 "url": "https://example.com/completed",
                 "source": "test",
@@ -516,7 +515,6 @@ class TestStagedRecovery:
             seeds_dir.mkdir()
             validated_dir.mkdir()
             enriched_dir.mkdir()
-            seen_file = tmp_path / "seen_urls.json"
             (seeds_dir / "in_flight.json").write_text(
                 json.dumps(
                     {

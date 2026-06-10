@@ -11,6 +11,7 @@ def test_orchestrator_forwards_verbose_to_gdelt_runner():
     """Verbose flag should be forwarded to the GDELT runner."""
     with (
         patch("src.orchestrator.ensure_model_available"),
+        patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
         patch("src.GDELT.runner.run") as mock_run,
         patch("src.cli_reporter.CliReporter.summary"),
     ):
@@ -51,6 +52,7 @@ def test_orchestrator_detects_equals_style_gdelt_options():
     """--num-files=5 should count as an explicit GDELT option."""
     with (
         patch("src.orchestrator.ensure_model_available"),
+        patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
         patch("src.GDELT.runner.run") as mock_run,
         patch("src.cli_reporter.CliReporter.summary"),
     ):
@@ -70,6 +72,7 @@ def test_orchestrator_skips_html_after_gdelt_pause():
 
     with (
         patch("src.orchestrator.ensure_model_available"),
+        patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
         patch("src.GDELT.runner.run", side_effect=pause_gdelt) as mock_run,
         patch("src.scrapers.scooper.run_html_scraper") as mock_scraper,
         patch("src.cli_reporter.CliReporter.summary") as mock_summary,
@@ -89,6 +92,7 @@ def test_orchestrator_skips_remaining_html_sites_after_html_pause():
 
     with (
         patch("src.orchestrator.ensure_model_available"),
+        patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
         patch("src.GDELT.runner.run"),
         patch("src.scrapers.scooper.HTML_SITES", sites),
         patch(

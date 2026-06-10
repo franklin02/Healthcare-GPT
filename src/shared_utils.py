@@ -52,6 +52,7 @@ import os
 import re
 import subprocess
 import tempfile
+import shutil
 from pathlib import Path
 
 import requests
@@ -1227,3 +1228,44 @@ def ensure_model_available(model: str = AI_MODEL) -> None:
         )
 
     checked_ollama_models.add(model)
+
+
+def run_clean():
+    clear_directory(_PROJECT_ROOT / "data" / "gdelt_cache")  # gkg cache
+    clear_directory(_PROJECT_ROOT / "data" / "raw" / "gdelt")  # seeds
+
+    open(
+        _PROJECT_ROOT / "data" / "logs" / "gdelt_runner.log", "w"
+    ).close()  # clear runner log
+    open(
+        _PROJECT_ROOT / "data" / "logs" / "gdelt_seeds.log", "w"
+    ).close()  # clear seeds log
+
+    os.remove(_PROJECT_ROOT / "data" / "processed" / "GDELT.json") if (
+        _PROJECT_ROOT / "data" / "processed" / "GDELT.json"  # final output
+    ).exists() else None
+    os.remove(_PROJECT_ROOT / "data" / "seen_urls.json") if (
+        _PROJECT_ROOT / "data" / "seen_urls.json"  # deduplication stuffs
+    ).exists() else None
+    LOGGER.info("Cleaning GDELT modified directories and files before run")
+
+
+def clear_directory(directory: Path) -> None:
+    """
+    Delete all files and subdirectories inside a directory.
+
+    Parameters:
+        directory: The path to the directory to clear.
+    """
+    if not directory.exists():
+        LOGGER.debug("Directory does not exist, skipping clear: %s", directory)
+        return
+    # Iterate over all items in the directory and remove them
+    for item in directory.iterdir():
+        try:
+            if item.is_file() or item.is_symlink():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+        except Exception as exc:
+            LOGGER.warning("Failed to remove %s: %s", item, exc)

@@ -15,6 +15,7 @@ from pathlib import Path
 from src.cli_reporter import CliReporter, PipelineStats
 from src.logging_utils import get_file_logger
 from src.GDELT.gdelt_seeds import backfill_cyber_seeds
+from src.GDELT.runner import load_seen
 from src.shared_utils import (
     ensure_model_available,
     get_config_bool,
@@ -211,13 +212,14 @@ def main(argv: list[str] | None = None) -> int:
                 stats=gdelt_stats,
             )
         ]
+        seen = load_seen()
         runner.run(
             num_files=args.num_files,
             limit=effective_limit,
             output_path=args.output_path,
             start_date=args.start_date,
             end_date=args.end_date,
-            seen_urls_file=args.seen_urls_file,
+            seen=seen,
             use_bert=args.use_bert,
             verbose=args.verbose,
             reporter=reporter,

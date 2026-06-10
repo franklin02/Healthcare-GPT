@@ -10,7 +10,9 @@ from __future__ import annotations
 import argparse
 import datetime
 import sys
+import math
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 from src.cli_reporter import CliReporter, PipelineStats
 from src.logging_utils import get_file_logger
@@ -55,6 +57,21 @@ def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
         for arg in raw_args
         for option in options
     )
+
+
+def chunk_list(items, num_chunks):
+    """
+    Split a list of items into a specified number of chunks, as evenly as possible.
+
+    Args:
+        items: The list of items to split.
+        num_chunks: The number of chunks to create.
+
+    Returns:
+        A list of lists, where each sublist is a chunk of the original items.
+    """
+    chunk_size = math.ceil(len(items) / num_chunks)
+    return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -169,6 +186,22 @@ def main(argv: list[str] | None = None) -> int:
         default=get_config_bool("CLEAN", False),
         help="Clear all modified directories and files before running",
     )
+    parser.add_argument(
+        "--vram",
+        type=int,
+        default=get_config_int("VRAM_TO_USE", 5),
+        help=(
+            "Approximate total VRAM (in GB) to use. Determines how many model instances to run concurrently."
+        ),
+    )
+    parser.add_argument(
+        "--vram-per-model",
+        type=int,
+        default=get_config_int("VRAM_PER_MODEL", 5),
+        help=(
+            "Approximate VRAM (in GB) used by each concurrent model instance. Used with --vram to determine how many model instances to run."
+        ),
+    )
 
     args = parser.parse_args(argv)
     reporter = CliReporter(verbose=args.verbose)
@@ -212,20 +245,26 @@ def main(argv: list[str] | None = None) -> int:
                 stats=gdelt_stats,
             )
         ]
+
         seen = load_seen()
-        runner.run(
-            num_files=args.num_files,
-            limit=effective_limit,
-            output_path=args.output_path,
-            start_date=args.start_date,
-            end_date=args.end_date,
-            seen=seen,
-            use_bert=args.use_bert,
-            verbose=args.verbose,
-            reporter=reporter,
-            stats=gdelt_stats,
-            raw_seeds=raw_seeds,
-        )
+        models_to_run = max(1, args.vram // args.vram_per_model)
+        chunks = chunk_list(raw_seeds, models_to_run)
+        with ThreadPoolExecutor(max_workers=models_to_run) as executor:
+            for chunk in chunks:
+                executor.submit(
+                    runner.run,
+                    num_files=args.num_files,
+                    limit=effective_limit,
+                    output_path=args.output_path,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
+                    seen=seen,
+                    use_bert=args.use_bert,
+                    verbose=args.verbose,
+                    reporter=reporter,
+                    stats=gdelt_stats,
+                    raw_seeds=chunk,
+                )
         summaries.append(gdelt_stats)
         if gdelt_stats.paused:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")

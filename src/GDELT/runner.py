@@ -42,6 +42,8 @@ from ..shared_utils import (
     AI_MODEL,
     ai_check_validation,
     BODY_CHAR_LIMIT,
+    DEBUG_DIR,
+    NoiseCollector,
     ensure_model_available,
     extract_fields,
     get_body_and_title,
@@ -431,6 +433,7 @@ def process_staged_seeds(
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    debug_noise: NoiseCollector | None = None,
 ) -> list[Vulnerability]:
     """
     Process staged GDELT seeds through validation and extraction while
@@ -442,6 +445,7 @@ def process_staged_seeds(
         use_bert: Whether to run a BERT pre-filter before LLM validation.
         reporter: Optional CliReporter for logging progress and details.
         stats: Optional PipelineStats for tracking processing statistics.
+        debug_noise: Optional NoiseCollector for recording rejected articles.
 
     Returns:
         A list of vulnerabilities completed from the staged seeds.
@@ -468,6 +472,7 @@ def process_staged_seeds(
                 use_bert=use_bert,
                 reporter=reporter,
                 stats=stats,
+                debug_noise=debug_noise,
             )
             if rec:
                 persist_stage(
@@ -654,6 +659,7 @@ def process_seed(
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    debug_noise: NoiseCollector | None = None,
 ) -> Vulnerability | None:
     """
     Run a single seed through validation + extraction.
@@ -665,6 +671,7 @@ def process_seed(
     - use_bert: Whether to run a BERT pre-filter before LLM validation.
     - reporter: Optional CliReporter for logging progress and details.
     - stats: Optional PipelineStats for tracking statistics.
+    - debug_noise: Optional NoiseCollector for recording rejected articles.
 
     Returns:
     - A Vulnerability object if the seed is validated as a disruption, or None if it is skipped or rejected.
@@ -678,6 +685,14 @@ def process_seed(
             stats.skipped += 1
         reporter.detail(f"  -> [skip] already seen by LLM {url[:90]}")
         LOGGER.debug("Skipping seen url=%s", url)
+        if debug_noise:
+            debug_noise.add(
+                url=url,
+                title=seed.get("title", ""),
+                source="GDELT",
+                reason="Already seen by LLM",
+                stage="dedup",
+            )
         return None
 
     reporter.detail(f"  -> fetching {url[:90]}")
@@ -687,6 +702,14 @@ def process_seed(
             stats.skipped += 1
         reporter.detail("     [skip] empty body")
         LOGGER.debug("Empty body for url=%s", url)
+        if debug_noise:
+            debug_noise.add(
+                url=url,
+                title=title,
+                source="GDELT",
+                reason="Empty body",
+                stage="fetch",
+            )
         return None
     excerpt = body[:BODY_CHAR_LIMIT]
 
@@ -704,6 +727,15 @@ def process_seed(
             stats.rejected += 1
         reporter.detail(f"     [skip] not a disruption: {detail}")
         LOGGER.info("Not a disruption url=%s detail=%s", url, detail)
+        if debug_noise:
+            debug_noise.add(
+                url=url,
+                title=title,
+                source="GDELT",
+                reason=f"Not a disruption: {detail}",
+                body_preview=body[:250],
+                stage="validation",
+            )
         return None
 
     subsector = detail
@@ -721,6 +753,15 @@ def process_seed(
             stats.skipped += 1
         reporter.warn(f"Invalid subsector '{subsector}' for {url[:90]}", stats)
         LOGGER.debug("Invalid subsector url=%s subsector=%s", url, subsector)
+        if debug_noise:
+            debug_noise.add(
+                url=url,
+                title=title,
+                source="GDELT",
+                reason=f"Invalid subsector: {subsector}",
+                body_preview=body[:250],
+                stage="validation",
+            )
         return None
 
     reporter.detail(f"     OK  disruption confirmed: {subsector}")
@@ -734,6 +775,15 @@ def process_seed(
             stats.skipped += 1
         reporter.warn(f"Skipping extraction for {url[:90]}: {exc}", stats)
         LOGGER.warning("Skipping extraction url=%s: %s", url, exc)
+        if debug_noise:
+            debug_noise.add(
+                url=url,
+                title=title,
+                source="GDELT",
+                reason=f"Missing subsector fields: {exc}",
+                body_preview=body[:250],
+                stage="extraction",
+            )
         return None
 
     if stats is not None:
@@ -779,6 +829,7 @@ def run(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     raw_seeds: list[dict] | None = None,
+    debug_noise: NoiseCollector | None = None,
 ) -> list[dict]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -797,6 +848,7 @@ def run(
         stats: Optional PipelineStats for tracking statistics.
         clean: Whether to clear modified directories and files before running.
         raw_seeds: Raw seed dictionaries to process
+        debug_noise: Optional NoiseCollector for recording rejected articles.
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -891,6 +943,7 @@ def run(
                 use_bert=use_bert,
                 reporter=reporter,
                 stats=stats,
+                debug_noise=debug_noise,
             )
             if rec:
                 persist_stage(
@@ -1029,6 +1082,13 @@ if __name__ == "__main__":
         default=get_config_bool("CLEAN", False),
         help="Clear all modified directories and files before running",
     )
+    parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        default=get_config_bool("DEBUG", False),
+        help="Log all rejected/skipped articles (noise) to JSON in data/noise/",
+    )
     args = parser.parse_args()
 
     if args.stitch_staged or args.stitch_stage:
@@ -1059,6 +1119,7 @@ if __name__ == "__main__":
     if args.clean:
         run_clean()
 
+    noise = NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
     run(
         num_files=args.num_files,
         limit=effective_limit,
@@ -1069,4 +1130,7 @@ if __name__ == "__main__":
         use_bert=args.use_bert,
         verbose=args.verbose,
         reporter=CliReporter(verbose=args.verbose),
+        debug_noise=noise,
     )
+    if noise:
+        noise.flush()

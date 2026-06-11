@@ -16,6 +16,8 @@ from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
 from .GDELT.gdelt_seeds import backfill_cyber_seeds
 from .shared_utils import (
+    DEBUG_DIR,
+    NoiseCollector,
     ensure_model_available,
     get_config_bool,
     get_config_int,
@@ -97,6 +99,13 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         default=get_config_bool("VERBOSE", False),
         help="Show detailed per-article pipeline output",
+    )
+    parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        default=get_config_bool("DEBUG", False),
+        help="Log all rejected/skipped articles (noise) to JSON files in data/noise/",
     )
     parser.add_argument(
         "--start-date",
@@ -195,6 +204,9 @@ def main(argv: list[str] | None = None) -> int:
                 else (None if n_provided else 3)
             )
 
+        gdelt_noise = (
+            NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
+        )
         gdelt_stats = PipelineStats("GDELT")
         reporter.phase("Running GDELT pipeline")
         LOGGER.info("Running GDELT pipeline with args: %s", args)
@@ -223,7 +235,12 @@ def main(argv: list[str] | None = None) -> int:
             reporter=reporter,
             stats=gdelt_stats,
             raw_seeds=raw_seeds,
+            debug_noise=gdelt_noise,
         )
+        if gdelt_noise:
+            out = gdelt_noise.flush()
+            if out:
+                reporter.info(f"Debug noise (GDELT): {out}")
         summaries.append(gdelt_stats)
         if gdelt_stats.paused:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
@@ -234,6 +251,9 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_html:
         import src.scrapers.scooper as scooper
 
+        html_noise = (
+            NoiseCollector(DEBUG_DIR / "debug_noise_html.json") if args.debug else None
+        )
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
@@ -247,14 +267,23 @@ def main(argv: list[str] | None = None) -> int:
                 sb_only=args.sb_only,
                 reporter=reporter,
                 stats=PipelineStats(site["name"]),
+                debug_noise=html_noise,
             )
             html_stats.merge(site_stats)
             if site_stats.paused:
                 summaries.append(html_stats)
+                if html_noise:
+                    out = html_noise.flush()
+                    if out:
+                        reporter.info(f"Debug noise (HTML): {out}")
                 reporter.info("HTML scraper paused; skipping remaining pipelines.")
                 reporter.summary(summaries)
                 LOGGER.info("HTML scraper paused; skipping remaining pipelines")
                 return 0
+        if html_noise:
+            out = html_noise.flush()
+            if out:
+                reporter.info(f"Debug noise (HTML): {out}")
         summaries.append(html_stats)
 
     if summaries:

@@ -35,11 +35,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from src.GDELT.gdelt_seeds import backfill_cyber_seeds
-from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
-from src.cli_reporter import CliReporter, PipelineStats, whim
-from src.logging_utils import get_file_logger
-from src.shared_utils import (
+from .gdelt_seeds import backfill_cyber_seeds
+from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
+from ..cli_reporter import CliReporter, PipelineStats, whim
+from ..logging_utils import get_file_logger
+from ..shared_utils import (
     AI_MODEL,
     AI_URL,
     ai_check_validation,
@@ -75,8 +75,8 @@ LOGGER = get_file_logger(__name__, LOG_FILE)
 GDELT_CACHE_DIR = PROJECT_ROOT / "data" / "gdelt_cache"
 
 try:
-    from src.supabase_function import has_supabase_creds
-    from src.dedup import handle_vuln
+    from ..supabase_function import has_supabase_creds
+    from ..dedup import handle_vuln
 
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:

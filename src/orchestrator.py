@@ -12,10 +12,10 @@ import datetime
 import sys
 from pathlib import Path
 
-from src.cli_reporter import CliReporter, InstanceSpec, PipelineStats
-from src.logging_utils import get_file_logger
-from src.GDELT.gdelt_seeds import backfill_cyber_seeds
-from src.shared_utils import (
+from .cli_reporter import CliReporter, InstanceSpec, PipelineStats
+from .logging_utils import get_file_logger
+from .GDELT.gdelt_seeds import backfill_cyber_seeds
+from .shared_utils import (
     AI_MODEL,
     AI_URL,
     DEBUG_DIR,

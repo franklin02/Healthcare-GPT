@@ -17,18 +17,14 @@ Main entry point:
 
 import time
 from html.parser import HTMLParser
-
-import requests
-import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+import requests
 
-from src.logging_utils import get_file_logger  # noqa: E402
+from ..logging_utils import get_file_logger
 
-LOG_DIR = PROJECT_ROOT / "data" / "logs"
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+LOG_DIR = _PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "gemma.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
 

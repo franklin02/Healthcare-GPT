@@ -300,7 +300,7 @@ class TestNormalizeDateBound:
 class TestProcessGkgFile:
     """Tests for process_gkg_file function."""
 
-    @patch("gdelt_seeds.requests.get")
+    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_successful_processing(self, mock_get):
         """Should successfully process a valid GKG file."""
         # Create mock CSV content
@@ -325,7 +325,7 @@ class TestProcessGkgFile:
         assert isinstance(seeds, list)
         assert total > 0
 
-    @patch("gdelt_seeds.requests.get")
+    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_download_failed(self, mock_get):
         """Should return empty list on download failure."""
         mock_get.side_effect = Exception("Network error")
@@ -335,7 +335,7 @@ class TestProcessGkgFile:
         assert seeds == []
         assert total == 0
 
-    @patch("gdelt_seeds.requests.get")
+    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_insufficient_columns(self, mock_get):
         """Should skip file with insufficient columns."""
         csv_content = "1\t2\t3\t4\t5\n"  # Only 5 columns, need 16

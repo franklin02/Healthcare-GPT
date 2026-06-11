@@ -58,8 +58,8 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
-from src.logging_utils import get_file_logger
+from .classes import SUBSECTOR_DATA_CLASSES, Vulnerability
+from .logging_utils import get_file_logger
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_PATH = _PROJECT_ROOT / "src" / "config" / "config.cfg"

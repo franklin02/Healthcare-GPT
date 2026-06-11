@@ -92,7 +92,6 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code. A successful orchestrated run returns ``0``.
     """
-    raw_args = sys.argv[1:] if argv is None else argv
     parser = argparse.ArgumentParser(
         description="Unified runner for GDELT and HTML scrapers"
     )
@@ -262,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         ]
 
-        seen = load_seen()
+        seen = load_seen(args.seen_urls_file)
         models_to_run = max(1, args.vram // args.vram_per_model)
         chunks = chunk_list(raw_seeds, models_to_run)
 
@@ -290,7 +289,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 )
             for future in as_completed(futures):
-                result = future.result()
+                future.result()
         if gdelt_noise:
             out = gdelt_noise.flush()
             if out:

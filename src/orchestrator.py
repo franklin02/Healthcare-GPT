@@ -12,7 +12,7 @@ import datetime
 import sys
 import math
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.cli_reporter import CliReporter, PipelineStats
 from src.logging_utils import get_file_logger
@@ -218,16 +218,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_gdelt:
         import src.GDELT.runner as runner
 
-        n_provided = _option_provided(raw_args, ("-n", "--num-files"))
-        l_provided = _option_provided(raw_args, ("-l", "--limit"))
+        n_provided = (
+            any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
+            or args.num_files is not None
+        )
+        l_provided = args.limit is not None
         effective_limit = args.limit
         if not l_provided:
-            config_limit = get_config_int("GDELT_LIMIT", None)
-            effective_limit = (
-                config_limit
-                if config_limit is not None
-                else (None if n_provided else 3)
-            )
+            effective_limit = None if n_provided else 3
 
         gdelt_stats = PipelineStats("GDELT")
         reporter.phase("Running GDELT pipeline")
@@ -249,22 +247,29 @@ def main(argv: list[str] | None = None) -> int:
         seen = load_seen()
         models_to_run = max(1, args.vram // args.vram_per_model)
         chunks = chunk_list(raw_seeds, models_to_run)
+
         with ThreadPoolExecutor(max_workers=models_to_run) as executor:
+            futures = []
             for chunk in chunks:
-                executor.submit(
-                    runner.run,
-                    num_files=args.num_files,
-                    limit=effective_limit,
-                    output_path=args.output_path,
-                    start_date=args.start_date,
-                    end_date=args.end_date,
-                    seen=seen,
-                    use_bert=args.use_bert,
-                    verbose=args.verbose,
-                    reporter=reporter,
-                    stats=gdelt_stats,
-                    raw_seeds=chunk,
+                futures.append(
+                    executor.submit(
+                        runner.run,
+                        num_files=args.num_files,
+                        limit=effective_limit,
+                        output_path=args.output_path,
+                        start_date=args.start_date,
+                        end_date=args.end_date,
+                        seen=seen,
+                        use_bert=args.use_bert,
+                        verbose=args.verbose,
+                        reporter=None,
+                        stats=gdelt_stats,
+                        raw_seeds=chunk,
+                    )
                 )
+            for future in as_completed(futures):
+                result = future.result()
+
         summaries.append(gdelt_stats)
         if gdelt_stats.paused:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")

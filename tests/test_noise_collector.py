@@ -1,9 +1,7 @@
 """Tests for the NoiseCollector class and --debug noise integration."""
 
 import json
-from pathlib import Path
 
-import pytest
 
 from src.shared_utils import NoiseCollector
 

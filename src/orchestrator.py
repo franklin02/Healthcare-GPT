@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
 from .GDELT.gdelt_seeds import backfill_cyber_seeds
+from .GDELT.runner import load_seen
 from .shared_utils import (
     DEBUG_DIR,
     NoiseCollector,

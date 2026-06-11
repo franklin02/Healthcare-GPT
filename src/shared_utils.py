@@ -1269,3 +1269,77 @@ def clear_directory(directory: Path) -> None:
                 shutil.rmtree(item)
         except Exception as exc:
             LOGGER.warning("Failed to remove %s: %s", item, exc)
+
+
+DEBUG_DIR = _PROJECT_ROOT / "data" / "noise"
+
+
+class NoiseCollector:
+    """Accumulate rejected-article records and flush them to a JSON file.
+
+    Used when the ``--debug`` / ``-d`` flag is passed to capture every article
+    the pipeline skips or rejects so operators can evaluate false-negative rates.
+
+    Parameters:
+        output_path: Destination JSON file (e.g. ``data/noise/debug_noise_gdelt.json``).
+    """
+
+    def __init__(self, output_path: Path) -> None:
+        self.output_path = output_path
+        self.records: list[dict] = []
+
+    def add(
+        self,
+        *,
+        url: str,
+        title: str,
+        source: str,
+        reason: str,
+        body_preview: str = "",
+        stage: str = "",
+    ) -> None:
+        """Append one noise record.
+
+        Parameters:
+            url: The article URL that was rejected.
+            title: The article title.
+            source: Pipeline source name (e.g. ``"GDELT"``, ``"CyberScoop"``).
+            reason: Human-readable rejection reason.
+            body_preview: First 250 characters of the article body.
+            stage: Pipeline stage that rejected the article (e.g.
+                ``"already_seen"``, ``"validation"``, ``"extraction"``).
+        """
+        self.records.append(
+            {
+                "url": url,
+                "title": title,
+                "source": source,
+                "reason": reason,
+                "body_preview": body_preview[:250],
+                "stage": stage,
+                "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+
+    def flush(self) -> Path | None:
+        """Write accumulated records to the JSON file and return the path.
+
+        Creates the parent directory if it does not exist.  Returns ``None``
+        when there are no records to write.
+        """
+        if not self.records:
+            return None
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.output_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {"noise_records": self.records, "total": len(self.records)},
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        LOGGER.info(
+            "Wrote %d debug noise records to %s",
+            len(self.records),
+            self.output_path,
+        )
+        return self.output_path

@@ -19,6 +19,8 @@ from src.shared_utils import (
     AI_URL,
     ai_check_validation,
     check_valid_file,
+    DEBUG_DIR,
+    NoiseCollector,
     ensure_model_available,
     extract_fields,
     get_config_bool,
@@ -178,6 +180,7 @@ def fetch_html_page(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     sb_only: bool = False,
+    debug_noise: NoiseCollector | None = None,
 ):
     """
     Fetch one listing page and return article payloads plus a stop flag.
@@ -265,6 +268,14 @@ def fetch_html_page(
                 )
                 if stats is not None:
                     stats.skipped += 1
+                if debug_noise:
+                    debug_noise.add(
+                        url=entry["link"],
+                        title=entry["title"],
+                        source=site_config["name"],
+                        reason="body_selector matched nothing",
+                        stage="fetch",
+                    )
                 continue
 
             body = body_el.get_text(separator=" ", strip=True)
@@ -289,6 +300,14 @@ def fetch_html_page(
             LOGGER.warning("Error fetching article body:%s", e)
             if stats is not None:
                 stats.skipped += 1
+            if debug_noise:
+                debug_noise.add(
+                    url=entry["link"],
+                    title=entry["title"],
+                    source=site_config["name"],
+                    reason=f"Fetch failed: {e}",
+                    stage="fetch",
+                )
             continue
 
         articles.append(
@@ -357,6 +376,7 @@ def run_html_scraper(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     sb_only: bool = False,
+    debug_noise: NoiseCollector | None = None,
 ) -> PipelineStats:
     """
     Run one configured HTML scraper and return its run statistics.
@@ -469,6 +489,7 @@ def run_html_scraper(
                     reporter=reporter,
                     stats=stats,
                     sb_only=sb_only,
+                    debug_noise=debug_noise,
                 )
             except KeyboardInterrupt:
                 stats.paused = True
@@ -527,6 +548,15 @@ def run_html_scraper(
                             reporter.detail(
                                 f"[      SKIP-DATE] Newer than {start_date}: {article['title']}"
                             )
+                            if debug_noise:
+                                debug_noise.add(
+                                    url=article["link"],
+                                    title=article["title"],
+                                    source=site_config["name"],
+                                    reason=f"Newer than start_date {start_date}",
+                                    body_preview=body_snippet,
+                                    stage="date_filter",
+                                )
                             _live_site_status(
                                 reporter, site_config["name"], current_page, stats
                             )
@@ -536,6 +566,15 @@ def run_html_scraper(
                                 f"[FINISH] Reached article older than {end_date} on "
                                 f"{site_config['name']}: {article['title']!r}"
                             )
+                            if debug_noise:
+                                debug_noise.add(
+                                    url=article["link"],
+                                    title=article["title"],
+                                    source=site_config["name"],
+                                    reason=f"Older than end_date {end_date}",
+                                    body_preview=body_snippet,
+                                    stage="date_filter",
+                                )
                             reached_floor = True
                             break
 
@@ -546,6 +585,15 @@ def run_html_scraper(
                             reporter.detail(
                                 f"      [SKIP-DB] Already in Supabase: {article['title']}"
                             )
+                            if debug_noise:
+                                debug_noise.add(
+                                    url=article["link"],
+                                    title=article["title"],
+                                    source=site_config["name"],
+                                    reason="Already in Supabase",
+                                    body_preview=body_snippet,
+                                    stage="dedup",
+                                )
                             _live_site_status(
                                 reporter, site_config["name"], current_page, stats
                             )
@@ -565,6 +613,15 @@ def run_html_scraper(
                             #     f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
                             # )
                             stats.skipped += 1
+                            if debug_noise:
+                                debug_noise.add(
+                                    url=article["link"],
+                                    title=article["title"],
+                                    source=site_config["name"],
+                                    reason=f"Unrecognized subsector: {detail}",
+                                    body_preview=body_snippet,
+                                    stage="validation",
+                                )
                             continue
                         try:
                             sector_data, ss_data = extract_fields(
@@ -579,6 +636,15 @@ def run_html_scraper(
                             LOGGER.warning(
                                 "Skipping extraction for %s: %s", article["title"], exc
                             )
+                            if debug_noise:
+                                debug_noise.add(
+                                    url=article["link"],
+                                    title=article["title"],
+                                    source=site_config["name"],
+                                    reason=f"Missing subsector fields: {exc}",
+                                    body_preview=body_snippet,
+                                    stage="extraction",
+                                )
                             continue
                         stats.validated += 1
 
@@ -640,6 +706,16 @@ def run_html_scraper(
                     else:
                         stats.rejected += 1
                         body_preview = (article["body"] or "")[:250].replace("\n", " ")
+
+                        if debug_noise:
+                            debug_noise.add(
+                                url=article["link"],
+                                title=article["title"],
+                                source=site_config["name"],
+                                reason=f"Not a disruption: {detail}",
+                                body_preview=body_preview,
+                                stage="validation",
+                            )
 
                         if sb_only:
                             try:
@@ -780,9 +856,17 @@ if __name__ == "__main__":
         default=get_config_bool("HTML_SB_ONLY", False),
         help="Use Supabase only, no local reads or writes",
     )
+    parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        default=get_config_bool("DEBUG", False),
+        help="Log all rejected/skipped articles (noise) to JSON in data/noise/",
+    )
 
     args = parser.parse_args()
 
+    noise = NoiseCollector(DEBUG_DIR / "debug_noise_html.json") if args.debug else None
     for site in HTML_SITES:
         stats = run_html_scraper(
             site,
@@ -791,6 +875,9 @@ if __name__ == "__main__":
             start_date=args.start_date,
             end_date=args.end_date,
             sb_only=args.sb_only,
+            debug_noise=noise,
         )
         if stats.paused:
             break
+    if noise:
+        noise.flush()

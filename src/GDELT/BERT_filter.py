@@ -20,7 +20,7 @@ from pathlib import Path
 
 from transformers import pipeline
 
-from src.logging_utils import get_file_logger
+from ..logging_utils import get_file_logger
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 

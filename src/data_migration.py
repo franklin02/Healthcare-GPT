@@ -24,14 +24,10 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-import sys
+
+from .logging_utils import get_file_logger
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
-from src.logging_utils import get_file_logger  # noqa: E402
 
 LOG_DIR = _PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "data_migration.log"

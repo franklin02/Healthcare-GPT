@@ -7,16 +7,12 @@ try:
 except ModuleNotFoundError:
     create_client = None
 
-from src.classes import Vulnerability
-import sys
 from pathlib import Path
 
+from .classes import Vulnerability
+from .logging_utils import get_file_logger
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from src.logging_utils import get_file_logger  # noqa: E402
-
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "supabase_function.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)

@@ -15,7 +15,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from src.cli_reporter import CliReporterLoggingHandler
+from .cli_reporter import CliReporterLoggingHandler
 
 
 LOG_TIMESTAMP_FORMATS = (

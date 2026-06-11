@@ -39,8 +39,8 @@ import json
 import pandas as pd
 import requests
 
-from src.cli_reporter import CliReporter, PipelineStats
-from src.logging_utils import get_file_logger
+from ..cli_reporter import CliReporter, PipelineStats
+from ..logging_utils import get_file_logger
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 

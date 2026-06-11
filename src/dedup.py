@@ -17,11 +17,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.classes import Vulnerability
-from src.logging_utils import get_file_logger
+from .classes import Vulnerability
+from .logging_utils import get_file_logger
 
 if TYPE_CHECKING:
-    from src.cli_reporter import CliReporter, PipelineStats
+    from .cli_reporter import CliReporter, PipelineStats
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "dedup.log"

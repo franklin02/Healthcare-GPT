@@ -185,6 +185,7 @@ def fetch_html_page(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     sb_only: bool = False,
+    debug_noise: NoiseCollector | None = None,
 ):
     """
     Fetch one listing page and return article payloads plus a stop flag.
@@ -272,6 +273,14 @@ def fetch_html_page(
                 )
                 if stats is not None:
                     stats.skipped += 1
+                if debug_noise:
+                    debug_noise.add(
+                        url=entry["link"],
+                        title=entry["title"],
+                        source=site_config["name"],
+                        reason="body_selector matched nothing",
+                        stage="fetch",
+                    )
                 continue
 
             body = body_el.get_text(separator=" ", strip=True)
@@ -296,6 +305,14 @@ def fetch_html_page(
             LOGGER.warning("Error fetching article body:%s", e)
             if stats is not None:
                 stats.skipped += 1
+            if debug_noise:
+                debug_noise.add(
+                    url=entry["link"],
+                    title=entry["title"],
+                    source=site_config["name"],
+                    reason=f"Fetch failed: {e}",
+                    stage="fetch",
+                )
             continue
 
         articles.append(
@@ -466,7 +483,7 @@ def run_html_scraper(
 
         try:
             articles, stop = fetch_html_page(
-                site_config, page_url, reporter=reporter, stats=stats, sb_only=sb_only
+                site_config, page_url, reporter=reporter, stats=stats, sb_only=sb_only, debug_noise=debug_noise
             )
         except KeyboardInterrupt:
             stats.paused = True

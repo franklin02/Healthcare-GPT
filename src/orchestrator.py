@@ -14,6 +14,7 @@ from pathlib import Path
 
 from src.cli_reporter import CliReporter, InstanceSpec, PipelineStats
 from src.logging_utils import get_file_logger
+from src.GDELT.gdelt_seeds import backfill_cyber_seeds
 from src.shared_utils import (
     AI_MODEL,
     AI_URL,
@@ -22,9 +23,11 @@ from src.shared_utils import (
     get_config_int,
     get_config_value,
     model_unavailable_error,
+    run_clean,
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+GDELT_CACHE_DIR = _PROJECT_ROOT / "data" / "gdelt_cache"
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
@@ -147,12 +150,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Path to store/load seen URLs JSON file",
     )
     parser.add_argument(
-        "--subsectors",
-        "-s",
-        default=get_config_value("GDELT_SUBSECTORS", "all"),
-        help="Comma-separated subsectors to scan, or 'all'",
-    )
-    parser.add_argument(
         "--html-start-page",
         type=int,
         default=get_config_int("HTML_START_PAGE", None),
@@ -221,10 +218,22 @@ def main(argv: list[str] | None = None) -> int:
             gdelt_stats = PipelineStats("GDELT")
             reporter.set_overall_step("GDELT")
             LOGGER.info("Running GDELT pipeline with args: %s", args)
+            if args.clean:
+                run_clean()
+            raw_seeds = [
+                seed
+                for seed in backfill_cyber_seeds(
+                    num_files=args.num_files,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
+                    cache_dir=GDELT_CACHE_DIR,
+                    reporter=reporter,
+                    stats=gdelt_stats,
+                )
+            ]
             runner.run(
                 num_files=args.num_files,
                 limit=effective_limit,
-                subsectors=args.subsectors,
                 output_path=args.output_path,
                 start_date=args.start_date,
                 end_date=args.end_date,
@@ -233,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
                 verbose=args.verbose,
                 reporter=reporter,
                 stats=gdelt_stats,
-                clean=args.clean,
+                raw_seeds=raw_seeds,
             )
             summaries.append(gdelt_stats)
             reporter.advance_overall(1)

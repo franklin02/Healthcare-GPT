@@ -1281,7 +1281,7 @@ class NoiseCollector:
     the pipeline skips or rejects so operators can evaluate false-negative rates.
 
     Parameters:
-        output_path: Destination JSON file (e.g. ``data/debug/debug_noise_gdelt.json``).
+        output_path: Destination JSON file (e.g. ``data/noise/debug_noise_gdelt.json``).
     """
 
     def __init__(self, output_path: Path) -> None:

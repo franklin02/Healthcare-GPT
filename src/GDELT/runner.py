@@ -1087,7 +1087,7 @@ if __name__ == "__main__":
         "-d",
         action="store_true",
         default=get_config_bool("DEBUG", False),
-        help="Log all rejected/skipped articles (noise) to JSON in data/debug/",
+        help="Log all rejected/skipped articles (noise) to JSON in data/noise/",
     )
     args = parser.parse_args()
 

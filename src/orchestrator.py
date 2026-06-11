@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         "-d",
         action="store_true",
         default=get_config_bool("DEBUG", False),
-        help="Log all rejected/skipped articles (noise) to JSON files in data/debug/",
+        help="Log all rejected/skipped articles (noise) to JSON files in data/noise/",
     )
     parser.add_argument(
         "--start-date",

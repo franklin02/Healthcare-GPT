@@ -50,18 +50,15 @@ except Exception as e:
     SUPABASE_AVAILABLE = False
 
 
-# Consolidated local corpus: one vuln CSV and one noise CSV for all sites. scooper
-# only READS these; the orchestrator owns writing them back.
-VULN_CSV_PATH = _PROJECT_ROOT / "data" / "vulnerabilities" / "vulnerabilities.csv"
-NOISE_CSV_PATH = _PROJECT_ROOT / "data" / "noise" / "noise.csv"
+# new paths
+VULN_CSV_PATH = _PROJECT_ROOT / "data" / "vulnerabilities" / "scooper_vuln.csv"
+NOISE_CSV_PATH = _PROJECT_ROOT / "data" / "noise" / "scooper_noise.csv"
 
 
 def _load_csv(path: Path, columns: list[str]) -> pd.DataFrame:
-    """Read a consolidated CSV into a DataFrame.
-
-    Returns an empty DataFrame with the expected ``columns`` when the file does
-    not exist yet (first run) or contains no rows, so callers always get the
-    expected schema.
+    """
+    Returns:
+        A loaded CSV into a DataFrame.
     """
     if path.exists():
         try:
@@ -174,20 +171,6 @@ HTML_SITES = [
             "date_selector": "time[datetime]",
             "starting_page": 1,
             "cap": 18,
-        },
-    },
-    {
-        "name": "MedicalNewsToday",
-        "url": "https://www.medicalnewstoday.com/news",
-        "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
-        "map": {
-            "container": "ol li",
-            "title": None,
-            "link_selector": "a:has(h2)",
-            "body_selector": "article.article-body",
-            "date_selector": "",
-            "starting_page": 1,
-            "cap": 1,
         },
     },
     {

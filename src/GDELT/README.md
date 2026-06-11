@@ -52,8 +52,8 @@ Command arguments:
 
 - `--seen-urls-file`: Path for the JSON file of processed URLs. Defaults to `data/seen_urls.json`.
 
-- `-d`, `--debug`: Write BERT and LLM classifier rejections to a timestamped
-  `data/debug/noise-*.json` file.
+- `-d`, `--debug`: Save explicit BERT and LLM classifier rejections under
+  `data/raw/gdelt/noise/`.
 
 - `--stitch-stage`: Recover the final output from a staged GDELT stage. Accepted values are `seeds`, `validated`, and `enriched`. Use `enriched` for the default recovery path.
 
@@ -102,13 +102,14 @@ URL history (list of processed URLs to prevent future duplicates):
 - `data/seen_urls.json`
 
 Optional classifier rejection review data:
-- `data/debug/noise-YYYYMMDD-HHMMSS.json`
-- Created only with `-d` / `--debug`; manual ground-truth labeling is required
-  before true-negative or false-negative rates can be calculated.
+- `data/raw/gdelt/noise/`
+- One JSON file per stable URL ID containing seed metadata, scraped title,
+  rejection reason, and timestamp. Article body content is not included.
 
-Raw seeds (candidate URLs before scraping): 
+Raw seeds (candidate URLs before scraping):
 - `data/raw/gdelt/seeds/`
 - May include `detected_subsectors` when one article matches multiple subsectors.
+- Cleared after a successful run, including debug runs.
 
 Validated data (articles confirmed as threats by the LLM):
 - `data/raw/gdelt/validated/`

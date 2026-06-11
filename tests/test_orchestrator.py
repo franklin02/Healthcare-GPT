@@ -41,26 +41,16 @@ def test_orchestrator_forwards_verbose_to_html_scraper():
     assert mock_scraper.call_args.kwargs["verbose"] is True
 
 
-def test_orchestrator_shares_debug_writer_across_pipelines():
-    sites = [{"name": "TestSite"}]
+def test_orchestrator_forwards_debug_to_gdelt_runner():
     with (
-        patch("src.orchestrator.NoiseDebugWriter") as debug_writer,
         patch("src.orchestrator.ensure_model_available"),
         patch("src.GDELT.runner.run") as mock_run,
-        patch("src.scrapers.scooper.HTML_SITES", sites),
-        patch(
-            "src.scrapers.scooper.run_html_scraper",
-            return_value=PipelineStats("TestSite"),
-        ) as mock_scraper,
         patch("src.cli_reporter.CliReporter.summary"),
     ):
-        writer = debug_writer.return_value
-        result = orchestrator.main(["--debug"])
+        result = orchestrator.main(["--skip-html", "--debug"])
 
     assert result == 0
-    assert mock_run.call_args.kwargs["debug_writer"] is writer
-    assert mock_scraper.call_args.kwargs["debug_writer"] is writer
-    writer.close.assert_called_once_with()
+    assert mock_run.call_args.kwargs["debug"] is True
 
 
 def test_orchestrator_help_documents_html_limit_overrides(capsys):

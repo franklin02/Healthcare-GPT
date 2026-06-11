@@ -13,7 +13,6 @@ import sys
 from pathlib import Path
 
 from src.cli_reporter import CliReporter, PipelineStats
-from src.debug_noise import NoiseDebugWriter
 from src.logging_utils import get_file_logger
 from src.GDELT.gdelt_seeds import backfill_cyber_seeds
 from src.shared_utils import (
@@ -103,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
         "--debug",
         "-d",
         action="store_true",
-        help="Write classifier-rejected articles to a timestamped JSON file",
+        help="Save explicit GDELT classifier rejections under data/raw/gdelt/noise",
     )
     parser.add_argument(
         "--start-date",
@@ -179,104 +178,96 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
-    debug_writer = NoiseDebugWriter() if args.debug else None
 
-    try:
-        if not (args.skip_gdelt and args.skip_html):
+    if not (args.skip_gdelt and args.skip_html):
+        try:
             ensure_model_available()
+        except model_unavailable_error as exc:
+            LOGGER.error("Model availability check failed: %s", exc)
+            print(exc, file=sys.stderr)
+            return 1
 
-        if not args.skip_gdelt:
-            import src.GDELT.runner as runner
+    if not args.skip_gdelt:
+        import src.GDELT.runner as runner
 
-            n_provided = _option_provided(raw_args, ("-n", "--num-files"))
-            l_provided = _option_provided(raw_args, ("-l", "--limit"))
-            effective_limit = args.limit
-            if not l_provided:
-                config_limit = get_config_int("GDELT_LIMIT", None)
-                effective_limit = (
-                    config_limit
-                    if config_limit is not None
-                    else (None if n_provided else 3)
-                )
+        n_provided = _option_provided(raw_args, ("-n", "--num-files"))
+        l_provided = _option_provided(raw_args, ("-l", "--limit"))
+        effective_limit = args.limit
+        if not l_provided:
+            config_limit = get_config_int("GDELT_LIMIT", None)
+            effective_limit = (
+                config_limit
+                if config_limit is not None
+                else (None if n_provided else 3)
+            )
 
-            gdelt_stats = PipelineStats("GDELT")
-            reporter.phase("Running GDELT pipeline")
-            LOGGER.info("Running GDELT pipeline with args: %s", args)
-            if args.clean:
-                run_clean()
-            raw_seeds = [
-                seed
-                for seed in backfill_cyber_seeds(
-                    num_files=args.num_files,
-                    start_date=args.start_date,
-                    end_date=args.end_date,
-                    cache_dir=GDELT_CACHE_DIR,
-                    reporter=reporter,
-                    stats=gdelt_stats,
-                )
-            ]
-            runner.run(
+        gdelt_stats = PipelineStats("GDELT")
+        reporter.phase("Running GDELT pipeline")
+        LOGGER.info("Running GDELT pipeline with args: %s", args)
+        if args.clean:
+            run_clean()
+        raw_seeds = [
+            seed
+            for seed in backfill_cyber_seeds(
                 num_files=args.num_files,
-                limit=effective_limit,
-                output_path=args.output_path,
                 start_date=args.start_date,
                 end_date=args.end_date,
-                seen_urls_file=args.seen_urls_file,
-                use_bert=args.use_bert,
-                verbose=args.verbose,
+                cache_dir=GDELT_CACHE_DIR,
                 reporter=reporter,
                 stats=gdelt_stats,
-                raw_seeds=raw_seeds,
-                debug_writer=debug_writer,
             )
-            summaries.append(gdelt_stats)
-            if gdelt_stats.paused:
-                reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
-                reporter.summary(summaries)
-                LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
-                return 0
-
-        if not args.skip_html:
-            import src.scrapers.scooper as scooper
-
-            html_stats = PipelineStats("HTML")
-            reporter.phase("Running HTML/Scooper pipeline")
-            LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
-            for site in scooper.HTML_SITES:
-                site_stats = scooper.run_html_scraper(
-                    site,
-                    use_bert=args.use_bert,
-                    verbose=args.verbose,
-                    start_date=_parse_date(args.start_date),
-                    end_date=_parse_date(args.end_date),
-                    sb_only=args.sb_only,
-                    reporter=reporter,
-                    stats=PipelineStats(site["name"]),
-                    debug_writer=debug_writer,
-                )
-                html_stats.merge(site_stats)
-                if site_stats.paused:
-                    summaries.append(html_stats)
-                    reporter.info("HTML scraper paused; skipping remaining pipelines.")
-                    reporter.summary(summaries)
-                    LOGGER.info("HTML scraper paused; skipping remaining pipelines")
-                    return 0
-            summaries.append(html_stats)
-
-        if summaries:
+        ]
+        runner.run(
+            num_files=args.num_files,
+            limit=effective_limit,
+            output_path=args.output_path,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            seen_urls_file=args.seen_urls_file,
+            use_bert=args.use_bert,
+            verbose=args.verbose,
+            reporter=reporter,
+            stats=gdelt_stats,
+            raw_seeds=raw_seeds,
+            debug=args.debug,
+        )
+        summaries.append(gdelt_stats)
+        if gdelt_stats.paused:
+            reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
             reporter.summary(summaries)
-        LOGGER.info("Orchestrator run complete with summaries: %s", summaries)
-        return 0
-    except model_unavailable_error as exc:
-        LOGGER.error("Model availability check failed: %s", exc)
-        print(exc, file=sys.stderr)
-        return 1
-    finally:
-        if debug_writer is not None:
-            debug_writer.close()
-            reporter.info(
-                f"Wrote {debug_writer.count} rejected article(s) to {debug_writer.path}"
+            LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
+            return 0
+
+    if not args.skip_html:
+        import src.scrapers.scooper as scooper
+
+        html_stats = PipelineStats("HTML")
+        reporter.phase("Running HTML/Scooper pipeline")
+        LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
+        for site in scooper.HTML_SITES:
+            site_stats = scooper.run_html_scraper(
+                site,
+                use_bert=args.use_bert,
+                verbose=args.verbose,
+                start_date=_parse_date(args.start_date),
+                end_date=_parse_date(args.end_date),
+                sb_only=args.sb_only,
+                reporter=reporter,
+                stats=PipelineStats(site["name"]),
             )
+            html_stats.merge(site_stats)
+            if site_stats.paused:
+                summaries.append(html_stats)
+                reporter.info("HTML scraper paused; skipping remaining pipelines.")
+                reporter.summary(summaries)
+                LOGGER.info("HTML scraper paused; skipping remaining pipelines")
+                return 0
+        summaries.append(html_stats)
+
+    if summaries:
+        reporter.summary(summaries)
+    LOGGER.info("Orchestrator run complete with summaries: %s", summaries)
+    return 0
 
 
 if __name__ == "__main__":

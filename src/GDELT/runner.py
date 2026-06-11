@@ -13,10 +13,11 @@ Constants:
 Functions:
     stable_id(url): Generate a stable ID for a given URL using SHA-256 hashing.
     fmt_dt(value): Format a date string into YYYY-MM-DD HH:MM format. Tries multiple input formats and returns the original value if parsing fails.
-    ensure_raw_dirs(): Ensure that the raw directories for seeds, validated, and enriched data exist. Creates them if they don't.
+    ensure_raw_dirs(): Ensure that the raw directories for seeds, noise, validated, and enriched data exist. Creates them if they don't.
     ensure_cache_dir(): Ensure that the GDELT zip cache directory exists. Creates it if it doesn't.
     save_json(path, data): Save a dictionary as JSON to the specified path, creating parent directories if needed.
     persist_raw_seeds(raw_seeds): Persist raw seeds to the seeds directory, using stable IDs for filenames.
+    persist_noise(seed, title, rejection_reason): Persist an explicit classifier rejection without article body content.
     persist_stage(directory, article_id, stage, url, data): Persist data for a specific stage (validated, enriched) using a stable ID for the filename.
     load_staged_payloads(stage, reporter, stats): Load staged payloads for the requested GDELT stitch stage.
     stitch_staged_records(output_path, stage, seen_urls_file, use_bert, reporter, stats, verbose): Recover final output from a staged GDELT pipeline stage.
@@ -37,7 +38,6 @@ from pathlib import Path
 from src.GDELT.gdelt_seeds import backfill_cyber_seeds
 from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from src.cli_reporter import CliReporter, PipelineStats
-from src.debug_noise import NoiseDebugWriter, classification_stage
 from src.logging_utils import get_file_logger
 from src.shared_utils import (
     AI_MODEL,
@@ -60,9 +60,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # intermediate stages directory constants + helper functions
 RAW_GDELT_DIR = PROJECT_ROOT / "data" / "raw" / "gdelt"
 SEEDS_DIR = RAW_GDELT_DIR / "seeds"
+NOISE_DIR = RAW_GDELT_DIR / "noise"
 VALIDATED_DIR = RAW_GDELT_DIR / "validated"
 ENRICHED_DIR = RAW_GDELT_DIR / "enriched"
 STITCH_STAGES = {"seeds", "validated", "enriched"}
+OPERATIONAL_REJECTION_REASONS = {
+    "Body too short for LLM review",
+    "Parsing Error",
+}
 
 LOG_DIR = PROJECT_ROOT / "data" / "logs"
 LOG_FILE = LOG_DIR / "gdelt_runner.log"
@@ -140,8 +145,8 @@ def fmt_dt(value: str) -> str:
 
 
 def ensure_raw_dirs() -> None:
-    """Ensure that the raw directories for seeds, validated, and enriched data exist. Creates them if they don't."""
-    for directory in (SEEDS_DIR, VALIDATED_DIR, ENRICHED_DIR):
+    """Ensure that all GDELT staging and debug directories exist."""
+    for directory in (SEEDS_DIR, NOISE_DIR, VALIDATED_DIR, ENRICHED_DIR):
         directory.mkdir(parents=True, exist_ok=True)
     LOGGER.debug("Ensured raw directories: %s", RAW_GDELT_DIR)
 
@@ -237,6 +242,32 @@ def persist_raw_seeds(raw_seeds: list[dict]) -> None:
                 "saved_at": datetime.now().isoformat(timespec="seconds"),
             },
         )
+
+
+def persist_noise(seed: dict, title: str, rejection_reason: str) -> Path:
+    """Persist one explicit classifier rejection without the article body."""
+    url = seed["url"]
+    article_id = stable_id(url)
+    path = NOISE_DIR / f"{article_id}.json"
+    save_json(
+        path,
+        {
+            "id": article_id,
+            "stage": "noise",
+            "url": url,
+            "seed": seed,
+            "title": title,
+            "rejection_reason": rejection_reason,
+            "rejected_at": datetime.now().isoformat(timespec="seconds"),
+        },
+    )
+    LOGGER.debug("Persisted classifier rejection id=%s url=%s", article_id, url)
+    return path
+
+
+def is_classifier_rejection(rejection_reason: str) -> bool:
+    """Return whether a failed validation was an explicit classifier decision."""
+    return rejection_reason not in OPERATIONAL_REJECTION_REASONS
 
 
 def persist_stage(
@@ -432,7 +463,7 @@ def process_staged_seeds(
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
-    debug_writer: NoiseDebugWriter | None = None,
+    debug: bool = False,
 ) -> list[Vulnerability]:
     """
     Process staged GDELT seeds through validation and extraction while
@@ -444,6 +475,7 @@ def process_staged_seeds(
         use_bert: Whether to run a BERT pre-filter before LLM validation.
         reporter: Optional CliReporter for logging progress and details.
         stats: Optional PipelineStats for tracking processing statistics.
+        debug: Whether to persist explicit classifier rejections as noise.
 
     Returns:
         A list of vulnerabilities completed from the staged seeds.
@@ -470,7 +502,7 @@ def process_staged_seeds(
                 use_bert=use_bert,
                 reporter=reporter,
                 stats=stats,
-                debug_writer=debug_writer,
+                debug=debug,
             )
             if rec:
                 persist_stage(
@@ -566,7 +598,7 @@ def stitch_staged_records(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     verbose: bool = False,
-    debug_writer: NoiseDebugWriter | None = None,
+    debug: bool = False,
 ) -> list[dict]:
     """
     Recover records from a staged GDELT pipeline stage and write the
@@ -581,6 +613,7 @@ def stitch_staged_records(
         reporter: Optional CliReporter for logging progress and details.
         stats: Optional PipelineStats for tracking recovery statistics.
         verbose: Whether to show detailed per-article output.
+        debug: Whether to persist explicit classifier rejections as noise.
 
     Returns:
         A deduplicated list of recovered records with formatted publication dates.
@@ -635,7 +668,7 @@ def stitch_staged_records(
             use_bert=use_bert,
             reporter=reporter,
             stats=stats,
-            debug_writer=debug_writer,
+            debug=debug,
         )
         records = staged_records + records
     else:
@@ -659,7 +692,7 @@ def process_seed(
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
-    debug_writer: NoiseDebugWriter | None = None,
+    debug: bool = False,
 ) -> Vulnerability | None:
     """
     Run a single seed through validation + extraction.
@@ -671,6 +704,7 @@ def process_seed(
     - use_bert: Whether to run a BERT pre-filter before LLM validation.
     - reporter: Optional CliReporter for logging progress and details.
     - stats: Optional PipelineStats for tracking statistics.
+    - debug: Whether to persist explicit classifier rejections as noise.
 
     Returns:
     - A Vulnerability object if the seed is validated as a disruption, or None if it is skipped or rejected.
@@ -708,18 +742,8 @@ def process_seed(
     if not is_disruption:
         if stats is not None:
             stats.rejected += 1
-        stage = classification_stage(detail)
-        if debug_writer is not None and stage is not None:
-            debug_writer.write_rejection(
-                pipeline="GDELT",
-                source=seed.get("source", ""),
-                title=title,
-                url=url,
-                publication_date=seed.get("date", ""),
-                classification_stage=stage,
-                rejection_reason=detail,
-                classified_text=excerpt,
-            )
+        if debug and is_classifier_rejection(detail):
+            persist_noise(seed, title, detail)
         reporter.detail(f"     [skip] not a disruption: {detail}")
         LOGGER.info("Not a disruption url=%s detail=%s", url, detail)
         return None
@@ -797,7 +821,7 @@ def run(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     raw_seeds: list[dict] | None = None,
-    debug_writer: NoiseDebugWriter | None = None,
+    debug: bool = False,
 ) -> list[dict]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -816,6 +840,7 @@ def run(
         stats: Optional PipelineStats for tracking statistics.
         clean: Whether to clear modified directories and files before running.
         raw_seeds: Raw seed dictionaries to process
+        debug: Whether to persist explicit classifier rejections as noise.
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -910,7 +935,7 @@ def run(
                 use_bert=use_bert,
                 reporter=reporter,
                 stats=stats,
-                debug_writer=debug_writer,
+                debug=debug,
             )
             if rec:
                 persist_stage(
@@ -1029,7 +1054,7 @@ if __name__ == "__main__":
         "--debug",
         "-d",
         action="store_true",
-        help="Write classifier-rejected articles to a timestamped JSON file",
+        help="Save explicit GDELT classifier rejections under data/raw/gdelt/noise",
     )
     parser.add_argument(
         "--stitch-staged",
@@ -1057,52 +1082,44 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    debug_writer = NoiseDebugWriter() if args.debug else None
-    try:
-        if args.stitch_staged or args.stitch_stage:
-            output_path_provided = any(
-                arg in ("-o", "--output-path") or arg.startswith("--output-path=")
-                for arg in sys.argv[1:]
-            )
-            stitch_staged_records(
-                output_path=args.output_path if output_path_provided else None,
-                stage=args.stitch_stage or "enriched",
-                seen_urls_file=args.seen_urls_file,
-                use_bert=args.use_bert,
-                verbose=args.verbose,
-                debug_writer=debug_writer,
-            )
-            sys.exit(0)
-
-        # If --num-files/-n is explicitly provided without --limit/-l, process all
-        # discovered seeds for that fetch window instead of using the smoke-test cap.
-        n_provided = (
-            any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
-            or args.num_files is not None
+    if args.stitch_staged or args.stitch_stage:
+        output_path_provided = any(
+            arg in ("-o", "--output-path") or arg.startswith("--output-path=")
+            for arg in sys.argv[1:]
         )
-        l_provided = args.limit is not None
-        effective_limit = args.limit
-        if not l_provided:
-            effective_limit = None if n_provided else 3
-
-        if args.clean:
-            run_clean()
-
-        run(
-            num_files=args.num_files,
-            limit=effective_limit,
-            output_path=args.output_path,
-            start_date=args.start_date,
-            end_date=args.end_date,
+        stitch_staged_records(
+            output_path=args.output_path if output_path_provided else None,
+            stage=args.stitch_stage or "enriched",
             seen_urls_file=args.seen_urls_file,
             use_bert=args.use_bert,
             verbose=args.verbose,
-            reporter=CliReporter(verbose=args.verbose),
-            debug_writer=debug_writer,
+            debug=args.debug,
         )
-    finally:
-        if debug_writer is not None:
-            debug_writer.close()
-            print(
-                f"Wrote {debug_writer.count} rejected article(s) to {debug_writer.path}"
-            )
+        sys.exit(0)
+
+    # If --num-files/-n is explicitly provided without --limit/-l, process all
+    # discovered seeds for that fetch window instead of using the smoke-test cap.
+    n_provided = (
+        any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
+        or args.num_files is not None
+    )
+    l_provided = args.limit is not None
+    effective_limit = args.limit
+    if not l_provided:
+        effective_limit = None if n_provided else 3
+
+    if args.clean:
+        run_clean()
+
+    run(
+        num_files=args.num_files,
+        limit=effective_limit,
+        output_path=args.output_path,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        seen_urls_file=args.seen_urls_file,
+        use_bert=args.use_bert,
+        verbose=args.verbose,
+        reporter=CliReporter(verbose=args.verbose),
+        debug=args.debug,
+    )

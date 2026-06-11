@@ -209,6 +209,42 @@ class TestPersistRawSeeds:
         assert ".json" in str(path_arg)
 
 
+class TestPersistNoise:
+    """Tests for GDELT classifier rejection persistence."""
+
+    def test_persist_noise_uses_stable_url_id_and_expected_schema(self):
+        seed = {
+            "url": "https://example.com/noise",
+            "source": "test",
+            "date": "2026-01-02",
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("src.GDELT.runner.NOISE_DIR", Path(tmpdir)):
+                first_path = runner.persist_noise(
+                    seed, "Noise Article", "Not an operational disruption"
+                )
+                second_path = runner.persist_noise(
+                    seed, "Noise Article", "Not an operational disruption"
+                )
+
+            files = list(Path(tmpdir).glob("*.json"))
+            payload = json.loads(first_path.read_text(encoding="utf-8"))
+
+        expected_id = runner.stable_id(seed["url"])
+        assert first_path == second_path
+        assert first_path.name == f"{expected_id}.json"
+        assert len(files) == 1
+        assert payload["id"] == expected_id
+        assert payload["stage"] == "noise"
+        assert payload["url"] == seed["url"]
+        assert payload["seed"] == seed
+        assert payload["title"] == "Noise Article"
+        assert payload["rejection_reason"] == "Not an operational disruption"
+        assert datetime.fromisoformat(payload["rejected_at"])
+        assert "body" not in payload
+
+
 class TestDedupeRawSeeds:
     """Tests for raw seed URL deduplication."""
 
@@ -478,6 +514,7 @@ class TestStagedRecovery:
                     stage="seeds",
                     seen_urls_file=str(seen_file),
                     reporter=reporter,
+                    debug=True,
                 )
 
             result = json.loads((tmp_path / "GDELT.json").read_text(encoding="utf-8"))
@@ -494,6 +531,7 @@ class TestStagedRecovery:
         ]
         mock_process_seed.assert_called_once()
         assert mock_process_seed.call_args.args[0] == remaining_seed
+        assert mock_process_seed.call_args.kwargs["debug"] is True
         mock_backfill.assert_not_called()
         mock_clear_directory.assert_not_called()
         assert completed_seed_exists
@@ -620,11 +658,13 @@ class TestProcessSeed:
         seed = {"url": "https://example.com/test", "source": "test"}
         seen = {"https://example.com/test"}
 
-        result = runner.process_seed(seed, seen)
+        with patch("src.GDELT.runner.persist_noise") as mock_persist_noise:
+            result = runner.process_seed(seed, seen, debug=True)
 
         assert result is None
         mock_get_body_and_title.assert_not_called()
         mock_ai_check.assert_not_called()
+        mock_persist_noise.assert_not_called()
 
     @patch("src.GDELT.runner.get_body_and_title")
     @patch("src.GDELT.runner.ai_check_validation")
@@ -634,10 +674,12 @@ class TestProcessSeed:
         seen = set()
         mock_get_body_and_title.return_value = ("", "Test Article")
 
-        result = runner.process_seed(seed, seen)
+        with patch("src.GDELT.runner.persist_noise") as mock_persist_noise:
+            result = runner.process_seed(seed, seen, debug=True)
 
         assert result is None
         assert "https://example.com/test" not in seen  # Not added because body is empty
+        mock_persist_noise.assert_not_called()
 
     @patch("src.GDELT.runner.get_body_and_title")
     @patch("src.GDELT.runner.ai_check_validation")
@@ -650,54 +692,69 @@ class TestProcessSeed:
         mock_get_body_and_title.return_value = ("Some content", "Test Article")
         mock_ai_check.return_value = (False, "not relevant")
 
-        result = runner.process_seed(seed, seen)
+        with patch("src.GDELT.runner.persist_noise") as mock_persist_noise:
+            result = runner.process_seed(seed, seen)
 
         assert result is None
         assert "https://example.com/test" in seen
+        mock_persist_noise.assert_not_called()
 
-    @patch("src.GDELT.runner.get_body_and_title")
-    @patch("src.GDELT.runner.ai_check_validation")
-    def test_process_seed_logs_classifier_rejection(
-        self, mock_ai_check, mock_get_body_and_title
+    @pytest.mark.parametrize(
+        "rejection_reason",
+        ["BERT: unrelated news", "No named healthcare disruption was identified"],
+    )
+    def test_process_seed_debug_saves_classifier_rejections(
+        self, rejection_reason
     ):
         seed = {
             "url": "https://example.com/test",
             "source": "TestSource",
             "date": "2026-01-02",
         }
-        writer = Mock()
-        mock_get_body_and_title.return_value = ("Some content", "Test Article")
-        mock_ai_check.return_value = (False, "BERT: unrelated news")
+        with (
+            patch(
+                "src.GDELT.runner.get_body_and_title",
+                return_value=("Some article content", "Test Article"),
+            ),
+            patch(
+                "src.GDELT.runner.ai_check_validation",
+                return_value=(False, rejection_reason),
+            ),
+            patch("src.GDELT.runner.persist_noise") as mock_persist_noise,
+        ):
+            result = runner.process_seed(seed, set(), debug=True)
 
-        runner.process_seed(seed, set(), debug_writer=writer)
-
-        writer.write_rejection.assert_called_once_with(
-            pipeline="GDELT",
-            source="TestSource",
-            title="Test Article",
-            url=seed["url"],
-            publication_date="2026-01-02",
-            classification_stage="bert",
-            rejection_reason="BERT: unrelated news",
-            classified_text="Some content",
+        assert result is None
+        mock_persist_noise.assert_called_once_with(
+            seed, "Test Article", rejection_reason
         )
 
-    @patch("src.GDELT.runner.get_body_and_title")
-    @patch("src.GDELT.runner.ai_check_validation")
-    def test_process_seed_does_not_log_operational_skip(
-        self, mock_ai_check, mock_get_body_and_title
+    @pytest.mark.parametrize(
+        "rejection_reason",
+        ["Body too short for LLM review", "Parsing Error"],
+    )
+    def test_process_seed_debug_excludes_operational_rejections(
+        self, rejection_reason
     ):
-        writer = Mock()
-        mock_get_body_and_title.return_value = ("short", "Test Article")
-        mock_ai_check.return_value = (False, "Body too short for LLM review")
+        with (
+            patch(
+                "src.GDELT.runner.get_body_and_title",
+                return_value=("Some article content", "Test Article"),
+            ),
+            patch(
+                "src.GDELT.runner.ai_check_validation",
+                return_value=(False, rejection_reason),
+            ),
+            patch("src.GDELT.runner.persist_noise") as mock_persist_noise,
+        ):
+            result = runner.process_seed(
+                {"url": "https://example.com/test"},
+                set(),
+                debug=True,
+            )
 
-        runner.process_seed(
-            {"url": "https://example.com/test"},
-            set(),
-            debug_writer=writer,
-        )
-
-        writer.write_rejection.assert_not_called()
+        assert result is None
+        mock_persist_noise.assert_not_called()
 
     @patch("src.GDELT.runner.extract_fields")
     @patch("src.GDELT.runner.get_body_and_title")
@@ -725,7 +782,8 @@ class TestProcessSeed:
             {"drug_name": "aspirin"},
         )
 
-        result = runner.process_seed(seed, seen)
+        with patch("src.GDELT.runner.persist_noise") as mock_persist_noise:
+            result = runner.process_seed(seed, seen, debug=True)
 
         assert result is not None
         assert result.subsector == "drug_shortage"
@@ -736,6 +794,7 @@ class TestProcessSeed:
         assert result.geography_scope == "Midwest"
         assert result.subsector_data is not None
         assert result.subsector_data.drug_name == "aspirin"
+        mock_persist_noise.assert_not_called()
 
     @patch("src.GDELT.runner.get_body_and_title")
     @patch("src.GDELT.runner.ai_check_validation")
@@ -748,10 +807,12 @@ class TestProcessSeed:
         mock_get_body_and_title.return_value = ("Some content", "Test Title")
         mock_ai_check.return_value = (True, "invalid_subsector")
 
-        result = runner.process_seed(seed, seen)
+        with patch("src.GDELT.runner.persist_noise") as mock_persist_noise:
+            result = runner.process_seed(seed, seen, debug=True)
 
         assert result is None
         assert "https://example.com/test" in seen
+        mock_persist_noise.assert_not_called()
 
     @patch("src.GDELT.runner.extract_fields")
     @patch("src.GDELT.runner.get_body_and_title")
@@ -769,11 +830,13 @@ class TestProcessSeed:
             "No fields found"
         )
 
-        result = runner.process_seed(seed, seen, stats=stats)
+        with patch("src.GDELT.runner.persist_noise") as mock_persist_noise:
+            result = runner.process_seed(seed, seen, stats=stats, debug=True)
 
         assert result is None
         assert stats.skipped == 1
         assert stats.warnings == 1
+        mock_persist_noise.assert_not_called()
 
     @patch("src.GDELT.runner.extract_fields")
     @patch("src.GDELT.runner.get_body_and_title")
@@ -1314,6 +1377,51 @@ class TestRun:
         assert "[1/1]" in output
         assert "Progress:" not in output
 
+    @pytest.mark.parametrize("debug", [False, True])
+    def test_run_clears_seeds_after_success_including_debug(self, debug):
+        """Successful runs should clear raw seed JSON files in every mode."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch("src.GDELT.runner.ensure_raw_dirs"),
+                patch("src.GDELT.runner.load_seen", return_value=set()),
+                patch("src.GDELT.runner.save_seen"),
+                patch("src.GDELT.runner.persist_raw_seeds"),
+                patch("src.GDELT.runner.backfill_cyber_seeds", return_value=[]),
+                patch("src.GDELT.runner.clear_directory") as mock_clear,
+            ):
+                runner.run(
+                    num_files=1,
+                    limit=1,
+                    output_path=tmpdir,
+                    debug=debug,
+                )
+
+        mock_clear.assert_called_once_with(runner.SEEDS_DIR)
+
+    def test_run_forwards_debug_to_seed_processing(self):
+        seed = {"url": "https://example.com/noise", "source": "test"}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch("src.GDELT.runner.ensure_raw_dirs"),
+                patch("src.GDELT.runner.load_seen", return_value=set()),
+                patch("src.GDELT.runner.save_seen"),
+                patch("src.GDELT.runner.persist_raw_seeds"),
+                patch("src.GDELT.runner.backfill_cyber_seeds", return_value=[seed]),
+                patch(
+                    "src.GDELT.runner.process_seed", return_value=None
+                ) as mock_process_seed,
+                patch("src.GDELT.runner.clear_directory"),
+            ):
+                runner.run(
+                    num_files=1,
+                    limit=1,
+                    output_path=tmpdir,
+                    debug=True,
+                )
+
+        assert mock_process_seed.call_args.args[0] == seed
+        assert mock_process_seed.call_args.kwargs["debug"] is True
+
     def test_run_pause_writes_partial_output_and_preserves_seeds(self):
         """Ctrl-C during processing should write completed records and keep staging."""
         stats = PipelineStats("GDELT")
@@ -1402,18 +1510,21 @@ class TestEnsureRawDirs:
     """Tests for the ensure_raw_dirs function."""
 
     @patch("src.GDELT.runner.SEEDS_DIR")
+    @patch("src.GDELT.runner.NOISE_DIR")
     @patch("src.GDELT.runner.VALIDATED_DIR")
     @patch("src.GDELT.runner.ENRICHED_DIR")
     def test_ensure_raw_dirs_creates_all_directories(
-        self, mock_enriched, mock_validated, mock_seeds
+        self, mock_enriched, mock_validated, mock_noise, mock_seeds
     ):
         """ensure_raw_dirs should create all required directories."""
         mock_seeds.mkdir = Mock()
+        mock_noise.mkdir = Mock()
         mock_validated.mkdir = Mock()
         mock_enriched.mkdir = Mock()
 
         runner.ensure_raw_dirs()
 
         mock_seeds.mkdir.assert_called_once_with(parents=True, exist_ok=True)
+        mock_noise.mkdir.assert_called_once_with(parents=True, exist_ok=True)
         mock_validated.mkdir.assert_called_once_with(parents=True, exist_ok=True)
         mock_enriched.mkdir.assert_called_once_with(parents=True, exist_ok=True)

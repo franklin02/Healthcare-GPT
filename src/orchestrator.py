@@ -188,22 +188,20 @@ def main(argv: list[str] | None = None) -> int:
                 print(exc, file=sys.stderr)
                 return 1
 
-        # Register every instance bar up front (GDELT + one per HTML site) so the
-        # overall bar and the per-instance bars are visible from the start.
-        specs: list[InstanceSpec] = []
-        if run_gdelt:
-            specs.append(InstanceSpec("GDELT", model=AI_MODEL, endpoint=AI_URL))
+        # Single instance until #181 lands: one shared task bar tracks whatever
+        # unit (GDELT or an HTML site) is running, the overall bar counts units.
+        units: list[str] = ["GDELT"] if run_gdelt else []
         scooper = None
         if run_html:
             import src.scrapers.scooper as scooper
 
-            specs.extend(
-                InstanceSpec(site["name"], model=AI_MODEL, endpoint=AI_URL)
-                for site in scooper.HTML_SITES
+            units.extend(site["name"] for site in scooper.HTML_SITES)
+        if units:
+            reporter.build_instances(
+                [InstanceSpec("Instance 1", model=AI_MODEL, endpoint=AI_URL)],
+                model_label=AI_MODEL,
             )
-        if specs:
-            reporter.build_instances(specs, model_label=AI_MODEL)
-            reporter.set_overall_total(len(specs))
+            reporter.set_overall_total(len(units))
             reporter.set_overall_step("Initializing")
 
         if run_gdelt:

@@ -136,3 +136,34 @@ def test_orchestrator_skips_model_check_when_all_model_pipelines_are_skipped():
 
     assert result == 0
     mock_model_check.assert_not_called()
+
+
+def test_orchestrator_builds_single_instance_and_tracks_units():
+    """Default runs declare one instance and step the overall bar per unit."""
+    sites = [{"name": "SiteOne"}, {"name": "SiteTwo"}]
+    with (
+        patch("src.orchestrator.ensure_model_available"),
+        patch("src.GDELT.runner.run"),
+        patch("src.scrapers.scooper.HTML_SITES", sites),
+        patch(
+            "src.scrapers.scooper.run_html_scraper",
+            return_value=PipelineStats("SiteOne"),
+        ),
+        patch("src.cli_reporter.CliReporter.build_instances") as mock_build,
+        patch("src.cli_reporter.CliReporter.set_overall_total") as mock_total,
+        patch("src.cli_reporter.CliReporter.set_overall_step") as mock_step,
+        patch("src.cli_reporter.CliReporter.advance_overall") as mock_advance,
+        patch("src.cli_reporter.CliReporter.summary"),
+    ):
+        result = orchestrator.main([])
+
+    assert result == 0
+    # Single instance until #181 lands.
+    specs = mock_build.call_args.args[0]
+    assert len(specs) == 1
+    assert specs[0].name == "Instance 1"
+    # The overall bar counts units of work: GDELT + each HTML site.
+    mock_total.assert_called_once_with(3)
+    steps = [call.args[0] for call in mock_step.call_args_list]
+    assert steps == ["Initializing", "GDELT", "SiteOne", "SiteTwo"]
+    assert mock_advance.call_count == 3

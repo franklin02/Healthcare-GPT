@@ -7,6 +7,14 @@ from src.cli_reporter import CliReporter, PipelineStats
 from src.shared_utils import model_unavailable_error
 import src.scrapers.scooper as scooper
 
+# scooper's Supabase helpers (load_cite, handle_vuln, ...) only exist when
+# src.supabase_function imported successfully; without its dependencies the
+# tests that patch them can't run, so they skip instead of erroring.
+requires_supabase = pytest.mark.skipif(
+    not hasattr(scooper, "load_cite"),
+    reason="scooper Supabase helpers unavailable (optional deps missing)",
+)
+
 
 @pytest.fixture(autouse=True)
 def _disable_supabase(monkeypatch):
@@ -288,6 +296,7 @@ def test_run_html_scraper_logs_model_failure_before_setup_or_fetching():
     mock_fetch.assert_not_called()
 
 
+@requires_supabase
 def test_run_html_scraper_sb_only_skips_local_writes():
     """sb_only mode routes to Supabase and never touches the local corpus."""
     site_config = {
@@ -354,6 +363,7 @@ def test_run_html_scraper_sb_only_skips_local_writes():
     assert stats.output_records == 1
 
 
+@requires_supabase
 def test_run_html_scraper_local_mode_skips_supabase():
     """Local mode must not call Supabase helpers even when creds are available."""
     site_config = {

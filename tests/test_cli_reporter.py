@@ -1,13 +1,19 @@
 import io
 import logging
+import threading
 
+import pytest
+
+import src.cli_reporter as cli_reporter
 from src.cli_reporter import (
+    OVERALL_BAR_FORMAT,
     CliReporter,
     CliReporterLoggingHandler,
     InstanceSpec,
     PipelineStats,
     get_active_reporter,
     set_active_reporter,
+    whim,
 )
 
 
@@ -46,20 +52,122 @@ def test_reset_rezeros_bar_for_a_new_phase():
         assert bar._bar.total == 10
 
 
-def test_multiple_instances_and_overall_advance_independently():
-    """Each instance bar plus the overall bar track their own counts."""
+def test_single_mode_shares_one_task_bar_across_units():
+    """Sequential units re-point the one shared task bar instead of stacking."""
     with CliReporter(file=io.StringIO(), disable=False) as reporter:
-        gdelt = reporter.register_instance("GDELT", total=10)
-        site = reporter.register_instance("CyberScoop", total=5)
+        gdelt = reporter.register_instance("GDELT", total=4)
+        gdelt.advance(2)
+        gdelt.set_step("processing 2/4")
+
+        site = reporter.register_instance("CyberScoop")
+
+        assert site is gdelt
+        assert site._bar.n == 0
+        assert site._bar.total is None
+        assert site._bar.desc == "CyberScoop"
+        assert site._bar.postfix == ""
+
+
+def test_same_task_lookup_does_not_reset_progress():
+    """Mid-unit lookups of the current task must not re-zero the bar."""
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        bar = reporter.register_instance("GDELT", total=10)
+        bar.advance(3)
+
+        again = reporter.instance("GDELT")
+
+        assert again is bar
+        assert again._bar.n == 3
+
+
+def test_multiple_instances_and_overall_advance_independently():
+    """In multi mode each instance bar plus the overall bar count separately."""
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        reporter.build_instances(
+            [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
+        )
+        one = reporter.register_instance("Instance 1", total=10)
+        two = reporter.register_instance("Instance 2", total=5)
         reporter.set_overall_total(2)
 
-        gdelt.advance(3)
-        site.advance(1)
+        one.advance(3)
+        two.advance(1)
         reporter.advance_overall(1)
 
-        assert gdelt._bar.n == 3
-        assert site._bar.n == 1
+        assert one is not two
+        assert one._bar.n == 3
+        assert two._bar.n == 1
         assert reporter.overall()._bar.n == 1
+
+
+def test_multi_mode_overall_bar_sits_below_instance_bars():
+    """Instance bars stack at positions 0..N-1 with the overall bar below."""
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        reporter.build_instances(
+            [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
+        )
+
+        # tqdm stores position N as pos == -N.
+        assert abs(reporter.instance("Instance 1")._bar.pos) == 0
+        assert abs(reporter.instance("Instance 2")._bar.pos) == 1
+        assert abs(reporter.overall()._bar.pos) == 2
+
+
+def test_bound_instance_prefixes_task_in_step_label():
+    """A bound thread's unit lands on its instance bar with a task: step postfix."""
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        reporter.build_instances(
+            [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
+        )
+
+        with reporter.bind_instance("Instance 2") as bound:
+            bar = reporter.register_instance("GDELT", total=5)
+            bar.set_step("processing 1/5")
+
+            assert bar is bound
+            assert bar.task == "GDELT"
+            assert bar._bar.desc == "Instance 2"
+            assert bar._bar.postfix == "GDELT: processing 1/5"
+
+
+def test_bind_instance_routes_threads_to_their_own_bars():
+    """Two bound worker threads advance their own bars, never each other's."""
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        reporter.build_instances(
+            [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
+        )
+
+        def work(instance_name: str, count: int) -> None:
+            with reporter.bind_instance(instance_name):
+                bar = reporter.register_instance("GDELT", total=count)
+                for _ in range(count):
+                    bar.advance(1)
+
+        threads = [
+            threading.Thread(target=work, args=("Instance 1", 3)),
+            threading.Thread(target=work, args=("Instance 2", 5)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert reporter.instance("Instance 1")._bar.n == 3
+        assert reporter.instance("Instance 2")._bar.n == 5
+
+
+def test_multi_mode_unknown_name_raises_keyerror():
+    """Undeclared names fail loudly in multi mode instead of stacking bars."""
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        reporter.build_instances(
+            [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
+        )
+
+        with pytest.raises(KeyError):
+            reporter.instance("GDELT")
+        with pytest.raises(KeyError):
+            with reporter.bind_instance("Instance 99"):
+                pass
 
 
 def test_build_instances_registers_every_spec_and_overall(monkeypatch):
@@ -227,6 +335,19 @@ def test_context_manager_closes_bars_and_clears_active():
     assert get_active_reporter() is None
 
 
+def test_summary_finishes_bars_before_printing():
+    """summary() freezes any live bars so the summary is last on screen."""
+    stream = io.StringIO()
+    reporter = CliReporter(file=stream, disable=False)
+    bar = reporter.register_instance("GDELT", total=2)
+
+    reporter.summary(PipelineStats("GDELT"))
+
+    assert bar._bar.disable is True  # tqdm marks closed bars disabled
+    assert "=== Run Summary ===" in stream.getvalue()
+    reporter.close()
+
+
 # ---- summary / stats (preserved contract) -----------------------------
 
 
@@ -341,3 +462,47 @@ def test_summary_accepts_a_list_of_stats():
     assert "=== Run Summary ===" in output
     assert "GDELT:" in output
     assert "HTML:" in output
+
+
+# ---- elapsed time ------------------------------------------------------
+
+
+def test_overall_bar_format_shows_elapsed_time():
+    """The stickied pipeline bar includes elapsed time per the issue."""
+    assert "{elapsed}" in OVERALL_BAR_FORMAT
+
+
+def test_summary_prints_time_elapsed():
+    """Each pipeline's summary section reports its elapsed wall time."""
+    stream = io.StringIO()
+    reporter = CliReporter(stream=stream)
+
+    reporter.summary(PipelineStats("GDELT", elapsed_seconds=83))
+
+    assert "Time elapsed:   1m 23s" in stream.getvalue()
+
+
+def test_merge_sums_elapsed_seconds():
+    """Merged stats accumulate elapsed time across pipelines."""
+    combined = PipelineStats("Combined", elapsed_seconds=10)
+
+    combined.merge(PipelineStats("GDELT", elapsed_seconds=5.5))
+
+    assert combined.elapsed_seconds == 15.5
+
+
+# ---- whims ---------------------------------------------------------------
+
+
+def test_whim_returns_default_when_chance_is_zero(monkeypatch):
+    """With the chance zeroed out, the factual label always comes back."""
+    monkeypatch.setattr(cli_reporter, "WHIM_CHANCE", 0.0)
+
+    assert whim("processing 1/5") == "processing 1/5"
+
+
+def test_whim_returns_whimsical_label_when_chance_is_one(monkeypatch):
+    """With the chance maxed, a label from WHIMS stands in."""
+    monkeypatch.setattr(cli_reporter, "WHIM_CHANCE", 1.0)
+
+    assert whim("processing 1/5") in cli_reporter.WHIMS

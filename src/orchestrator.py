@@ -279,13 +279,13 @@ def main(argv: list[str] | None = None) -> int:
                         raw_seeds=chunk,
                         debug_noise=gdelt_noise,
                     )
-                ) 
-            if gdelt_noise:
-                out = gdelt_noise.flush()
-            if out:
-                reporter.info(f"Debug noise (GDELT): {out}")
+                )
             for future in as_completed(futures):
                 result = future.result()
+        if gdelt_noise:
+            out = gdelt_noise.flush()
+            if out:
+                reporter.info(f"Debug noise (GDELT): {out}")
 
         summaries.append(gdelt_stats)
         if gdelt_stats.paused:

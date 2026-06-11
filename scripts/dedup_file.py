@@ -2,7 +2,7 @@
 Standalone deduplication for processed JSON source files.
 
 Loads one or more files from data/processed/, computes MiniLM embeddings using
-the same fingerprint logic as src/dedup.py, and writes one output file per
+the same fingerprint construction as src/dedup.py, and writes one output file per
 input to data/output/ named <stem>_d.json containing only unique records
 (first occurrence wins). Duplicates are dropped silently.
 
@@ -74,9 +74,10 @@ def _fingerprint(source: dict) -> list[float]:
     """
     Compute a semantic fingerprint embedding for a raw source record dict.
 
-    Mirrors the fingerprint built by src/dedup.embed_vulnerability: title,
-    first 700 chars of content, and subsector_data entity values are
-    concatenated and embedded together.
+    Uses the same fingerprint construction as src/dedup.embed_vulnerability:
+    title, first 700 chars of content, and subsector_data entity values are
+    concatenated and embedded together. The comparison step differs — this
+    script compares in-memory rather than querying Supabase.
 
     Args:
         source: A source record dict as found in a processed JSON file.

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import random
+import shutil
 import sys
 import threading
 from collections.abc import Iterator
@@ -33,9 +34,17 @@ from tqdm import tqdm
 # the current step (tqdm prefixes it with ", " when set), and tqdm renders
 # ``{bar}`` itself (unicode blocks or ascii). Keeping the step in the postfix —
 # after the bar — keeps every stacked bar left-aligned at the same width.
+# ``{bar}`` is replaced with a sized ``{bar:N}`` per reporter so instance bars
+# span ~1/5 of the terminal and the overall bar ~1/2 (it fills the whole line
+# otherwise).
 INSTANCE_BAR_FORMAT = "{desc} {percentage:3.0f}% |{bar}|{postfix}"
 OVERALL_BAR_FORMAT = "{desc} |{bar}| {n_fmt}/{total_fmt} [{elapsed}]{postfix}"
 _MIN_INTERVAL = 0.1
+
+# tqdm renders nothing on unoccupied position rows, so skipping rows leaves
+# visual breathing room: row 0 separates the bars from the scrolling log area,
+# and one blank row separates the instance/task area from the overall bar.
+_BARS_TOP = 1
 
 # A dash of whimsy (issue #191): occasional stand-in step labels shown while a
 # slow call is in flight. Bar-postfix only — never logged.
@@ -293,6 +302,15 @@ class CliReporter:
         # output (logs + summary still print via tqdm.write).
         self._disable = (not _is_tty(self._file)) if disable is None else disable
         self._use_ascii = not _supports_unicode(self._file)
+        # Cap bar glyph widths relative to the terminal so bars don't swallow
+        # the whole line (fixed fallback off-terminal keeps output stable).
+        cols = shutil.get_terminal_size((80, 20)).columns if _is_tty(self._file) else 80
+        self._instance_bar_format = INSTANCE_BAR_FORMAT.replace(
+            "{bar}", f"{{bar:{max(10, cols // 5)}}}"
+        )
+        self._overall_bar_format = OVERALL_BAR_FORMAT.replace(
+            "{bar}", f"{{bar:{max(20, cols // 2)}}}"
+        )
         self._multi = False
         self._task: InstanceBar | None = None
         self._instances: dict[str, InstanceBar] = {}
@@ -324,13 +342,14 @@ class CliReporter:
                 for spec in specs:
                     bar = InstanceBar(
                         spec.name,
-                        position=len(self._order),
+                        position=_BARS_TOP + len(self._order),
                         total=spec.total,
                         model=spec.model,
                         endpoint=spec.endpoint,
                         file=self._file,
                         disable=self._disable,
                         verbose=self.verbose,
+                        bar_format=self._instance_bar_format,
                         use_ascii=self._use_ascii,
                     )
                     self._instances[spec.name] = bar
@@ -339,13 +358,14 @@ class CliReporter:
                 spec = specs[0]
                 self._task = InstanceBar(
                     spec.name,
-                    position=0,
+                    position=_BARS_TOP,
                     total=spec.total,
                     model=spec.model,
                     endpoint=spec.endpoint,
                     file=self._file,
                     disable=self._disable,
                     verbose=self.verbose,
+                    bar_format=self._instance_bar_format,
                     use_ascii=self._use_ascii,
                     shared=True,
                 )
@@ -411,13 +431,14 @@ class CliReporter:
                 if bar is None:
                     bar = InstanceBar(
                         name,
-                        position=0,
+                        position=_BARS_TOP,
                         total=total,
                         model=model,
                         endpoint=endpoint,
                         file=self._file,
                         disable=self._disable,
                         verbose=self.verbose,
+                        bar_format=self._instance_bar_format,
                         use_ascii=self._use_ascii,
                         shared=True,
                     )
@@ -461,9 +482,9 @@ class CliReporter:
     def _ensure_overall(self, total: int | None = None) -> InstanceBar:
         with self._lock:
             if self._overall is None:
-                # Always the bottom-most line: below the shared task bar in
-                # single mode, below every instance bar in multi mode.
-                position = len(self._order) if self._multi else 1
+                # Always the bottom-most line, one blank row below the shared
+                # task bar (single mode) or the instance bars (multi mode).
+                position = _BARS_TOP + (len(self._order) + 1 if self._multi else 2)
                 self._overall = InstanceBar(
                     "Pipeline progress",
                     position=position,
@@ -471,7 +492,7 @@ class CliReporter:
                     file=self._file,
                     disable=self._disable,
                     verbose=False,
-                    bar_format=OVERALL_BAR_FORMAT,
+                    bar_format=self._overall_bar_format,
                     use_ascii=self._use_ascii,
                 )
             elif total is not None:
@@ -559,32 +580,61 @@ class CliReporter:
             self._overall = None
 
     def summary(self, stats: PipelineStats | list[PipelineStats]) -> None:
-        """Print one or more pipeline run summaries.
+        """Print the run summary as one table (metrics as rows, runs as columns).
 
         Summaries mark the end of a run: any live bars are finished first so
         the summary is the last thing on screen.
         """
         self.finish_bars()
         stats_list = stats if isinstance(stats, list) else [stats]
-        self._write("\n=== Run Summary ===")
-        for item in stats_list:
-            lines = [f"{item.name}:"]
-            if item.paused:
-                lines.append("  Paused:         yes")
-            if item.sites_scanned:
-                lines.append(f"  Sites scanned:  {item.sites_scanned}")
-            lines.append(f"  Discovered:     {item.discovered}")
-            lines.append(f"  Processed:      {item.processed}")
-            lines.append(f"  Validated:      {item.validated}")
-            lines.append(f"  Rejected:       {item.rejected}")
-            lines.append(f"  Skipped:        {item.skipped}")
-            lines.append(f"  Duplicates:     {item.duplicates}")
-            lines.append(f"  Rejection rate: {item.rejection_rate:.0%}")
-            lines.append(f"  Warnings:       {item.warnings}")
-            lines.append(f"  Errors:         {item.errors}")
-            lines.append(f"  Output records: {item.output_records}")
-            lines.append(f"  Time elapsed:   {_format_elapsed(item.elapsed_seconds)}")
-            self._write("\n".join(lines))
+
+        rows: list[tuple[str, list[str]]] = []
+        if any(item.paused for item in stats_list):
+            rows.append(("Paused", ["yes" if s.paused else "-" for s in stats_list]))
+        if any(item.sites_scanned for item in stats_list):
+            rows.append(
+                (
+                    "Sites scanned",
+                    [
+                        str(s.sites_scanned) if s.sites_scanned else "-"
+                        for s in stats_list
+                    ],
+                )
+            )
+        rows.extend(
+            [
+                ("Discovered", [str(s.discovered) for s in stats_list]),
+                ("Processed", [str(s.processed) for s in stats_list]),
+                ("Validated", [str(s.validated) for s in stats_list]),
+                ("Rejected", [str(s.rejected) for s in stats_list]),
+                ("Skipped", [str(s.skipped) for s in stats_list]),
+                ("Duplicates", [str(s.duplicates) for s in stats_list]),
+                ("Rejection rate", [f"{s.rejection_rate:.0%}" for s in stats_list]),
+                ("Warnings", [str(s.warnings) for s in stats_list]),
+                ("Errors", [str(s.errors) for s in stats_list]),
+                ("Output records", [str(s.output_records) for s in stats_list]),
+                (
+                    "Time elapsed",
+                    [_format_elapsed(s.elapsed_seconds) for s in stats_list],
+                ),
+            ]
+        )
+
+        label_width = max(len(label) for label, _ in rows)
+        col_widths = [
+            max(len(item.name), max(len(row[1][i]) for row in rows))
+            for i, item in enumerate(stats_list)
+        ]
+        header = " " * label_width + "".join(
+            f"  {item.name:>{col_widths[i]}}" for i, item in enumerate(stats_list)
+        )
+        lines = ["\n=== Run Summary ===", header]
+        for label, values in rows:
+            lines.append(
+                f"{label:<{label_width}}"
+                + "".join(f"  {values[i]:>{col_widths[i]}}" for i in range(len(values)))
+            )
+        self._write("\n".join(lines))
 
     def close(self) -> None:
         """Close every bar and release the active-reporter slot."""

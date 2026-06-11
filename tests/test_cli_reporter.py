@@ -101,16 +101,26 @@ def test_multiple_instances_and_overall_advance_independently():
 
 
 def test_multi_mode_overall_bar_sits_below_instance_bars():
-    """Instance bars stack at positions 0..N-1 with the overall bar below."""
+    """Instance bars stack below a spacer row, overall bar below another gap."""
     with CliReporter(file=io.StringIO(), disable=False) as reporter:
         reporter.build_instances(
             [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
         )
 
-        # tqdm stores position N as pos == -N.
-        assert abs(reporter.instance("Instance 1")._bar.pos) == 0
-        assert abs(reporter.instance("Instance 2")._bar.pos) == 1
-        assert abs(reporter.overall()._bar.pos) == 2
+        # tqdm stores position N as pos == -N. Row 0 separates the bars from
+        # the scrolling log area; the row above the overall bar stays blank.
+        assert abs(reporter.instance("Instance 1")._bar.pos) == 1
+        assert abs(reporter.instance("Instance 2")._bar.pos) == 2
+        assert abs(reporter.overall()._bar.pos) == 4
+
+
+def test_bar_widths_are_capped_relative_to_terminal():
+    """Instance bars get ~1/5 of the width, the overall bar ~1/2 (80 cols off-tty)."""
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        task = reporter.register_instance("GDELT", total=4)
+
+        assert "{bar:16}" in task._bar.bar_format
+        assert "{bar:40}" in reporter.overall()._bar.bar_format
 
 
 def test_bound_instance_prefixes_task_in_step_label():
@@ -351,6 +361,11 @@ def test_summary_finishes_bars_before_printing():
 # ---- summary / stats (preserved contract) -----------------------------
 
 
+def _summary_row(output: str, label: str) -> str:
+    """Return the summary table row that starts with ``label``."""
+    return next(line for line in output.splitlines() if line.startswith(label))
+
+
 def test_summary_prints_core_counts():
     """Summary output should include core counters and rejection rate."""
     stream = io.StringIO()
@@ -367,13 +382,13 @@ def test_summary_prints_core_counts():
     reporter.summary(stats)
 
     output = stream.getvalue()
-    assert "GDELT:" in output
-    assert "Discovered:     4" in output
-    assert "Rejection rate: 50%" in output
+    assert "GDELT" in output  # column header
+    assert _summary_row(output, "Discovered").endswith("4")
+    assert _summary_row(output, "Rejection rate").endswith("50%")
 
 
 def test_summary_prints_paused_state():
-    """Paused stats should render an explicit paused line in the summary."""
+    """Paused stats should render an explicit paused row in the summary."""
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
     stats = PipelineStats("GDELT", paused=True)
@@ -381,8 +396,8 @@ def test_summary_prints_paused_state():
     reporter.summary(stats)
 
     output = stream.getvalue()
-    assert "GDELT:" in output
-    assert "Paused:         yes" in output
+    assert "GDELT" in output
+    assert _summary_row(output, "Paused").endswith("yes")
 
 
 def test_stats_merge_preserves_paused_state():
@@ -409,7 +424,7 @@ def test_summary_counts_skipped_items_as_negative_outcomes():
 
     reporter.summary(stats)
 
-    assert "Rejection rate: 67%" in stream.getvalue()
+    assert _summary_row(stream.getvalue(), "Rejection rate").endswith("67%")
 
 
 def test_summary_rejection_rate_does_not_exceed_100_with_skipped_items():
@@ -426,7 +441,7 @@ def test_summary_rejection_rate_does_not_exceed_100_with_skipped_items():
 
     reporter.summary(stats)
 
-    assert "Rejection rate: 93%" in stream.getvalue()
+    assert _summary_row(stream.getvalue(), "Rejection rate").endswith("93%")
 
 
 def test_summary_rejection_rate_handles_no_outcomes():
@@ -437,7 +452,7 @@ def test_summary_rejection_rate_handles_no_outcomes():
 
     reporter.summary(stats)
 
-    assert "Rejection rate: 0%" in stream.getvalue()
+    assert _summary_row(stream.getvalue(), "Rejection rate").endswith("0%")
 
 
 def test_summary_rejection_rate_handles_all_skipped_items():
@@ -448,11 +463,11 @@ def test_summary_rejection_rate_handles_all_skipped_items():
 
     reporter.summary(stats)
 
-    assert "Rejection rate: 100%" in stream.getvalue()
+    assert _summary_row(stream.getvalue(), "Rejection rate").endswith("100%")
 
 
 def test_summary_accepts_a_list_of_stats():
-    """A list of stats prints each pipeline's section under one summary header."""
+    """A list of stats renders one table with a column per pipeline."""
     stream = io.StringIO()
     reporter = CliReporter(stream=stream)
 
@@ -460,8 +475,9 @@ def test_summary_accepts_a_list_of_stats():
 
     output = stream.getvalue()
     assert "=== Run Summary ===" in output
-    assert "GDELT:" in output
-    assert "HTML:" in output
+    header = next(line for line in output.splitlines() if "GDELT" in line)
+    assert "HTML" in header  # both pipelines share the header row
+    assert _summary_row(output, "Discovered").split() == ["Discovered", "2", "0"]
 
 
 # ---- elapsed time ------------------------------------------------------
@@ -479,7 +495,7 @@ def test_summary_prints_time_elapsed():
 
     reporter.summary(PipelineStats("GDELT", elapsed_seconds=83))
 
-    assert "Time elapsed:   1m 23s" in stream.getvalue()
+    assert _summary_row(stream.getvalue(), "Time elapsed").endswith("1m 23s")
 
 
 def test_merge_sums_elapsed_seconds():

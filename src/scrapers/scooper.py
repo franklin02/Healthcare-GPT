@@ -483,7 +483,12 @@ def run_html_scraper(
 
         try:
             articles, stop = fetch_html_page(
-                site_config, page_url, reporter=reporter, stats=stats, sb_only=sb_only, debug_noise=debug_noise
+                site_config,
+                page_url,
+                reporter=reporter,
+                stats=stats,
+                sb_only=sb_only,
+                debug_noise=debug_noise,
             )
         except KeyboardInterrupt:
             stats.paused = True

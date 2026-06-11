@@ -11,10 +11,10 @@ import uuid
 import argparse
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
-from src.cli_reporter import CliReporter, PipelineStats
-from src.logging_utils import get_file_logger
-from src.shared_utils import (
+from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
+from ..cli_reporter import CliReporter, PipelineStats
+from ..logging_utils import get_file_logger
+from ..shared_utils import (
     AI_MODEL,
     ai_check_validation,
     check_valid_file,
@@ -36,8 +36,8 @@ from src.shared_utils import (
 LOGGER = get_file_logger(__name__, _PROJECT_ROOT / "data" / "logs" / "scooper.log")
 
 try:
-    from src.dedup import handle_vuln
-    from src.supabase_function import (
+    from ..dedup import handle_vuln
+    from ..supabase_function import (
         load_cite,
         is_known_db,
         insert_noise,

@@ -52,6 +52,7 @@ import os
 import re
 import subprocess
 import tempfile
+import shutil
 from pathlib import Path
 
 import requests
@@ -554,81 +555,45 @@ def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None
         raise
 
 
-def get_title(url: str) -> str:
-    """Fetch and return the page title for a URL.
+def _extract_title_from_soup(soup: BeautifulSoup, fallback_url: str) -> str:
+    """Extract and clean the page title from a parsed BeautifulSoup tree.
 
-    Extracts the HTML <title> tag and strips common site-name suffixes
-    (e.g. " | Reuters", " - NBC News").  Falls back to the raw URL if no
-    usable ``<title>`` tag is found or the request fails.
+    Looks for the HTML ``<title>`` tag, strips common site-name suffixes
+    (e.g. " | Reuters", " - NBC News"), and falls back to *fallback_url*
+    when no usable title is found.
 
     Args:
-        url (str): The URL to fetch.  ``https://`` is prepended if the scheme
-            is missing.
+        soup: A parsed BeautifulSoup document.
+        fallback_url: The value returned when no ``<title>`` tag is present
+            or when the tag text is empty.
 
     Returns:
-        str: Cleaned page title, or the URL on failure.
+        str: Cleaned page title, or *fallback_url*.
     """
-    if not url:
-        return url
-
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    try:
-        resp = requests.get(url, timeout=30, headers=HEADERS)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
-        return url
-
-    soup = BeautifulSoup(resp.text, "html.parser")
     title_tag = soup.find("title")
     if title_tag:
         raw = title_tag.get_text(strip=True)
         if raw:
             cleaned = _TITLE_SITE_SUFFIX_RE.sub("", raw).strip()
             return cleaned if cleaned else raw
-    return url
+    return fallback_url
 
 
-def get_body(url: str) -> str:
-    """Fetch and return the main article text for a URL.
+def _extract_body_from_soup(soup: BeautifulSoup, url: str) -> str:
+    """Extract the main article text from a parsed BeautifulSoup tree.
 
-    The function performs a simple HTML scrape using `requests` and
-    `BeautifulSoup`, removes common non-content tags and noisy selectors
-    (ads, sidebars, footers), and returns the concatenated paragraph text
-    when available. Network errors or missing content return an empty string.
+    Removes common non-content tags and noisy selectors (ads, sidebars,
+    footers), then returns the concatenated paragraph text when available.
 
     Args:
-        url (str): The URL to fetch. If the scheme is missing, `https://` is
-            prepended.
+        soup: A parsed BeautifulSoup document.  **Note:** this function
+            mutates the tree by decomposing non-content elements.
+        url: The original URL (used only for log messages).
 
     Returns:
-        str: Cleaned article text, or an empty string on error or if no body
-            content is found.
-
-    Notes:
-        - This is a heuristic extractor and may not work for all sites.
-        - The returned body may be long; callers should truncate if needed.
+        str: Cleaned article text, or an empty string if no body content
+            is found.
     """
-    if not url:
-        LOGGER.warning("Empty URL provided to get_body()")
-        return ""
-
-    # Normalize URL
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    # Fetch
-    try:
-        resp = requests.get(url, timeout=30, headers=HEADERS)
-        resp.raise_for_status()
-    except requests.RequestException as e:
-        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
-        return ""
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-
     # Strip non-content tags
     for tag in soup(
         [
@@ -714,6 +679,123 @@ def get_body(url: str) -> str:
 
     LOGGER.debug("No content chunks found after filtering for URL %s", url)
     return ""
+
+
+def get_title(url: str) -> str:
+    """Fetch and return the page title for a URL.
+
+    Extracts the HTML <title> tag and strips common site-name suffixes
+    (e.g. " | Reuters", " - NBC News").  Falls back to the raw URL if no
+    usable ``<title>`` tag is found or the request fails.
+
+    Args:
+        url (str): The URL to fetch.  ``https://`` is prepended if the scheme
+            is missing.
+
+    Returns:
+        str: Cleaned page title, or the URL on failure.
+    """
+    if not url:
+        return url
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
+        return url
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    return _extract_title_from_soup(soup, url)
+
+
+def get_body(url: str) -> str:
+    """Fetch and return the main article text for a URL.
+
+    The function performs a simple HTML scrape using `requests` and
+    `BeautifulSoup`, removes common non-content tags and noisy selectors
+    (ads, sidebars, footers), and returns the concatenated paragraph text
+    when available. Network errors or missing content return an empty string.
+
+    Args:
+        url (str): The URL to fetch. If the scheme is missing, `https://` is
+            prepended.
+
+    Returns:
+        str: Cleaned article text, or an empty string on error or if no body
+            content is found.
+
+    Notes:
+        - This is a heuristic extractor and may not work for all sites.
+        - The returned body may be long; callers should truncate if needed.
+    """
+    if not url:
+        LOGGER.warning("Empty URL provided to get_body()")
+        return ""
+
+    # Normalize URL
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    # Fetch
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
+        return ""
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    return _extract_body_from_soup(soup, url)
+
+
+def get_body_and_title(url: str) -> tuple[str, str]:
+    """Fetch a URL once and return both the article body and cleaned title.
+
+    Combines the work of :func:`get_body` and :func:`get_title` into a
+    single HTTP request, halving outbound traffic when both values are
+    needed for the same page.
+
+    The title is extracted **before** the body because
+    :func:`_extract_body_from_soup` mutates the soup tree by decomposing
+    non-content elements (which could remove the ``<title>`` tag).
+
+    Args:
+        url: The URL to fetch.  ``https://`` is prepended when the scheme
+            is missing.
+
+    Returns:
+        A ``(body, title)`` tuple.  On network errors the body is ``""``
+        and the title falls back to the (normalised) URL.  On empty /
+        missing content the body is ``""`` while the title may still be
+        valid.
+    """
+    if not url:
+        LOGGER.warning("Empty URL provided to get_body_and_title()")
+        return "", url or ""
+
+    # Normalize URL
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    # Fetch once
+    try:
+        resp = requests.get(url, timeout=30, headers=HEADERS)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        LOGGER.warning("Failed to fetch URL %s: %s", url, e)
+        return "", url
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Extract title first — _extract_body_from_soup mutates the tree.
+    title = _extract_title_from_soup(soup, url)
+    body = _extract_body_from_soup(soup, url)
+
+    return body, title
 
 
 _classifier = None
@@ -839,8 +921,17 @@ def ai_check_validation(
         - Cyber THREATS / advisories / vulnerabilities not yet exploited against a named victim ("CISA warns…", "researchers discover bug", "hardening guidance")
         - Cyber attacks on entities OUTSIDE healthcare (generic router malware, espionage campaigns, non-healthcare ransomware)
         - Workforce / burnout / compensation trends without a current named-facility care stoppage
+        - Crimes, accidents, or arrests that merely INVOLVE a healthcare object or location but do NOT stop care or operations at a named facility — e.g. a stolen ambulance, theft of medical equipment, a car crash involving an ambulance, a shooting or assault in a hospital parking lot, vandalism. The word "ambulance" or "hospital" appearing in the article is NOT enough; the article must describe care or operations actually being halted.
+        - Individual human-interest or patient stories (one person's illness, death, long wait, or recovery) without a named facility halting operations
         - Interviews, executive profiles, conferences, op-eds, opinion pieces
         - Anything hedged with "potential", "could", "may affect", "future risk", "expected to"
+
+        ===== CONCRETE NO EXAMPLES (these MUST be marked NO) =====
+
+        - "Man steals an ambulance and leads police on a chase" — a crime involving a vehicle; no named facility stopped care -> NO
+        - "Shooting in hospital parking lot; operations continue normally" — crime at a location, care not disrupted -> NO
+        - "Nurses vote to authorize a possible strike; no date set" — hedged future threat, no current stoppage -> NO
+        - "Family mourns father who died awaiting a transplant" — individual patient story, no facility disruption -> NO
 
         ===== JSON OUTPUT CONTRACT — FOLLOW EXACTLY =====
 
@@ -862,43 +953,6 @@ def ai_check_validation(
         TITLE: {title}
         EXCERPT: {body}
 
-    """
-
-    prompt = f"""
-    You are a strict Healthcare Operations Auditor. Your ONLY job is to flag articles that describe a REAL, ALREADY-OCCURRING healthcare disruption or a CONFIRMED breach at a named healthcare entity.
-
-    DEFAULT TO NO. Reject the article unless the evidence is explicit, named, and concrete. The vast majority of healthcare news is NOT a disruption.
-
-    ===== ACCEPT (mark YES) ONLY IF (A) OR (B) IS TRUE =====
-
-    (A) ACTIVE CARE DISRUPTION — the article states that a NAMED facility (hospital, clinic, pharmacy, lab, healthcare network) is CURRENTLY or RECENTLY:
-        - Diverting ambulances, cancelling surgeries, or turning patients away
-        - Operating on downtime / paper procedures because EHR is offline
-        - Suspending services or evacuating due to fire, flood, storm, or other physical event
-        - Physically out of a specific drug or medical device that patients need now (real supply outage, not pricing or formulary debate)
-        - Cut off from operations by a workforce strike, power outage, or other concrete event
-
-    (B) CONFIRMED HEALTHCARE BREACH / CYBERATTACK — both must be true:
-        Part 1: Named healthcare entity (hospitals, clinics, pharmacies, insurers, device manufacturers, EHR vendors, labs)
-        Part 2: Incident already confirmed (ransomware, PHI exposed, breach disclosed, systems impacted)
-
-    ===== REJECT (mark NO) =====
-    - Earnings, funding, IPOs, partnerships, product launches
-    - Policy, legislation, regulation, research, clinical trials
-    - Drug pricing without actual supply outage
-    - Cyber threats/advisories not yet exploited
-    - Op-eds, interviews, wellness articles, anything hedged with "could" or "may"
-
-    ===== OUTPUT =====
-    Respond with EXACTLY this JSON and nothing else:
-    {{
-    "analysis": "One factual sentence: name the entity and impact, OR reason for rejection.",
-    "is_operational_disruption": true or false,
-    "subsector": "drug_shortage" | "medical_device_shortage" | "cyber_attack" | "natural_disaster" | "other" | "none"
-    }}
-
-    TITLE: {title}
-    EXCERPT: {body}
     """
 
     try:
@@ -999,6 +1053,10 @@ def get_extraction_template(subsector: str) -> dict:
     return template
 
 
+class MissingSubsectorFieldsError(ValueError):
+    """Raised when a subsector has no configured extraction fields."""
+
+
 def extract_fields(subsector, title, body) -> tuple[dict, dict]:
     """Extract universal and subsector fields for a validated article.
 
@@ -1015,15 +1073,26 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         A tuple with the universal ``LLM_SECTOR_FIELDS`` values first and the
         matching ``SUBSECTOR_FIELDS`` values second.
 
+    Raises:
+        MissingSubsectorFieldsError: If the subsector is unknown or has no
+            configured extraction fields.
+
     Note:
         The AI currently decides which values can be extracted from the article.
         That keeps extraction flexible, but it is not ideal as a long-term
         structured-data contract.
     """
-    subsector_fields = SUBSECTOR_FIELDS.get(subsector)
+    try:
+        subsector_fields = SUBSECTOR_FIELDS[subsector]
+    except KeyError as exc:
+        message = f"No fields found for subsector {subsector!r}"
+        LOGGER.error(message)
+        raise MissingSubsectorFieldsError(message) from exc
+
     if not subsector_fields:
-        LOGGER.error("No fields found for subsector %s", subsector)
-        exit(1)
+        message = f"No fields found for subsector {subsector!r}"
+        LOGGER.error(message)
+        raise MissingSubsectorFieldsError(message)
 
     # generate typed json template for the LLM
     template_dict = get_extraction_template(subsector)
@@ -1159,3 +1228,44 @@ def ensure_model_available(model: str = AI_MODEL) -> None:
         )
 
     checked_ollama_models.add(model)
+
+
+def run_clean():
+    clear_directory(_PROJECT_ROOT / "data" / "gdelt_cache")  # gkg cache
+    clear_directory(_PROJECT_ROOT / "data" / "raw" / "gdelt")  # seeds
+
+    open(
+        _PROJECT_ROOT / "data" / "logs" / "gdelt_runner.log", "w"
+    ).close()  # clear runner log
+    open(
+        _PROJECT_ROOT / "data" / "logs" / "gdelt_seeds.log", "w"
+    ).close()  # clear seeds log
+
+    os.remove(_PROJECT_ROOT / "data" / "processed" / "GDELT.json") if (
+        _PROJECT_ROOT / "data" / "processed" / "GDELT.json"  # final output
+    ).exists() else None
+    os.remove(_PROJECT_ROOT / "data" / "seen_urls.json") if (
+        _PROJECT_ROOT / "data" / "seen_urls.json"  # deduplication stuffs
+    ).exists() else None
+    LOGGER.info("Cleaning GDELT modified directories and files before run")
+
+
+def clear_directory(directory: Path) -> None:
+    """
+    Delete all files and subdirectories inside a directory.
+
+    Parameters:
+        directory: The path to the directory to clear.
+    """
+    if not directory.exists():
+        LOGGER.debug("Directory does not exist, skipping clear: %s", directory)
+        return
+    # Iterate over all items in the directory and remove them
+    for item in directory.iterdir():
+        try:
+            if item.is_file() or item.is_symlink():
+                item.unlink()
+            elif item.is_dir():
+                shutil.rmtree(item)
+        except Exception as exc:
+            LOGGER.warning("Failed to remove %s: %s", item, exc)

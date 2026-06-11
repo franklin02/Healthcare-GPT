@@ -74,8 +74,59 @@ def test_run_html_scraper_counts_validated_and_rejected_articles():
     assert len(noise_df) == 1
 
 
+<<<<<<< HEAD
 def test_run_html_scraper_pause_keeps_buffered_rows_in_dfs():
     """Ctrl-C during HTML processing should retain accepted and rejected rows."""
+=======
+def test_run_html_scraper_handles_missing_subsector_fields():
+    """Missing extraction fields should skip the article without stopping the run."""
+    site_config = {
+        "name": "TestSite",
+        "url": "https://example.com",
+        "map": {"starting_page": 1, "cap": 1},
+    }
+    articles = [
+        {
+            "title": "Hospital breach",
+            "link": "https://example.com/valid",
+            "body": "Confirmed breach",
+            "date": "2026-01-01",
+        }
+    ]
+
+    with (
+        patch("src.scrapers.scooper.ensure_model_available"),
+        patch("src.scrapers.scooper.check_valid_file"),
+        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
+        patch(
+            "src.scrapers.scooper.ai_check_validation",
+            return_value=(True, "cyber_attack"),
+        ),
+        patch(
+            "src.scrapers.scooper.extract_fields",
+            side_effect=scooper.MissingSubsectorFieldsError("No fields found"),
+        ),
+        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
+        patch("src.scrapers.scooper.prepend_noise_csv"),
+        patch("src.scrapers.scooper.prepend_json_sources"),
+    ):
+        stats = scooper.run_html_scraper(
+            site_config,
+            reporter=CliReporter(stream=io.StringIO()),
+            stats=PipelineStats("TestSite"),
+        )
+
+    assert stats.validated == 0
+    assert stats.skipped == 1
+    assert stats.warnings == 1
+    assert stats.output_records == 0
+    mock_vuln_csv.assert_called_once()
+    assert mock_vuln_csv.call_args.args[1] == []
+
+
+def test_run_html_scraper_pause_flushes_buffered_outputs():
+    """Ctrl-C during HTML processing should flush accepted and rejected rows."""
+>>>>>>> main
     site_config = {
         "name": "TestSite",
         "url": "https://example.com",

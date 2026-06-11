@@ -54,6 +54,7 @@ from src.classes.vulnerability import SUBSECTOR_DATA_CLASSES
 from src.shared_utils import (
     AI_MODEL,
     LLM_SECTOR_FIELDS,
+    MissingSubsectorFieldsError,
     SUBSECTOR_FIELDS,
     ensure_model_available,
     extract_fields,
@@ -141,7 +142,7 @@ PERFECT_ARTICLES: dict[str, dict[str, str]] = {
             "EHR systems"
         ),
         "body": (
-            "On 2026-03-09, Mercy Regional Hospital suffered a ransomware attack "
+            "On 2026-03-09, Mercy Regional Hospital, Ohio suffered a ransomware attack "
             "carried out by the threat actor group BlackCat. The attack exposed "
             "the protected data of 250000 patients. The data types exposed "
             "included Social Security numbers, medical records, and insurance "
@@ -194,7 +195,7 @@ PERFECT_ARTICLES: dict[str, dict[str, str]] = {
         ),
         "title": "Nurses strike at Lakeside Medical Center halts elective surgeries",
         "body": (
-            "On 2026-04-01, a labor strike began at Lakeside Medical Center. The "
+            "On 2026-04-01, a labor strike began at Lakeside Medical Center, Kansas. The "
             "event was a multi-day work stoppage by unionized staff over "
             "staffing ratios. The severity was described as major. The strike "
             "affected the surgery department, the emergency department, and the "
@@ -250,11 +251,17 @@ def validate(subsector: str) -> bool:
     """
     article = PERFECT_ARTICLES[subsector]
     expected_sector = list(LLM_SECTOR_FIELDS)
-    expected_subsector = list(SUBSECTOR_FIELDS[subsector])
 
-    sector_data, subsector_data = extract_fields(
-        subsector, article["title"], article["body"]
-    )
+    try:
+        sector_data, subsector_data = extract_fields(
+            subsector, article["title"], article["body"]
+        )
+    except MissingSubsectorFieldsError as exc:
+        print(f"\n=== {subsector} ===")
+        print(f"  [ERROR] {exc}")
+        return False
+
+    expected_subsector = list(SUBSECTOR_FIELDS[subsector])
 
     print(f"\n=== {subsector} ===")
     print(f"{article['description']}\n")

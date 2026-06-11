@@ -30,21 +30,19 @@ from typing import TextIO
 
 from tqdm import tqdm
 
-# The configured look. ``{desc}`` carries the instance/task name, ``{postfix}``
-# the current step (tqdm prefixes it with ", " when set), and tqdm renders
-# ``{bar}`` itself (unicode blocks or ascii). Keeping the step in the postfix —
-# after the bar — keeps every stacked bar left-aligned at the same width.
-# ``{bar}`` is replaced with a sized ``{bar:N}`` per reporter so instance bars
-# span ~1/5 of the terminal and the overall bar ~1/2 (it fills the whole line
-# otherwise).
-INSTANCE_BAR_FORMAT = "{desc} {percentage:3.0f}% |{bar}|{postfix}"
-OVERALL_BAR_FORMAT = "{desc} |{bar}| {n_fmt}/{total_fmt} [{elapsed}]{postfix}"
+# Both bars share one shape so the sticky area reads consistently: name, percent,
+# bar, then the free-form current step. The overall bar adds elapsed time before
+# the step. ``{step}`` is OUR placeholder (substituted per update in InstanceBar),
+# not tqdm's ``{postfix}`` — tqdm forces a ", " before postfix, which reads as
+# jank. ``{bar}`` is replaced with a sized ``{bar:N}`` per reporter (CliReporter).
+INSTANCE_BAR_FORMAT = "{desc} {percentage:3.0f}% |{bar}| {step}"
+OVERALL_BAR_FORMAT = "{desc} {percentage:3.0f}% |{bar}| [{elapsed}] {step}"
+_STEP_FIELD = "{step}"
 _MIN_INTERVAL = 0.1
 
-# Bar glyph widths are clamped to an absolute ceiling (and a floor) so a wide
-# terminal can't make the bars swallow the whole line. Tunable.
-_INSTANCE_BAR_MIN, _INSTANCE_BAR_MAX = 10, 20
-_OVERALL_BAR_MIN, _OVERALL_BAR_MAX = 20, 40
+# Both bars use one glyph width, clamped to a floor/ceiling so a wide terminal
+# can't make them swallow the line (and the whole line still fits). Tunable.
+_BAR_WIDTH_MIN, _BAR_WIDTH_MAX = 10, 28
 
 # The sticky area is a *contiguous* stack of tqdm bars starting at position 0.
 # We deliberately do NOT insert blank rows for breathing room: empty position
@@ -54,7 +52,7 @@ _OVERALL_BAR_MIN, _OVERALL_BAR_MAX = 20, 40
 _BARS_TOP = 0
 
 # A dash of whimsy (issue #191): occasional stand-in step labels shown while a
-# slow call is in flight. Bar-postfix only — never logged.
+# slow call is in flight. Bar step labels only — never logged.
 WHIMS: tuple[str, ...] = (
     "rejecting everything",
     "making no mistakes",
@@ -95,8 +93,8 @@ def get_active_reporter() -> "CliReporter | None":
 def whim(default: str) -> str:
     """Return ``default``, or occasionally a whimsical stand-in label.
 
-    Use only for bar step labels (postfix) while a slow call is in flight, and
-    restore the factual label afterwards — never feed the result to a logger.
+    Use only for bar step labels while a slow call is in flight, and restore the
+    factual label afterwards — never feed the result to a logger.
     Patch ``WHIM_CHANCE`` to 0.0 or 1.0 for deterministic tests.
     """
     if _whim_rng.random() < WHIM_CHANCE:
@@ -188,7 +186,7 @@ class InstanceBar:
     A *shared* bar (single-instance mode) shows the current task name as its
     description and is re-pointed at each unit of work via :meth:`start_task`.
     A non-shared bar keeps the instance name as its description and shows the
-    current task as a ``task: step`` postfix instead.
+    current task as a ``task: step`` prefix on the step text instead.
     """
 
     def __init__(
@@ -212,18 +210,27 @@ class InstanceBar:
         self.task: str | None = name if shared else None
         self._shared = shared
         self._verbose = verbose
+        self._base_format = bar_format
+        self._step = ""
         self._bar = tqdm(
             total=total,
             position=position,
             leave=True,
             desc=self._compose_desc(),
-            bar_format=bar_format,
+            bar_format=self._render_bar_format(),
             file=file,
             disable=disable,
             dynamic_ncols=True,
             mininterval=_MIN_INTERVAL,
             ascii=use_ascii,
         )
+
+    def _render_bar_format(self) -> str:
+        # Substitute our literal ``{step}`` ourselves so tqdm never sees it (and
+        # never prepends the ", " it forces before ``{postfix}``). Escape any
+        # braces in the step text so tqdm's later ``.format`` leaves it alone.
+        safe = self._step.replace("{", "{{").replace("}", "}}")
+        return self._base_format.replace(_STEP_FIELD, safe)
 
     def _compose_desc(self) -> str:
         base = (self.task or self.name) if self._shared else self.name
@@ -248,7 +255,8 @@ class InstanceBar:
         if endpoint is not None:
             self.endpoint = endpoint
         self._bar.set_description_str(self._compose_desc(), refresh=False)
-        self._bar.set_postfix_str("", refresh=False)
+        self._step = ""
+        self._bar.bar_format = self._render_bar_format()
         # Assign total directly: tqdm's reset(total=None) keeps the old total,
         # but a fresh task must start indeterminate unless told otherwise.
         self._bar.total = total
@@ -277,7 +285,9 @@ class InstanceBar:
         label = str(step)
         if not self._shared and self.task:
             label = f"{self.task}: {label}"
-        self._bar.set_postfix_str(label, refresh=True)
+        self._step = label
+        self._bar.bar_format = self._render_bar_format()
+        self._bar.refresh()
 
     def close(self) -> None:
         self._bar.close()
@@ -309,16 +319,15 @@ class CliReporter:
         # output (logs + summary still print via tqdm.write).
         self._disable = (not _is_tty(self._file)) if disable is None else disable
         self._use_ascii = not _supports_unicode(self._file)
-        # Cap bar glyph widths relative to the terminal so bars don't swallow
-        # the whole line (fixed fallback off-terminal keeps output stable).
+        # One capped bar width for both bars so they line up and the whole line
+        # fits (fixed fallback off-terminal keeps output stable).
         cols = shutil.get_terminal_size((80, 20)).columns if _is_tty(self._file) else 80
-        instance_width = min(_INSTANCE_BAR_MAX, max(_INSTANCE_BAR_MIN, cols // 5))
-        overall_width = min(_OVERALL_BAR_MAX, max(_OVERALL_BAR_MIN, cols // 2))
+        bar_width = min(_BAR_WIDTH_MAX, max(_BAR_WIDTH_MIN, cols // 4))
         self._instance_bar_format = INSTANCE_BAR_FORMAT.replace(
-            "{bar}", f"{{bar:{instance_width}}}"
+            "{bar}", f"{{bar:{bar_width}}}"
         )
         self._overall_bar_format = OVERALL_BAR_FORMAT.replace(
-            "{bar}", f"{{bar:{overall_width}}}"
+            "{bar}", f"{{bar:{bar_width}}}"
         )
         self._multi = False
         self._task: InstanceBar | None = None

@@ -30,7 +30,7 @@ def test_instance_bar_tracks_progress_and_step():
 
         assert bar._bar.n == 1
         assert bar._bar.total == 4
-        assert bar._bar.postfix == "validating 1/4"
+        assert bar._step == "validating 1/4"
 
 
 def test_instance_lookup_is_idempotent_by_name():
@@ -66,7 +66,7 @@ def test_single_mode_shares_one_task_bar_across_units():
         assert site._bar.n == 0
         assert site._bar.total is None
         assert site._bar.desc == "CyberScoop"
-        assert site._bar.postfix == ""
+        assert site._step == ""
 
 
 def test_same_task_lookup_does_not_reset_progress():
@@ -115,17 +115,17 @@ def test_multi_mode_overall_bar_sits_below_instance_bars():
         assert abs(reporter.overall()._bar.pos) == 2
 
 
-def test_bar_widths_are_capped_relative_to_terminal():
-    """Instance bars get ~1/5 of the width, the overall bar ~1/2 (80 cols off-tty)."""
+def test_bars_share_one_width_relative_to_terminal():
+    """Both bars get the same width, ~1/4 of the terminal (80 cols off-tty -> 20)."""
     with CliReporter(file=io.StringIO(), disable=False) as reporter:
         task = reporter.register_instance("GDELT", total=4)
 
-        assert "{bar:16}" in task._bar.bar_format
-        assert "{bar:40}" in reporter.overall()._bar.bar_format
+        assert "{bar:20}" in task._bar.bar_format
+        assert "{bar:20}" in reporter.overall()._bar.bar_format
 
 
-def test_bar_widths_clamp_to_absolute_caps_on_wide_terminals(monkeypatch):
-    """A wide terminal must not make bars swallow the line: caps at 20 / 40."""
+def test_bar_width_clamps_to_absolute_cap_on_wide_terminals(monkeypatch):
+    """A wide terminal must not make bars swallow the line: capped at 28."""
     monkeypatch.setattr(cli_reporter, "_is_tty", lambda _file: True)
     monkeypatch.setattr(
         cli_reporter.shutil,
@@ -135,8 +135,8 @@ def test_bar_widths_clamp_to_absolute_caps_on_wide_terminals(monkeypatch):
     with CliReporter(file=io.StringIO(), disable=False) as reporter:
         task = reporter.register_instance("GDELT", total=4)
 
-        assert "{bar:20}" in task._bar.bar_format
-        assert "{bar:40}" in reporter.overall()._bar.bar_format
+        assert "{bar:28}" in task._bar.bar_format
+        assert "{bar:28}" in reporter.overall()._bar.bar_format
 
 
 def test_bound_instance_prefixes_task_in_step_label():
@@ -153,7 +153,7 @@ def test_bound_instance_prefixes_task_in_step_label():
             assert bar is bound
             assert bar.task == "GDELT"
             assert bar._bar.desc == "Instance 2"
-            assert bar._bar.postfix == "GDELT: processing 1/5"
+            assert bar._step == "GDELT: processing 1/5"
 
 
 def test_bind_instance_routes_threads_to_their_own_bars():

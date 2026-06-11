@@ -205,9 +205,7 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         gdelt_noise = (
-            NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json")
-            if args.debug
-            else None
+            NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
         )
         gdelt_stats = PipelineStats("GDELT")
         reporter.phase("Running GDELT pipeline")
@@ -254,9 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         import src.scrapers.scooper as scooper
 
         html_noise = (
-            NoiseCollector(DEBUG_DIR / "debug_noise_html.json")
-            if args.debug
-            else None
+            NoiseCollector(DEBUG_DIR / "debug_noise_html.json") if args.debug else None
         )
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")

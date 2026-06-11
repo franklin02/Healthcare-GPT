@@ -1119,11 +1119,7 @@ if __name__ == "__main__":
     if args.clean:
         run_clean()
 
-    noise = (
-        NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json")
-        if args.debug
-        else None
-    )
+    noise = NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
     run(
         num_files=args.num_files,
         limit=effective_limit,

@@ -655,6 +655,50 @@ class TestProcessSeed:
         assert result is None
         assert "https://example.com/test" in seen
 
+    @patch("src.GDELT.runner.get_body_and_title")
+    @patch("src.GDELT.runner.ai_check_validation")
+    def test_process_seed_logs_classifier_rejection(
+        self, mock_ai_check, mock_get_body_and_title
+    ):
+        seed = {
+            "url": "https://example.com/test",
+            "source": "TestSource",
+            "date": "2026-01-02",
+        }
+        writer = Mock()
+        mock_get_body_and_title.return_value = ("Some content", "Test Article")
+        mock_ai_check.return_value = (False, "BERT: unrelated news")
+
+        runner.process_seed(seed, set(), debug_writer=writer)
+
+        writer.write_rejection.assert_called_once_with(
+            pipeline="GDELT",
+            source="TestSource",
+            title="Test Article",
+            url=seed["url"],
+            publication_date="2026-01-02",
+            classification_stage="bert",
+            rejection_reason="BERT: unrelated news",
+            classified_text="Some content",
+        )
+
+    @patch("src.GDELT.runner.get_body_and_title")
+    @patch("src.GDELT.runner.ai_check_validation")
+    def test_process_seed_does_not_log_operational_skip(
+        self, mock_ai_check, mock_get_body_and_title
+    ):
+        writer = Mock()
+        mock_get_body_and_title.return_value = ("short", "Test Article")
+        mock_ai_check.return_value = (False, "Body too short for LLM review")
+
+        runner.process_seed(
+            {"url": "https://example.com/test"},
+            set(),
+            debug_writer=writer,
+        )
+
+        writer.write_rejection.assert_not_called()
+
     @patch("src.GDELT.runner.extract_fields")
     @patch("src.GDELT.runner.get_body_and_title")
     @patch("src.GDELT.runner.ai_check_validation")

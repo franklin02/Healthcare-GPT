@@ -7,6 +7,11 @@ from src.shared_utils import model_unavailable_error
 from src import orchestrator
 
 
+@pytest.fixture(autouse=True)
+def _disable_gdelt_download(monkeypatch):
+    monkeypatch.setattr(orchestrator, "backfill_cyber_seeds", lambda **kwargs: [])
+
+
 def test_orchestrator_forwards_verbose_to_gdelt_runner():
     """Verbose flag should be forwarded to the GDELT runner."""
     with (
@@ -36,6 +41,28 @@ def test_orchestrator_forwards_verbose_to_html_scraper():
     assert mock_scraper.call_args.kwargs["verbose"] is True
 
 
+def test_orchestrator_shares_debug_writer_across_pipelines():
+    sites = [{"name": "TestSite"}]
+    with (
+        patch("src.orchestrator.NoiseDebugWriter") as debug_writer,
+        patch("src.orchestrator.ensure_model_available"),
+        patch("src.GDELT.runner.run") as mock_run,
+        patch("src.scrapers.scooper.HTML_SITES", sites),
+        patch(
+            "src.scrapers.scooper.run_html_scraper",
+            return_value=PipelineStats("TestSite"),
+        ) as mock_scraper,
+        patch("src.cli_reporter.CliReporter.summary"),
+    ):
+        writer = debug_writer.return_value
+        result = orchestrator.main(["--debug"])
+
+    assert result == 0
+    assert mock_run.call_args.kwargs["debug_writer"] is writer
+    assert mock_scraper.call_args.kwargs["debug_writer"] is writer
+    writer.close.assert_called_once_with()
+
+
 def test_orchestrator_help_documents_html_limit_overrides(capsys):
     """CLI help should list the HTML pagination override flags."""
     with pytest.raises(SystemExit) as exc_info:
@@ -45,6 +72,7 @@ def test_orchestrator_help_documents_html_limit_overrides(capsys):
     help_text = capsys.readouterr().out
     assert "--html-start-page" in help_text
     assert "--html-page-cap" in help_text
+    assert "--debug" in help_text
 
 
 def test_orchestrator_detects_equals_style_gdelt_options():

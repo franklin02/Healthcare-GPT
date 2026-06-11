@@ -57,9 +57,9 @@ https://franklin02.github.io/Healthcare-GPT/index.html
 ## Optional Supabase Setup
 Supabase is used as an optional persistence and deduplication store. When
 `SUPABASE_URL` and `SUPABASE_KEY` are set, the GDELT and HTML pipelines can
-write accepted vulnerabilities, rejected noise articles, and duplicate records
-to Supabase. When those variables are missing, database writes are disabled and
-the local JSON/CSV outputs still work.
+write accepted vulnerabilities and duplicate records to Supabase. Rejected
+articles are only persisted when `--debug` is enabled. When credentials are
+missing, database writes are disabled and the local JSON/CSV outputs still work.
 
 1. Get the project URL and service-role key for the existing Healthcare-GPT
    Supabase project from a maintainer.

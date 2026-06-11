@@ -59,6 +59,12 @@ Run both active pipelines through the orchestrator:
 python -m src.orchestrator --num-files 2 --limit 3
 ```
 
+Capture classifier-rejected articles from both pipelines for evaluation:
+
+```bash
+python -m src.orchestrator --num-files 2 --limit 3 --debug
+```
+
 Run a small HTML-only pagination smoke test:
 
 ```bash
@@ -90,7 +96,23 @@ uvicorn src.RAG.server:app --reload
 - `data/raw/gdelt/enriched/`: records with extracted fields.
 - `data/processed/GDELT.json`: final appended output.
 - `data/seen_urls.json`: URL history used to avoid duplicate processing.
+- `data/debug/noise-YYYYMMDD-HHMMSS.json`: optional classifier-rejection
+  records created by `-d` / `--debug`.
 - `chroma_db/`: local vector store created by `src/ingest.py`.
+
+## Noise Evaluation
+
+The `-d` / `--debug` flag writes BERT and LLM rejections to one timestamped
+JSON file for the entire invocation. Each record includes its pipeline, source,
+title, URL, publication date, classification stage, rejection reason, the exact
+text classified, and a rejection timestamp. Duplicate skips, fetch failures,
+short bodies, parsing errors, invalid subsectors, and extraction failures are
+not included.
+
+The file remains valid JSON as records are appended, including after a graceful
+interrupt. It is a review dataset, not a calculated false-negative rate:
+reviewers must assign ground-truth labels before true-negative and
+false-negative metrics can be computed.
 
 ## Graceful Interrupts
 

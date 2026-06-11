@@ -341,16 +341,14 @@ def check_valid_file(site_name):
         site_name (str): The name of the site used to generate file names and structure.
 
     Function Logic:
-        - Ensures the directories READY_FOR_RAG_DIR, NOISE_DIR, and VULNERABILITIES_DIR exist by creating them if necessary.
+        - Ensures the READY_FOR_RAG_DIR and VULNERABILITIES_DIR directories exist by creating them if necessary.
         - Constructs a file stem using the supplied site_name with the help of the `_site_filename` function.
         - Checks if a .json file for the site exists in READY_FOR_RAG_DIR. If not, creates the file with a default JSON structure.
-        - Checks if a .csv file for the site exists in NOISE_DIR. If not, creates an empty file with a header row defined by NOISE_CSV_HEADER.
         - Checks if a .csv file for the site exists in VULNERABILITIES_DIR. If not, creates an empty file with a header row defined by VULN_CSV_HEADER.
         - Prints messages to indicate the creation of new files when applicable.
 
     """
     READY_FOR_RAG_DIR.mkdir(parents=True, exist_ok=True)
-    NOISE_DIR.mkdir(parents=True, exist_ok=True)
     VULNERABILITIES_DIR.mkdir(parents=True, exist_ok=True)
 
     stem = _site_filename(site_name)
@@ -359,12 +357,6 @@ def check_valid_file(site_name):
     if not json_path.exists():
         json_path.write_text(json.dumps({"sources": []}, indent=4), encoding="utf-8")
         LOGGER.debug("Created JSON file for site %s at %s", site_name, json_path)
-
-    noise_path = NOISE_DIR / f"{stem}.csv"
-    if not noise_path.exists():
-        with open(noise_path, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(NOISE_CSV_HEADER)
-        LOGGER.debug("Created noise CSV file for site %s at %s", site_name, noise_path)
 
     vulnerabilities_path = VULNERABILITIES_DIR / f"{stem}.csv"
     if not vulnerabilities_path.exists():

@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from src.cli_reporter import CliReporter, PipelineStats
+from src.debug_noise import NoiseDebugWriter, classification_stage
 from src.logging_utils import get_file_logger
 from src.shared_utils import (
     AI_MODEL,
@@ -28,7 +29,6 @@ from src.shared_utils import (
     MissingSubsectorFieldsError,
     model_unavailable_error,
     prepend_json_sources,
-    prepend_noise_csv,
     prepend_vuln_csv,
     _PROJECT_ROOT,
 )
@@ -40,7 +40,6 @@ try:
     from src.supabase_function import (
         load_cite,
         is_known_db,
-        insert_noise,
         has_supabase_creds,
     )
 
@@ -312,7 +311,6 @@ def fetch_html_page(
 def flush_html_outputs(
     site_name: str,
     new_rows: list[list[str]],
-    new_noise_rows: list[list[str]],
     new_vulns: list[Vulnerability],
     reporter: CliReporter,
     stats: PipelineStats,
@@ -320,16 +318,14 @@ def flush_html_outputs(
     """
     Flush buffered HTML scraper outputs to the configured destination helpers.
 
-    HTML site runs accumulate accepted vulnerability rows, rejected/noise rows,
-    and JSON-ready vulnerability objects in memory while a site is processed.
+    HTML site runs accumulate accepted vulnerability rows and JSON-ready
+    vulnerability objects in memory while a site is processed.
     This helper provides one shared write path for normal completion and
     graceful interrupt handling so a paused run does not lose buffered work.
 
     Parameters:
         site_name: Configured HTML source name used to select destination files.
         new_rows: Vulnerability CSV rows collected during the current site run.
-        new_noise_rows: Rejected/noise CSV rows collected during the current
-            site run.
         new_vulns: Vulnerability objects collected during the current site run.
         reporter: Reporter used to print the flush summary.
         stats: Pipeline statistics updated with the number of flushed
@@ -339,18 +335,16 @@ def flush_html_outputs(
     """
     reporter.finish_line()
     prepend_vuln_csv(site_name, new_rows)
-    prepend_noise_csv(site_name, new_noise_rows)
     prepend_json_sources(site_name, new_vulns)
     stats.output_records += len(new_vulns)
     reporter.info(
-        f"Finished {site_name}: {len(new_vulns)} vuln(s), "
-        f"{len(new_noise_rows)} rejected"
+        f"Finished {site_name}: {len(new_vulns)} vuln(s), {stats.rejected} rejected"
     )
     LOGGER.info(
         "Finished %s: %d vuln(s), %d rejected",
         site_name,
         len(new_vulns),
-        len(new_noise_rows),
+        stats.rejected,
     )
 
 
@@ -363,6 +357,7 @@ def run_html_scraper(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     sb_only: bool = False,
+    debug_writer: NoiseDebugWriter | None = None,
 ) -> PipelineStats:
     """
     Run one configured HTML scraper and return its run statistics.
@@ -443,8 +438,6 @@ def run_html_scraper(
     """
     new_vulns: list[Vulnerability] = []
     new_rows: list[list[str]] = []
-    new_noise_rows: list[list[str]] = []
-
     while True:
         if cap != -1 and current_page > cap:
             reporter.info(f"Reached page cap ({cap}) for {site_config['name']}")
@@ -631,34 +624,17 @@ def run_html_scraper(
                         new_vulns.append(vuln)
                 else:
                     stats.rejected += 1
-                    body_preview = (article["body"] or "")[:250].replace("\n", " ")
-
-                    if sb_only:
-                        try:
-                            insert_noise(
-                                source_name=site_config["name"],
-                                title=article["title"],
-                                url=article["link"],
-                                reason=detail,
-                                body_preview=body_preview,
-                                date_accessed=datetime.datetime.now().strftime(
-                                    "%Y-%m-%d %H:%M"
-                                ),
-                            )
-                        except Exception as e:
-                            LOGGER.warning(
-                                "insert_noise failed for %s: %s", article["title"], e
-                            )
-                    else:
-                        new_noise_rows.append(
-                            [
-                                datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                site_config["name"],
-                                article["title"],
-                                article["link"],
-                                detail,
-                                body_preview,
-                            ]
+                    stage = classification_stage(detail)
+                    if debug_writer is not None and stage is not None:
+                        debug_writer.write_rejection(
+                            pipeline="HTML",
+                            source=site_config["name"],
+                            title=article["title"],
+                            url=article["link"],
+                            publication_date=article.get("date", ""),
+                            classification_stage=stage,
+                            rejection_reason=detail,
+                            classified_text=article["body"] or "",
                         )
             except KeyboardInterrupt:
                 stats.paused = True
@@ -705,7 +681,6 @@ def run_html_scraper(
         flush_html_outputs(
             site_config["name"],
             new_rows,
-            new_noise_rows,
             new_vulns,
             reporter,
             stats,
@@ -741,6 +716,12 @@ if __name__ == "__main__":
         help="Show detailed per-article scraper output",
     )
     parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        help="Write classifier-rejected articles to a timestamped JSON file",
+    )
+    parser.add_argument(
         "--start-date",
         type=datetime.date.fromisoformat,
         default=get_config_date("HTML_START_DATE", None),
@@ -763,14 +744,23 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    for site in HTML_SITES:
-        stats = run_html_scraper(
-            site,
-            use_bert=args.use_bert,
-            verbose=args.verbose,
-            start_date=args.start_date,
-            end_date=args.end_date,
-            sb_only=args.sb_only,
-        )
-        if stats.paused:
-            break
+    debug_writer = NoiseDebugWriter() if args.debug else None
+    try:
+        for site in HTML_SITES:
+            stats = run_html_scraper(
+                site,
+                use_bert=args.use_bert,
+                verbose=args.verbose,
+                start_date=args.start_date,
+                end_date=args.end_date,
+                sb_only=args.sb_only,
+                debug_writer=debug_writer,
+            )
+            if stats.paused:
+                break
+    finally:
+        if debug_writer is not None:
+            debug_writer.close()
+            print(
+                f"Wrote {debug_writer.count} rejected article(s) to {debug_writer.path}"
+            )

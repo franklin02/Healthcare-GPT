@@ -37,6 +37,7 @@ from pathlib import Path
 from src.GDELT.gdelt_seeds import backfill_cyber_seeds
 from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from src.cli_reporter import CliReporter, PipelineStats
+from src.debug_noise import NoiseDebugWriter, classification_stage
 from src.logging_utils import get_file_logger
 from src.shared_utils import (
     AI_MODEL,
@@ -431,6 +432,7 @@ def process_staged_seeds(
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    debug_writer: NoiseDebugWriter | None = None,
 ) -> list[Vulnerability]:
     """
     Process staged GDELT seeds through validation and extraction while
@@ -468,6 +470,7 @@ def process_staged_seeds(
                 use_bert=use_bert,
                 reporter=reporter,
                 stats=stats,
+                debug_writer=debug_writer,
             )
             if rec:
                 persist_stage(
@@ -563,6 +566,7 @@ def stitch_staged_records(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     verbose: bool = False,
+    debug_writer: NoiseDebugWriter | None = None,
 ) -> list[dict]:
     """
     Recover records from a staged GDELT pipeline stage and write the
@@ -631,6 +635,7 @@ def stitch_staged_records(
             use_bert=use_bert,
             reporter=reporter,
             stats=stats,
+            debug_writer=debug_writer,
         )
         records = staged_records + records
     else:
@@ -654,6 +659,7 @@ def process_seed(
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    debug_writer: NoiseDebugWriter | None = None,
 ) -> Vulnerability | None:
     """
     Run a single seed through validation + extraction.
@@ -702,6 +708,18 @@ def process_seed(
     if not is_disruption:
         if stats is not None:
             stats.rejected += 1
+        stage = classification_stage(detail)
+        if debug_writer is not None and stage is not None:
+            debug_writer.write_rejection(
+                pipeline="GDELT",
+                source=seed.get("source", ""),
+                title=title,
+                url=url,
+                publication_date=seed.get("date", ""),
+                classification_stage=stage,
+                rejection_reason=detail,
+                classified_text=excerpt,
+            )
         reporter.detail(f"     [skip] not a disruption: {detail}")
         LOGGER.info("Not a disruption url=%s detail=%s", url, detail)
         return None
@@ -779,6 +797,7 @@ def run(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     raw_seeds: list[dict] | None = None,
+    debug_writer: NoiseDebugWriter | None = None,
 ) -> list[dict]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -891,6 +910,7 @@ def run(
                 use_bert=use_bert,
                 reporter=reporter,
                 stats=stats,
+                debug_writer=debug_writer,
             )
             if rec:
                 persist_stage(
@@ -1006,6 +1026,12 @@ if __name__ == "__main__":
         help="Show detailed per-article pipeline output",
     )
     parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        help="Write classifier-rejected articles to a timestamped JSON file",
+    )
+    parser.add_argument(
         "--stitch-staged",
         action="store_true",
         default=False,
@@ -1031,42 +1057,52 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    if args.stitch_staged or args.stitch_stage:
-        output_path_provided = any(
-            arg in ("-o", "--output-path") or arg.startswith("--output-path=")
-            for arg in sys.argv[1:]
+    debug_writer = NoiseDebugWriter() if args.debug else None
+    try:
+        if args.stitch_staged or args.stitch_stage:
+            output_path_provided = any(
+                arg in ("-o", "--output-path") or arg.startswith("--output-path=")
+                for arg in sys.argv[1:]
+            )
+            stitch_staged_records(
+                output_path=args.output_path if output_path_provided else None,
+                stage=args.stitch_stage or "enriched",
+                seen_urls_file=args.seen_urls_file,
+                use_bert=args.use_bert,
+                verbose=args.verbose,
+                debug_writer=debug_writer,
+            )
+            sys.exit(0)
+
+        # If --num-files/-n is explicitly provided without --limit/-l, process all
+        # discovered seeds for that fetch window instead of using the smoke-test cap.
+        n_provided = (
+            any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
+            or args.num_files is not None
         )
-        stitch_staged_records(
-            output_path=args.output_path if output_path_provided else None,
-            stage=args.stitch_stage or "enriched",
+        l_provided = args.limit is not None
+        effective_limit = args.limit
+        if not l_provided:
+            effective_limit = None if n_provided else 3
+
+        if args.clean:
+            run_clean()
+
+        run(
+            num_files=args.num_files,
+            limit=effective_limit,
+            output_path=args.output_path,
+            start_date=args.start_date,
+            end_date=args.end_date,
             seen_urls_file=args.seen_urls_file,
             use_bert=args.use_bert,
             verbose=args.verbose,
+            reporter=CliReporter(verbose=args.verbose),
+            debug_writer=debug_writer,
         )
-        sys.exit(0)
-
-    # If --num-files/-n is explicitly provided without --limit/-l, process all
-    # discovered seeds for that fetch window instead of using the smoke-test cap.
-    n_provided = (
-        any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
-        or args.num_files is not None
-    )
-    l_provided = args.limit is not None
-    effective_limit = args.limit
-    if not l_provided:
-        effective_limit = None if n_provided else 3
-
-    if args.clean:
-        run_clean()
-
-    run(
-        num_files=args.num_files,
-        limit=effective_limit,
-        output_path=args.output_path,
-        start_date=args.start_date,
-        end_date=args.end_date,
-        seen_urls_file=args.seen_urls_file,
-        use_bert=args.use_bert,
-        verbose=args.verbose,
-        reporter=CliReporter(verbose=args.verbose),
-    )
+    finally:
+        if debug_writer is not None:
+            debug_writer.close()
+            print(
+                f"Wrote {debug_writer.count} rejected article(s) to {debug_writer.path}"
+            )

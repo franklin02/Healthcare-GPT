@@ -1,5 +1,6 @@
 import io
 import logging
+import os
 import threading
 
 import pytest
@@ -101,17 +102,17 @@ def test_multiple_instances_and_overall_advance_independently():
 
 
 def test_multi_mode_overall_bar_sits_below_instance_bars():
-    """Instance bars stack below a spacer row, overall bar below another gap."""
+    """Bars form a contiguous stack with no gap rows (gaps corrupt tqdm draws)."""
     with CliReporter(file=io.StringIO(), disable=False) as reporter:
         reporter.build_instances(
             [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
         )
 
-        # tqdm stores position N as pos == -N. Row 0 separates the bars from
-        # the scrolling log area; the row above the overall bar stays blank.
-        assert abs(reporter.instance("Instance 1")._bar.pos) == 1
-        assert abs(reporter.instance("Instance 2")._bar.pos) == 2
-        assert abs(reporter.overall()._bar.pos) == 4
+        # tqdm stores position N as pos == -N. Contiguous: instances 0-1,
+        # overall 2 — every row is a real bar so the stack renders cleanly.
+        assert abs(reporter.instance("Instance 1")._bar.pos) == 0
+        assert abs(reporter.instance("Instance 2")._bar.pos) == 1
+        assert abs(reporter.overall()._bar.pos) == 2
 
 
 def test_bar_widths_are_capped_relative_to_terminal():
@@ -120,6 +121,21 @@ def test_bar_widths_are_capped_relative_to_terminal():
         task = reporter.register_instance("GDELT", total=4)
 
         assert "{bar:16}" in task._bar.bar_format
+        assert "{bar:40}" in reporter.overall()._bar.bar_format
+
+
+def test_bar_widths_clamp_to_absolute_caps_on_wide_terminals(monkeypatch):
+    """A wide terminal must not make bars swallow the line: caps at 20 / 40."""
+    monkeypatch.setattr(cli_reporter, "_is_tty", lambda _file: True)
+    monkeypatch.setattr(
+        cli_reporter.shutil,
+        "get_terminal_size",
+        lambda _default=None: os.terminal_size((200, 50)),
+    )
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        task = reporter.register_instance("GDELT", total=4)
+
+        assert "{bar:20}" in task._bar.bar_format
         assert "{bar:40}" in reporter.overall()._bar.bar_format
 
 

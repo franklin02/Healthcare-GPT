@@ -41,10 +41,17 @@ INSTANCE_BAR_FORMAT = "{desc} {percentage:3.0f}% |{bar}|{postfix}"
 OVERALL_BAR_FORMAT = "{desc} |{bar}| {n_fmt}/{total_fmt} [{elapsed}]{postfix}"
 _MIN_INTERVAL = 0.1
 
-# tqdm renders nothing on unoccupied position rows, so skipping rows leaves
-# visual breathing room: row 0 separates the bars from the scrolling log area,
-# and one blank row separates the instance/task area from the overall bar.
-_BARS_TOP = 1
+# Bar glyph widths are clamped to an absolute ceiling (and a floor) so a wide
+# terminal can't make the bars swallow the whole line. Tunable.
+_INSTANCE_BAR_MIN, _INSTANCE_BAR_MAX = 10, 20
+_OVERALL_BAR_MIN, _OVERALL_BAR_MAX = 20, 40
+
+# The sticky area is a *contiguous* stack of tqdm bars starting at position 0.
+# We deliberately do NOT insert blank rows for breathing room: empty position
+# rows OR blank "spacer" bars both corrupt tqdm's cursor/position accounting and
+# leave a ghost copy of the bottom (overall) bar one row down. Contiguous is the
+# only layout tqdm renders cleanly under log scrolling and concurrent threads.
+_BARS_TOP = 0
 
 # A dash of whimsy (issue #191): occasional stand-in step labels shown while a
 # slow call is in flight. Bar-postfix only — never logged.
@@ -305,23 +312,51 @@ class CliReporter:
         # Cap bar glyph widths relative to the terminal so bars don't swallow
         # the whole line (fixed fallback off-terminal keeps output stable).
         cols = shutil.get_terminal_size((80, 20)).columns if _is_tty(self._file) else 80
+        instance_width = min(_INSTANCE_BAR_MAX, max(_INSTANCE_BAR_MIN, cols // 5))
+        overall_width = min(_OVERALL_BAR_MAX, max(_OVERALL_BAR_MIN, cols // 2))
         self._instance_bar_format = INSTANCE_BAR_FORMAT.replace(
-            "{bar}", f"{{bar:{max(10, cols // 5)}}}"
+            "{bar}", f"{{bar:{instance_width}}}"
         )
         self._overall_bar_format = OVERALL_BAR_FORMAT.replace(
-            "{bar}", f"{{bar:{max(20, cols // 2)}}}"
+            "{bar}", f"{{bar:{overall_width}}}"
         )
         self._multi = False
         self._task: InstanceBar | None = None
         self._instances: dict[str, InstanceBar] = {}
         self._order: list[str] = []
         self._overall: InstanceBar | None = None
-        # Guards the bar registry; tqdm's own class lock serializes drawing.
+        self._cursor_hidden = False
+        # One reentrant lock guards the bar registry and serializes terminal
+        # draws across threads (tqdm.write log scrolling vs. bar refreshes).
+        # Reentrant because reporter methods hold it while calling bar ops that
+        # re-acquire it through tqdm.
         self._lock = threading.RLock()
+        tqdm.set_lock(self._lock)
         self._local = threading.local()
         set_active_reporter(self)
 
     # ---- instance + overall bar management ----------------------------
+
+    def _hide_cursor(self) -> None:
+        """Hide the terminal cursor so it doesn't park as a block on a bar row."""
+        if self._disable or self._cursor_hidden:
+            return
+        try:
+            self._file.write("\x1b[?25l")
+            self._file.flush()
+        except Exception:
+            pass
+        self._cursor_hidden = True
+
+    def _show_cursor(self) -> None:
+        if not self._cursor_hidden:
+            return
+        try:
+            self._file.write("\x1b[?25h")
+            self._file.flush()
+        except Exception:
+            pass
+        self._cursor_hidden = False
 
     def build_instances(
         self, specs: list[InstanceSpec], *, model_label: str | None = None
@@ -337,6 +372,7 @@ class CliReporter:
         """
         self.info(f"Building instances ({len(specs)})...")
         with self._lock:
+            self._hide_cursor()
             if len(specs) > 1:
                 self._multi = True
                 for spec in specs:
@@ -429,6 +465,7 @@ class CliReporter:
             if not self._multi:
                 bar = self._task
                 if bar is None:
+                    self._hide_cursor()
                     bar = InstanceBar(
                         name,
                         position=_BARS_TOP,
@@ -482,12 +519,12 @@ class CliReporter:
     def _ensure_overall(self, total: int | None = None) -> InstanceBar:
         with self._lock:
             if self._overall is None:
-                # Always the bottom-most line, one blank row below the shared
-                # task bar (single mode) or the instance bars (multi mode).
-                position = _BARS_TOP + (len(self._order) + 1 if self._multi else 2)
+                self._hide_cursor()
+                bar_rows = len(self._order) if self._multi else 1
+                # Bottom-most line, contiguous with the instance/task bars above.
                 self._overall = InstanceBar(
                     "Pipeline progress",
-                    position=position,
+                    position=_BARS_TOP + bar_rows,
                     total=total,
                     file=self._file,
                     disable=self._disable,
@@ -552,6 +589,15 @@ class CliReporter:
 
     # ---- summary + teardown -------------------------------------------
 
+    @staticmethod
+    def _safe_close(bar: "InstanceBar | tqdm | None") -> None:
+        if bar is None:
+            return
+        try:
+            bar.close()
+        except Exception:
+            pass
+
     def finish_bars(self) -> None:
         """Close every bar (top to bottom) so they freeze as plain lines.
 
@@ -560,24 +606,16 @@ class CliReporter:
         """
         with self._lock:
             for name in self._order:
-                try:
-                    self._instances[name].close()
-                except Exception:
-                    pass
-            if self._task is not None:
-                try:
-                    self._task.close()
-                except Exception:
-                    pass
-            if self._overall is not None:
-                try:
-                    self._overall.close()
-                except Exception:
-                    pass
+                self._safe_close(self._instances.get(name))
+            self._safe_close(self._task)
+            # Close the overall bar last so the cursor ends below the whole stack
+            # and the next write (the summary) lands on a clean line.
+            self._safe_close(self._overall)
             self._instances.clear()
             self._order.clear()
             self._task = None
             self._overall = None
+            self._show_cursor()
 
     def summary(self, stats: PipelineStats | list[PipelineStats]) -> None:
         """Print the run summary as one table (metrics as rows, runs as columns).

@@ -26,6 +26,9 @@ def test_orchestrator_forwards_verbose_to_html_scraper():
     sites = [{"name": "TestSite"}]
     with (
         patch("src.orchestrator.ensure_model_available"),
+        patch("src.orchestrator.get_config_bool", side_effect=lambda _, d=False: d),
+        patch("src.orchestrator.get_config_int", side_effect=lambda _, d=None: d),
+        patch("src.orchestrator.get_config_value", side_effect=lambda _, d=None: d),
         patch("src.scrapers.scooper.HTML_SITES", sites),
         patch("src.scrapers.scooper.run_html_scraper") as mock_scraper,
         patch("src.cli_reporter.CliReporter.summary"),
@@ -72,6 +75,9 @@ def test_orchestrator_skips_html_after_gdelt_pause():
 
     with (
         patch("src.orchestrator.ensure_model_available"),
+        patch("src.orchestrator.get_config_bool", side_effect=lambda _, d=False: d),
+        patch("src.orchestrator.get_config_int", side_effect=lambda _, d=None: d),
+        patch("src.orchestrator.get_config_value", side_effect=lambda _, d=None: d),
         patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
         patch("src.GDELT.runner.run", side_effect=pause_gdelt) as mock_run,
         patch("src.scrapers.scooper.run_html_scraper") as mock_scraper,

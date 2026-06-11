@@ -106,7 +106,10 @@ def main() -> None:
         "--instances", type=int, default=1, help="number of fake instances"
     )
     parser.add_argument(
-        "--delay", type=float, default=0.05, help="seconds per fake item"
+        "--delay",
+        type=float,
+        default=0.4,
+        help="seconds per fake item (lower for a faster run, e.g. --delay 0.05)",
     )
     parser.add_argument(
         "--verbose", action="store_true", help="annotate instance model endpoints"

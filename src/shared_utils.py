@@ -1108,7 +1108,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         3. Return EXACTLY the requested keys — no extra fields, no renamed fields, no nested objects.
         4. Numeric fields: return raw numbers, not strings. Strip currency symbols and unit suffixes (e.g. "$5 million" -> 5000000, "12 days" -> 12). If the number is approximate or a range, use null.
         5. Date fields: use ISO format YYYY-MM-DD only if the article gives an explicit date. If only a month/year or vague phrasing ("later this year") is given, use null.
-        6. Boolean fields: return true for an explicit affirmative statement, false for an explicit negative statement, and null when the field is unmentioned or uncertain. For example, "the hospital did not pay the ransom" means false and "no evacuation order was issued" means false. Do not infer booleans from context.
+        6. Boolean fields: return true for an explicit affirmative statement, false for an explicit negative statement, and null when the field is unmentioned or uncertain. Do not infer booleans from context.
         7. List fields: return a JSON array of strings, each lifted directly from the article. If nothing is stated, use null (not an empty array).
         8. Output VALID JSON only — no markdown fences, no commentary, no trailing text.
 

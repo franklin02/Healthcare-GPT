@@ -72,7 +72,13 @@ def chunk_list(items, num_chunks):
     Returns:
         A list of lists, where each sublist is a chunk of the original items.
     """
+    if num_chunks is None or num_chunks <= 0:
+        num_chunks = 1
+    if not items:
+        return []
     chunk_size = math.ceil(len(items) / num_chunks)
+    if chunk_size <= 0:
+        return []
     return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
 
 
@@ -259,6 +265,9 @@ def main(argv: list[str] | None = None) -> int:
         seen = load_seen()
         models_to_run = max(1, args.vram // args.vram_per_model)
         chunks = chunk_list(raw_seeds, models_to_run)
+
+        if not chunks:
+            chunks = [[]]
 
         with ThreadPoolExecutor(max_workers=models_to_run) as executor:
             futures = []

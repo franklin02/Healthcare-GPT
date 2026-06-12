@@ -17,10 +17,10 @@ Functions
     - ''
 """
 import csv
+import json
 import datetime
 import argparse
 import time
-import uuid
 from pathlib import Path
 import pandas as pd
 from bs4 import BeautifulSoup
@@ -28,42 +28,73 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from src.cli_reporter import CliReporter, PipelineStats
-from src.logging_utils import get_file_logger
+# from src.logging_utils import get_file_logger
+
+# from src.shared_utils import (
+#     AI_MODEL,
+#     NOISE_CSV_HEADER,
+#     VULN_CSV_HEADER,
+#     ai_check_validation,
+#     ensure_model_available,
+#     extract_fields,
+#     get_config_bool,
+#     get_config_date,
+#     get_config_int,
+#     get_page,
+#     model_unavailable_error,
+#     _PROJECT_ROOT,
+# )
+import datetime
 import time
 import uuid
 import argparse
-from pathlib import Path
-import pandas as pd
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
-from src.cli_reporter import CliReporter, PipelineStats
-from src.logging_utils import get_file_logger
-from src.shared_utils import (
+from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
+from ..cli_reporter import CliReporter, PipelineStats
+from ..logging_utils import get_file_logger
+from ..shared_utils import (
     AI_MODEL,
-    NOISE_CSV_HEADER,
-    VULN_CSV_HEADER,
     ai_check_validation,
+    check_valid_file,
+    DEBUG_DIR,
+    NoiseCollector,
     ensure_model_available,
     extract_fields,
     get_config_bool,
     get_config_date,
     get_config_int,
     get_page,
+    is_known_article,
+    MissingSubsectorFieldsError,
     model_unavailable_error,
+    prepend_json_sources,
+    prepend_noise_csv,
+    prepend_vuln_csv,
     _PROJECT_ROOT,
 )
-
 
 LOGGER = get_file_logger(__name__, _PROJECT_ROOT / "data" / "logs" / "scooper.log")
 
 VULN_CSV_PATH = _PROJECT_ROOT / "data" / "vulnerabilities" / "scooper_vuln.csv"
 VULN_CSV_HEADER = [
-
+    "source_name",
+    "title",
+    "direct_link",
+    "subsector",
+    "date_accessed", #sb and local should handle this differntly, empty for now
+    "date_published",
+    "exec_summary",
+    
 ]
 NOISE_CSV_PATH = _PROJECT_ROOT / "data" / "noise" / "scooper_noise.csv"
 NOISE_CSV_HEADER = [
-
+    "source_name",
+    "title",
+    "link",
+    "reason",
+    "body_preview",
+    "date"
 ]
 RAW_CSV_PATH = _PROJECT_ROOT / "data" / "raw" / "scooper_raw.csv"
 RAW_CSV_HEADER = [
@@ -138,20 +169,6 @@ HTML_SITES = [
         },
     },
     {
-        "name": "MedicalNewsToday",
-        "url": "https://www.medicalnewstoday.com/news",
-        "pagination_url": "https://www.medicalnewstoday.com/news",  # this cite doesnt have pagination
-        "map": {
-            "container": "ol li",
-            "title": None,
-            "link_selector": "a:has(h2)",
-            "body_selector": "article.article-body",
-            "date_selector": "",
-            "starting_page": 1,
-            "cap": 1,
-        },
-    },
-    {
         "name": "AHA",
         "url": "https://www.aha.org/news",
         "pagination_url": "https://www.aha.org/news?page=%2C{page}",
@@ -185,6 +202,40 @@ HTML_SITES = [
 SITE_NAMES = [s["name"] for s in HTML_SITES]
 
 
+def _unseen_df() -> pd.DataFrame:
+    """
+    Total raw data - (vuln + noise) = data not analyzed
+
+    Returns the raw rows not yet classified into the vulnerability or noise
+    CSVs. Rows are matched on (source_name, title) — the same identity used to
+    dedupe while scraping. With nothing classified yet, all raw rows are
+    returned.
+    """
+    key = ["source_name", "title"]
+    raw_df = pd.read_csv(RAW_CSV_PATH, parse_dates=["date"])
+
+    # Collect the (source_name, title) of everything already classified. The
+    # vuln/noise CSVs may not exist or be empty yet, in which case nothing is
+    # filtered out and every raw row counts as unseen.
+    seen_frames = []
+    for path in (VULN_CSV_PATH, NOISE_CSV_PATH):
+        if not path.exists():
+            continue
+        df = pd.read_csv(path)
+        if not df.empty and set(key).issubset(df.columns):
+            seen_frames.append(df[key])
+
+    if not seen_frames:
+        return raw_df
+
+    seen = pd.concat(seen_frames, ignore_index=True).drop_duplicates()
+
+    # Left anti-join: keep only raw rows whose key has no match in `seen`.
+    merged = raw_df.merge(seen, on=key, how="left", indicator=True)
+    unseen = merged.loc[merged["_merge"] == "left_only", raw_df.columns]
+    return unseen.reset_index(drop=True)
+
+
 def _setup_cvs() -> None:
     """
     Sets up all CSV paths on new runs
@@ -210,7 +261,10 @@ def _update_csv(df: pd.DataFrame) -> None:
     """
     if df.empty:
         return
-    df[RAW_CSV_HEADER].to_csv(RAW_CSV_PATH, mode="a", header=False, index=False)
+    df[RAW_CSV_HEADER].to_csv(
+        RAW_CSV_PATH, mode="a", header=False, index=False, date_format="%Y-%m-%d"
+    )
+
 
 def _scrape_page(
     site_config,
@@ -342,7 +396,8 @@ def _scrape_page(
                 """
 
             date_el = article_soup.select_one(date_selector) if date_selector else None
-            date = date_el.get("datetime", "") if date_el else ""
+            raw_date = date_el.get("datetime", "") if date_el else ""
+            date = pd.to_datetime(raw_date, errors="coerce").normalize()
 
             time.sleep(0.25)
         except Exception as e:
@@ -387,6 +442,7 @@ def _raw_data(known_df: pd.DataFrame, site_config, sb_only: bool = False) -> pd.
     cap = site_config["map"]["cap"]
     current_page = starting_page
 
+    stats = PipelineStats(site_config["name"])
     new_df = pd.DataFrame(columns=RAW_CSV_HEADER)
     while True:
         if cap != -1 and current_page > cap:
@@ -406,7 +462,7 @@ def _raw_data(known_df: pd.DataFrame, site_config, sb_only: bool = False) -> pd.
                 # reporter=reporter, # tbr
                 stats=stats,
                 sb_only=sb_only,
-                known_df=known_df
+                raw_df=known_df
             )
         except KeyboardInterrupt:
             stats.paused = True
@@ -435,7 +491,7 @@ def _raw_data(known_df: pd.DataFrame, site_config, sb_only: bool = False) -> pd.
                 page_url,
                 e,
             )
-            return stats
+            return new_df
 
         if articles.empty:
             print(f"No articles found on page {current_page}; stopping pagination") # tbr
@@ -486,6 +542,8 @@ def setup_scooper(sb_only: bool = False) -> None:
     to a CSV, and makes sure things like paths exist for future runs. 
     """
     _setup_cvs()
+    ensure_model_available()
+
     results = []
 
     raw_df = pd.read_csv(RAW_CSV_PATH)
@@ -494,15 +552,161 @@ def setup_scooper(sb_only: bool = False) -> None:
 
     with ThreadPoolExecutor(max_workers=len(SITE_NAMES)) as executor:
         futures = []
-        for s in SITE_NAMES:
-            site_df = raw_df[raw_df["source_name"] == s]
-            futures.append(executor.submit(_raw_data, site_df, s, sb_only)) # add cite config l8er
+        for site in HTML_SITES:
+            site_df = raw_df[raw_df["source_name"] == site["name"]]
+            futures.append(executor.submit(_raw_data, site_df, site, sb_only)) # add cite config l8er
 
         for future in as_completed(futures):
             results.append(future.result())
 
     new_raw_df = pd.concat(results, ignore_index=True)
     _update_csv(new_raw_df)
+
+
+def run_scooper(
+    use_bert: bool = False,
+    verbose: bool = False,
+    start_date: datetime.date | None = None,
+    end_date: datetime.date | None = None,
+    reporter: CliReporter | None = None,
+    stats: PipelineStats | None = None,
+    sb_only: bool = False,
+) -> PipelineStats:
+    stats = stats or PipelineStats("Scooper")
+    local_only = not sb_only
+
+    # empty dfs with their correct shape
+    vuln_df = pd.DataFrame(columns=VULN_CSV_HEADER)
+    noise_df = pd.DataFrame(columns=NOISE_CSV_HEADER)
+    
+    # contains raw and unclassified data
+    df = _unseen_df()
+
+    if start_date is not None:
+        df = df[df["date"] <= pd.Timestamp(start_date)]
+    if end_date is not None:
+        df = df[df["date"] >= pd.Timestamp(end_date)]
+        
+    for row in df.itertuples():
+        stats.processed += 1
+
+        title = row.title if isinstance(row.title, str) else "" 
+        body = row.body if isinstance(row.body, str) else ""
+        link = row.link if isinstance(row.link, str) else ""
+        date_published = (
+            row.date.strftime("%Y-%m-%d") if pd.notna(row.date) else ""
+        )
+
+        if verbose:
+            if not title: print(f"No title found for this df: {row}")
+            if not body: print(f"No body found for this df: {row}")
+            if not link: print(f"No link found for this df: {row}")
+            if not date_published: print(f"No date found for this df: {row}")
+
+        try:
+            is_threat, detail = ai_check_validation(
+                title, body, use_bert=use_bert, verbose=verbose
+            )
+            if is_threat:
+                if detail not in SUBSECTOR_FIELDS:
+                    print(f"[WARNING] Unrecognized subsector '{detail}' — skipping: {title}") # tbr
+                    LOGGER.warning(
+                        f"[WARNING] Unrecognized subsector '{detail}' — skipping: {title}"
+                    )
+                    stats.skipped += 1
+                    continue
+                try:
+                    sector_data, ss_data = extract_fields(
+                        detail, title, body
+                    )
+                except MissingSubsectorFieldsError as exc:
+                    stats.skipped += 1
+                    # reporter.warn( # tbr
+                    #     f"Skipping extraction for {article['title']!r}: {exc}",
+                    #     stats,
+                    # )
+                    LOGGER.warning(
+                        "Skipping extraction for %s: %s", title, exc
+                    )
+                    continue
+                stats.validated += 1
+                
+                # this is validated, info is extracted
+                if sb_only:
+                    """
+                    # TODO implement supabse logic here
+                    """
+
+                #local logic
+                else:
+                    vuln_df = pd.concat([vuln_df, pd.DataFrame([{
+                        col: val for col, val in zip(VULN_CSV_HEADER, [
+                            row.source_name,
+                            title,
+                            link,
+                            detail,
+                            datetime.datetime.now().strftime("%Y-%m-%d"),
+                            date_published,
+                            sector_data.get("exec_summary") or "",
+                        ])
+                    }])], ignore_index=True)
+                    if verbose:
+                        print(f"[VULN] {detail}: {title}") # tbr
+
+            # JSON write
+
+
+                    
+
+
+                
+
+            else: # this is noise
+                body_preview = body[:250].replace("\n", " ")
+                noise_df = pd.concat([noise_df, pd.DataFrame([{
+                    col: val for col, val in zip(NOISE_CSV_HEADER, [row.source_name, title, link, detail, body_preview, date_published])
+                }])], ignore_index=True)
+                stats.rejected += 1
+                if verbose:
+                    print(f"[NOISE] {detail}: {title}") # tbr
+                    
+
+
+
+
+        except KeyboardInterrupt:
+            stats.paused = True
+            # reporter.finish_line() # tbr
+            # reporter.info(
+            #     f"HTML scraper paused by operator during {site_config['name']}; "
+            #     "flushing completed records."
+            # )
+            LOGGER.info(
+                "HTML scraper paused by operator while processing this article %s",
+                link,
+            )
+            break
+        except Exception as e:
+            LOGGER.warning(
+                "Validation failed for %s: %s", title, e
+            )
+            continue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
@@ -545,18 +749,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    for site in HTML_SITES:
-        stats, vuln_df, noise_df = run_html_scraper(
-            site,
-            use_bert=args.use_bert,
-            verbose=args.verbose,
-            start_date=args.start_date,
-            end_date=args.end_date,
-            sb_only=args.sb_only,
-        )
-        print(
-            f"{site['name']}: vuln_df={len(vuln_df)} rows, "
-            f"noise_df={len(noise_df)} rows"
-        )
-        if stats.paused:
-            break
+    stats = run_scooper(
+        use_bert=args.use_bert,
+        verbose=args.verbose,
+        start_date=args.start_date,
+        end_date=args.end_date,
+        sb_only=args.sb_only,
+    )

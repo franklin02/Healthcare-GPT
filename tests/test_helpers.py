@@ -824,6 +824,24 @@ class TestExtractFields:
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["options"]["temperature"] == 0.0
 
+    @patch("src.shared_utils.requests.post")
+    def test_extract_fields_handles_explicit_negative_boolean(self, mock_post):
+        """An explicitly negated boolean is requested and returned as false."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "response": json.dumps({"ransom_paid": False})
+        }
+        mock_post.return_value = mock_response
+
+        _, subsector_data = helpers.extract_fields(
+            "cyber_attack",
+            "Ransomware",
+            "The hospital did not pay the ransom.",
+        )
+        prompt = mock_post.call_args[1]["json"]["prompt"]
+        assert "false for an explicit negative statement" in prompt
+        assert subsector_data["ransom_paid"] is False
+
 
 class TestRunBertAndUseBert:
     """Test suite for _run_bert and ai_check_validation(use_bert=True)."""

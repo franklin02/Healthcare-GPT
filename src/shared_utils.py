@@ -58,8 +58,8 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
-from src.logging_utils import get_file_logger
+from .classes import SUBSECTOR_DATA_CLASSES, Vulnerability
+from .logging_utils import get_file_logger
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_PATH = _PROJECT_ROOT / "src" / "config" / "config.cfg"
@@ -1108,7 +1108,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         3. Return EXACTLY the requested keys — no extra fields, no renamed fields, no nested objects.
         4. Numeric fields: return raw numbers, not strings. Strip currency symbols and unit suffixes (e.g. "$5 million" -> 5000000, "12 days" -> 12). If the number is approximate or a range, use null.
         5. Date fields: use ISO format YYYY-MM-DD only if the article gives an explicit date. If only a month/year or vague phrasing ("later this year") is given, use null.
-        6. Boolean fields: true or false ONLY if explicitly stated; otherwise null. Do not infer booleans from context.
+        6. Boolean fields: return true for an explicit affirmative statement, false for an explicit negative statement, and null when the field is unmentioned or uncertain. Do not infer booleans from context.
         7. List fields: return a JSON array of strings, each lifted directly from the article. If nothing is stated, use null (not an empty array).
         8. Output VALID JSON only — no markdown fences, no commentary, no trailing text.
 
@@ -1269,3 +1269,77 @@ def clear_directory(directory: Path) -> None:
                 shutil.rmtree(item)
         except Exception as exc:
             LOGGER.warning("Failed to remove %s: %s", item, exc)
+
+
+DEBUG_DIR = _PROJECT_ROOT / "data" / "noise"
+
+
+class NoiseCollector:
+    """Accumulate rejected-article records and flush them to a JSON file.
+
+    Used when the ``--debug`` / ``-d`` flag is passed to capture every article
+    the pipeline skips or rejects so operators can evaluate false-negative rates.
+
+    Parameters:
+        output_path: Destination JSON file (e.g. ``data/noise/debug_noise_gdelt.json``).
+    """
+
+    def __init__(self, output_path: Path) -> None:
+        self.output_path = output_path
+        self.records: list[dict] = []
+
+    def add(
+        self,
+        *,
+        url: str,
+        title: str,
+        source: str,
+        reason: str,
+        body_preview: str = "",
+        stage: str = "",
+    ) -> None:
+        """Append one noise record.
+
+        Parameters:
+            url: The article URL that was rejected.
+            title: The article title.
+            source: Pipeline source name (e.g. ``"GDELT"``, ``"CyberScoop"``).
+            reason: Human-readable rejection reason.
+            body_preview: First 250 characters of the article body.
+            stage: Pipeline stage that rejected the article (e.g.
+                ``"already_seen"``, ``"validation"``, ``"extraction"``).
+        """
+        self.records.append(
+            {
+                "url": url,
+                "title": title,
+                "source": source,
+                "reason": reason,
+                "body_preview": body_preview[:250],
+                "stage": stage,
+                "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+
+    def flush(self) -> Path | None:
+        """Write accumulated records to the JSON file and return the path.
+
+        Creates the parent directory if it does not exist.  Returns ``None``
+        when there are no records to write.
+        """
+        if not self.records:
+            return None
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.output_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {"noise_records": self.records, "total": len(self.records)},
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        LOGGER.info(
+            "Wrote %d debug noise records to %s",
+            len(self.records),
+            self.output_path,
+        )
+        return self.output_path

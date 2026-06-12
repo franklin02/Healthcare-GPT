@@ -8,49 +8,38 @@ or shrink HTML runs without changing source configuration.
 import datetime
 import time
 import uuid
-from pathlib import Path
-import pandas as pd
+import argparse
 from bs4 import BeautifulSoup
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
-from src.classes import SUBSECTOR_DATA_CLASSES, Vulnerability
-from src.cli_reporter import CliReporter, PipelineStats
-from src.logging_utils import get_file_logger
-from src.shared_utils import (
+from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
+from ..cli_reporter import CliReporter, PipelineStats
+from ..logging_utils import get_file_logger
+from ..shared_utils import (
+    AI_MODEL,
     ai_check_validation,
     check_valid_file,
+    DEBUG_DIR,
+    NoiseCollector,
     ensure_model_available,
     extract_fields,
+    get_config_bool,
+    get_config_date,
     get_config_int,
     get_page,
     is_known_article,
     MissingSubsectorFieldsError,
     model_unavailable_error,
-    NOISE_CSV_HEADER,
     prepend_json_sources,
     prepend_noise_csv,
     prepend_vuln_csv,
-    VULN_CSV_HEADER,
     _PROJECT_ROOT,
 )
 
 LOGGER = get_file_logger(__name__, _PROJECT_ROOT / "data" / "logs" / "scooper.log")
 
-VULN_CSV_PATH = _PROJECT_ROOT / "data" / "vulnerabilities" / "scooper_vuln.csv"
-NOISE_CSV_PATH = _PROJECT_ROOT / "data" / "noise" / "scooper_noise.csv"
-RAW_CSV_PATH = _PROJECT_ROOT / "data" / "raw" / "scooper_raw.csv"
-RAW_CSV_HEADER = [
-    "date_accessed",
-    "date_published",
-    "source_name",
-    "title",
-    "link",
-    "body",
-]
-
 try:
-    from src.dedup import handle_vuln
-    from src.supabase_function import (
+    from ..dedup import handle_vuln
+    from ..supabase_function import (
         load_cite,
         is_known_db,
         insert_noise,
@@ -190,368 +179,13 @@ HTML_SITES = [
 ]
 
 
-SITE_NAMES = [s["name"] for s in HTML_SITES]
-
-
-def _load_csv(path: Path, columns: list[str]) -> pd.DataFrame:
-    """
-    Args:
-        path:
-        columns: 
-    Returns:
-        The CSV loaded as a string DataFrame, or an empty one with the given
-        columns when the file is missing or has no rows yet.
-    """
-    if path.exists():
-        try:
-            return pd.read_csv(path, dtype=str).fillna("")
-        except pd.errors.EmptyDataError:
-            return pd.DataFrame(columns=columns)
-    return pd.DataFrame(columns=columns)
-
-
-def _parse_listing(site_config, page_url) -> list[dict[str, str]]:
-    """
-    Fetch one listing page and return its ``{title, link}`` entries.
-
-    Only the listing page itself is fetched — article pages are not visited,
-    so callers can run the known-article check before paying for any body
-    fetches.
-    """
-    response = get_page(page_url)
-    soup = BeautifulSoup(response.content, "html.parser")
-
-    m = site_config["map"]
-    link_elements = soup.select(m["container"])
-    if not link_elements:
-        LOGGER.warning(
-            "container '%s' matched 0 elements on %s; check HTML_SITES config",
-            m["container"],
-            page_url,
-        )
-        return []
-
-    seen_urls = set()
-    entries = []
-    for el in link_elements:
-        if m.get("link_selector"):
-            a_tag = el.select_one(m["link_selector"])
-        else:
-            a_tag = el if el.name == "a" else el.select_one("a[href]")
-
-        if not a_tag or not a_tag.get("href"):
-            continue
-
-        href = a_tag["href"]
-        if not href.startswith("http"):
-            parsed = urlparse(site_config["url"])
-            href = f"{parsed.scheme}://{parsed.netloc}{href}"
-
-        if href in seen_urls:
-            continue
-        seen_urls.add(href)
-
-        title_text = ""
-        if m.get("title"):
-            title_el = el.select_one(m["title"])
-            title_text = title_el.get_text(strip=True) if title_el else ""
-        if not title_text:
-            title_text = a_tag.get_text(strip=True)
-
-        if title_text:
-            entries.append({"title": title_text, "link": href})
-
-    return entries
-
-
-def _fetch_article(site_config, entry) -> dict[str, str] | None:
-    """
-    Fetch one article page and return its full body and published date.
-
-    Returns ``None`` when the body selector matches nothing or the fetch
-    fails, so callers can skip the article and keep crawling.
-    """
-    m = site_config["map"]
-    try:
-        article_resp = get_page(entry["link"])
-        article_soup = BeautifulSoup(article_resp.content, "html.parser")
-
-        body_el = article_soup.select_one(m["body_selector"])
-        if not body_el:
-            LOGGER.warning(
-                "body_selector '%s' matched nothing on %s; skipping article",
-                m["body_selector"],
-                entry["link"],
-            )
-            return None
-
-        date_selector = m.get("date_selector", "")
-        date_el = article_soup.select_one(date_selector) if date_selector else None
-        date = date_el.get("datetime", "") if date_el else ""
-        body = body_el.get_text(separator=" ", strip=True)
-    except Exception as e:
-        LOGGER.warning("Could not fetch article body at %s: %s", entry["link"], e)
-        return None
-
-    time.sleep(0.25)
-    return {"body": body, "date": date}
-
-
-class Scooper:
-
-    def __init__(
-        self,
-        known_df: pd.DataFrame,
-        start_date: datetime.date | None = None,
-        end_date: datetime.date | None = None,
-    ) -> None:
-        """
-        Args:
-            known_df: The raw corpus (``RAW_CSV_HEADER`` columns); its
-                ``(title, link)`` pairs per site are what "known" means.
-            start_date: Newest article date to keep (inclusive ceiling), or
-                ``None`` for no upper bound.
-            end_date: Oldest article date to keep (inclusive floor), or
-                ``None`` for no lower bound.
-        """
-        self.start_date = start_date
-        self.end_date = end_date
-        self.windowed = start_date is not None or end_date is not None
-        self.known_keys: dict[str, set[tuple[str, str]]] = {
-            site["name"]: set() for site in HTML_SITES
-        }
-        for source, title, link in zip(
-            known_df["source_name"], known_df["title"], known_df["link"]
-        ):
-            self.known_keys.setdefault(source, set()).add((title, link))
-
-    def raw_data(self) -> pd.DataFrame:
-        """
-        Traverse every configured site top to bottom, one thread per site.
-
-        Returns:
-            Only the NEW raw rows (``RAW_CSV_HEADER`` columns). The caller 
-            appends these to the corpus DataFrame and CSV.
-        """
-        rows: list[list[str]] = []
-        with ThreadPoolExecutor(max_workers=len(HTML_SITES)) as executor:
-            futures = {
-                executor.submit(self._scrape_site, site): site["name"]
-                for site in HTML_SITES
-            }
-            for future in as_completed(futures):
-                site_name = futures[future]
-                try:
-                    site_rows = future.result()
-                except Exception as e:
-                    LOGGER.warning("Raw scrape failed for %s: %s", site_name, e)
-                    continue
-                LOGGER.info(
-                    "Collected %d new raw row(s) from %s", len(site_rows), site_name
-                )
-                rows.extend(site_rows)
-        return pd.DataFrame(rows, columns=RAW_CSV_HEADER)
-
-    def _scrape_site(self, site_config) -> list[list[str]]:
-        site_name = site_config["name"]
-        known = self.known_keys.get(site_name, set())
-        seen_this_run: set[tuple[str, str]] = set()
-        rows: list[list[str]] = []
-
-        starting_page = get_config_int(
-            "HTML_START_PAGE", site_config["map"]["starting_page"]
-        )
-        cap = site_config["map"]["cap"]
-        current_page = starting_page
-
-        while True:
-            if cap != -1 and current_page > cap:
-                LOGGER.info("Reached page cap (%d) for %s", cap, site_name)
-                break
-
-            if current_page == starting_page:
-                page_url = site_config["url"]
-            else:
-                pagination_url = site_config.get("pagination_url")
-                if pagination_url:
-                    page_url = pagination_url.replace("{page}", str(current_page))
-                else:
-                    page_param = site_config["map"].get("page_param", "page")
-                    sep = "&" if "?" in site_config["url"] else "?"
-                    page_url = f"{site_config['url']}{sep}{page_param}={current_page}"
-
-            try:
-                entries = _parse_listing(site_config, page_url)
-            except Exception as e:
-                LOGGER.warning(
-                    "Error fetching %s page %d (%s): %s — treating as end of site",
-                    site_name,
-                    current_page,
-                    page_url,
-                    e,
-                )
-                break
-
-            if not entries:
-                LOGGER.info(
-                    "No articles found on %s page %d; stopping pagination",
-                    site_name,
-                    current_page,
-                )
-                break
-
-            hit_known = False
-            reached_floor = False
-            for entry in entries:
-                key = (entry["title"], entry["link"])
-                if key in seen_this_run:
-                    continue
-                seen_this_run.add(key)
-
-                if key in known:
-                    if self.windowed:
-                        continue
-                    LOGGER.info(
-                        "Reached known article on %s: %r — stopping",
-                        site_name,
-                        entry["title"],
-                    )
-                    hit_known = True
-                    break
-
-                article = _fetch_article(site_config, entry)
-                if article is None:
-                    continue
-
-                pub_date = None
-                if self.windowed and article["date"]:
-                    try:
-                        pub_date = datetime.date.fromisoformat(article["date"][:10])
-                    except ValueError:
-                        pub_date = None
-                if pub_date is not None:
-                    if self.start_date and pub_date > self.start_date:
-                        continue
-                    if self.end_date and pub_date < self.end_date:
-                        reached_floor = True
-                        break
-
-                rows.append(
-                    [
-                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        article["date"],
-                        site_name,
-                        entry["title"],
-                        entry["link"],
-                        article["body"],
-                    ]
-                )
-
-            if hit_known or reached_floor:
-                break
-
-            current_page += 1
-            time.sleep(0.25)
-
-        return rows
-
-
-def setup_scooper() -> pd.DataFrame:
-    """
-    One-time setup plus a windowless raw-collection run over all sites.
-
-    Creates the output directories, seeds the three consolidated CSVs (raw,
-    vuln, noise) with their headers when missing, loads the raw corpus, runs
-    one windowless ``Scooper`` over every configured site, and appends any
-    new rows to both the in-memory DataFrame and ``scooper_raw.csv`` so the
-    next run sees them.
-
-    Returns:
-        The up-to-date raw corpus DataFrame (baseline plus this run's rows).
-    """
-    for path, header in (
-        (RAW_CSV_PATH, RAW_CSV_HEADER),
-        (VULN_CSV_PATH, VULN_CSV_HEADER),
-        (NOISE_CSV_PATH, NOISE_CSV_HEADER),
-    ):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if not path.exists():
-            pd.DataFrame(columns=header).to_csv(path, index=False)
-
-    raw_df = _load_csv(RAW_CSV_PATH, RAW_CSV_HEADER)
-    if raw_df.empty:
-        print("Empty or new raw CSV, running from scratch")
-
-    scooper = Scooper(known_df=raw_df)
-    new_df = scooper.raw_data()
-    if new_df.empty:
-        print("No new articles found")
-        return raw_df
-
-    # Rows are persisted only after the full traversal finishes; writing
-    # mid-run could leave a partial site prefix in the CSV, which would make
-    # the next run stop early and permanently miss the unscraped tail.
-    new_df.to_csv(RAW_CSV_PATH, mode="a", header=False, index=False)
-    raw_df = pd.concat([raw_df, new_df], ignore_index=True)
-    print(
-        f"Collected {len(new_df)} new article(s): "
-        f"{new_df['source_name'].value_counts().to_dict()}"
-    )
-    LOGGER.info("Appended %d new raw row(s) to %s", len(new_df), RAW_CSV_PATH)
-    return raw_df
-
-
-def flush_html_outputs(
-    site_name: str,
-    new_rows: list[list[str]],
-    new_noise_rows: list[list[str]],
-    new_vulns: list[Vulnerability],
-    # reporter: CliReporter,
-    stats: PipelineStats,
-) -> None:
-    """
-    Flush buffered HTML scraper outputs to the configured destination helpers.
-
-    HTML site runs accumulate accepted vulnerability rows, rejected/noise rows,
-    and JSON-ready vulnerability objects in memory while a site is processed.
-    This helper provides one shared write path for normal completion and
-    graceful interrupt handling so a paused run does not lose buffered work.
-
-    Parameters:
-        site_name: Configured HTML source name used to select destination files.
-        new_rows: Vulnerability CSV rows collected during the current site run.
-        new_noise_rows: Rejected/noise CSV rows collected during the current
-            site run.
-        new_vulns: Vulnerability objects collected during the current site run.
-        reporter: Reporter used to print the flush summary.
-        stats: Pipeline statistics updated with the number of flushed
-            vulnerability records.
-
-    NOTE: only used when reading or writing locally
-    """
-    # reporter.finish_line()
-    prepend_vuln_csv(site_name, new_rows)
-    prepend_noise_csv(site_name, new_noise_rows)
-    prepend_json_sources(site_name, new_vulns)
-    stats.output_records += len(new_vulns)
-    # reporter.info(
-    #     f"Finished {site_name}: {len(new_vulns)} vuln(s), "
-    #     f"{len(new_noise_rows)} rejected"
-    # )
-    LOGGER.info(
-        "Finished %s: %d vuln(s), %d rejected",
-        site_name,
-        len(new_vulns),
-        len(new_noise_rows),
-    )
-
-
 def fetch_html_page(
     site_config,
     page_url,
-    # reporter: CliReporter | None = None,
+    reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     sb_only: bool = False,
+    debug_noise: NoiseCollector | None = None,
 ):
     """
     Fetch one listing page and return article payloads plus a stop flag.
@@ -561,18 +195,18 @@ def fetch_html_page(
     The stop flag is set when a previously processed article is encountered so
     pagination can end early.
     """
-    # reporter = reporter or CliReporter(verbose=True)
+    reporter = reporter or CliReporter(verbose=True)
     response = get_page(page_url)
     soup = BeautifulSoup(response.content, "html.parser")
 
     m = site_config["map"]
     link_elements = soup.select(m["container"])
     if not link_elements:
-        # reporter.warn(
-        #     f"container '{m['container']}' matched 0 elements on {page_url}; "
-        #     "check HTML_SITES config",
-        #     stats,
-        # )
+        reporter.warn(
+            f"container '{m['container']}' matched 0 elements on {page_url}; "
+            "check HTML_SITES config",
+            stats,
+        )
         LOGGER.warning(
             "container '%s' matched 0 elements on %s; check HTML_SITES config",
             m["container"],
@@ -590,11 +224,11 @@ def fetch_html_page(
             a_tag = el if el.name == "a" else el.select_one("a[href]")
 
         if not a_tag:
-            # reporter.warn(
-            #     f"link_selector '{m.get('link_selector')}' found no anchor "
-            #     f"in a '{m['container']}' item",
-            #     stats,
-            # )
+            reporter.warn(
+                f"link_selector '{m.get('link_selector')}' found no anchor "
+                f"in a '{m['container']}' item",
+                stats,
+            )
             continue
 
         if not a_tag.get("href"):
@@ -632,23 +266,31 @@ def fetch_html_page(
 
             body_el = article_soup.select_one(body_selector)
             if not body_el:
-                # reporter.warn(
-                #     f"body_selector '{body_selector}' matched nothing on "
-                #     f"{entry['link']}; skipping article",
-                #     stats,
-                # )
+                reporter.warn(
+                    f"body_selector '{body_selector}' matched nothing on "
+                    f"{entry['link']}; skipping article",
+                    stats,
+                )
                 if stats is not None:
                     stats.skipped += 1
+                if debug_noise:
+                    debug_noise.add(
+                        url=entry["link"],
+                        title=entry["title"],
+                        source=site_config["name"],
+                        reason="body_selector matched nothing",
+                        stage="fetch",
+                    )
                 continue
 
             body = body_el.get_text(separator=" ", strip=True)
 
             if not sb_only:  # local dedup check only applies to local mode
                 if is_known_article(site_config["name"], entry["title"], body):
-                    # reporter.detail(
-                    #     f"[FINISH] Reached known article on {site_config['name']}: "
-                    #     f"{entry['title']!r}"
-                    # )
+                    reporter.detail(
+                        f"[FINISH] Reached known article on {site_config['name']}: "
+                        f"{entry['title']!r}"
+                    )
                     stop = True
                     break
 
@@ -657,12 +299,20 @@ def fetch_html_page(
 
             time.sleep(0.25)
         except Exception as e:
-            # reporter.warn(
-            #     f"Could not fetch article body at {entry['link']}: {e}", stats
-            # )
+            reporter.warn(
+                f"Could not fetch article body at {entry['link']}: {e}", stats
+            )
             LOGGER.warning("Error fetching article body:%s", e)
             if stats is not None:
                 stats.skipped += 1
+            if debug_noise:
+                debug_noise.add(
+                    url=entry["link"],
+                    title=entry["title"],
+                    source=site_config["name"],
+                    reason=f"Fetch failed: {e}",
+                    stage="fetch",
+                )
             continue
 
         articles.append(
@@ -678,15 +328,61 @@ def fetch_html_page(
     return articles, stop
 
 
+def flush_html_outputs(
+    site_name: str,
+    new_rows: list[list[str]],
+    new_noise_rows: list[list[str]],
+    new_vulns: list[Vulnerability],
+    reporter: CliReporter,
+    stats: PipelineStats,
+) -> None:
+    """
+    Flush buffered HTML scraper outputs to the configured destination helpers.
+
+    HTML site runs accumulate accepted vulnerability rows, rejected/noise rows,
+    and JSON-ready vulnerability objects in memory while a site is processed.
+    This helper provides one shared write path for normal completion and
+    graceful interrupt handling so a paused run does not lose buffered work.
+
+    Parameters:
+        site_name: Configured HTML source name used to select destination files.
+        new_rows: Vulnerability CSV rows collected during the current site run.
+        new_noise_rows: Rejected/noise CSV rows collected during the current
+            site run.
+        new_vulns: Vulnerability objects collected during the current site run.
+        reporter: Reporter used to print the flush summary.
+        stats: Pipeline statistics updated with the number of flushed
+            vulnerability records.
+
+    NOTE: only used when reading or writing locally
+    """
+    reporter.finish_line()
+    prepend_vuln_csv(site_name, new_rows)
+    prepend_noise_csv(site_name, new_noise_rows)
+    prepend_json_sources(site_name, new_vulns)
+    stats.output_records += len(new_vulns)
+    reporter.info(
+        f"Finished {site_name}: {len(new_vulns)} vuln(s), "
+        f"{len(new_noise_rows)} rejected"
+    )
+    LOGGER.info(
+        "Finished %s: %d vuln(s), %d rejected",
+        site_name,
+        len(new_vulns),
+        len(new_noise_rows),
+    )
+
+
 def run_html_scraper(
     site_config,
     use_bert: bool = False,
     verbose: bool = False,
     start_date: datetime.date | None = None,
     end_date: datetime.date | None = None,
-    # reporter: CliReporter | None = None,
+    reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     sb_only: bool = False,
+    debug_noise: NoiseCollector | None = None,
 ) -> PipelineStats:
     """
     Run one configured HTML scraper and return its run statistics.
@@ -716,14 +412,14 @@ def run_html_scraper(
         outputs through ``flush_html_outputs``, and returns the stats object to
         the orchestrator so remaining sites can be skipped.
     """
-    # local_reporter = reporter is None
-    # reporter = reporter or CliReporter(verbose=verbose)
+    local_reporter = reporter is None
+    reporter = reporter or CliReporter(verbose=verbose)
     stats = stats or PipelineStats(site_config["name"])
     stats.sites_scanned += 1
-    # reporter.phase(f"HTML scraper: {site_config['name']}")
-    # reporter.status(f"LLM model: {AI_MODEL}")
-    # if use_bert:
-    # reporter.status(_bert_status())
+    reporter.phase(f"HTML scraper: {site_config['name']}")
+    reporter.status(f"LLM model: {AI_MODEL}")
+    if use_bert:
+        reporter.status(_bert_status())
     try:
         ensure_model_available()
     except model_unavailable_error as exc:
@@ -751,7 +447,7 @@ def run_html_scraper(
         except Exception as e:
             message = f"load_cite failed for {site_config['name']}: {e}"
             LOGGER.warning(message)
-            # reporter.warn(message, stats)
+            reporter.warn(message, stats)
 
     starting_page = get_config_int(
         "HTML_START_PAGE", site_config["map"]["starting_page"]
@@ -771,7 +467,7 @@ def run_html_scraper(
 
     while True:
         if cap != -1 and current_page > cap:
-            # reporter.info(f"Reached page cap ({cap}) for {site_config['name']}")
+            reporter.info(f"Reached page cap ({cap}) for {site_config['name']}")
             break
 
         if current_page == starting_page:
@@ -789,17 +485,18 @@ def run_html_scraper(
             articles, stop = fetch_html_page(
                 site_config,
                 page_url,
+                reporter=reporter,
                 stats=stats,
                 sb_only=sb_only,
-                # site_config, page_url, reporter=reporter, stats=stats, sb_only=sb_only
+                debug_noise=debug_noise,
             )
         except KeyboardInterrupt:
             stats.paused = True
-            # reporter.finish_line()
-            # reporter.info(
-            #     f"HTML scraper paused by operator during {site_config['name']}; "
-            #     "flushing completed records."
-            # )
+            reporter.finish_line()
+            reporter.info(
+                f"HTML scraper paused by operator during {site_config['name']}; "
+                "flushing completed records."
+            )
             LOGGER.info(
                 "HTML scraper paused by operator while fetching %s page %d",
                 site_config["name"],
@@ -807,10 +504,10 @@ def run_html_scraper(
             )
             break
         except Exception as e:
-            # reporter.error(
-            #     f"Fetching {site_config['name']} page {current_page} ({page_url}): {e}",
-            #     stats,
-            # )
+            reporter.error(
+                f"Fetching {site_config['name']} page {current_page} ({page_url}): {e}",
+                stats,
+            )
             LOGGER.warning(
                 "Error fetching %s page %d (%s): %s",
                 site_config["name"],
@@ -821,10 +518,10 @@ def run_html_scraper(
             return stats
 
         if not articles:
-            # reporter.warn(
-            #     f"No articles found on page {current_page}; stopping pagination",
-            #     stats,
-            # )
+            reporter.warn(
+                f"No articles found on page {current_page}; stopping pagination",
+                stats,
+            )
             break
 
         stats.discovered += len(articles)
@@ -833,10 +530,10 @@ def run_html_scraper(
         for article_index, article in enumerate(articles, start=1):
             body_snippet = (article["body"] or "")[:250].replace("\n", " ")
             stats.processed += 1
-            # if reporter.verbose:
-            #     reporter.detail(
-            #         f"[{article_index}/{len(articles)}] {article['title'][:90]}"
-            #     )
+            if reporter.verbose:
+                reporter.detail(
+                    f"[{article_index}/{len(articles)}] {article['title'][:90]}"
+                )
 
             # Date-window filter: skip newer-than-start, stop at older-than-end.
             if (start_date or end_date) and article.get("date"):
@@ -847,21 +544,36 @@ def run_html_scraper(
                 if pub_date is not None:
                     if start_date and pub_date > start_date:
                         stats.skipped += 1
-                        # reporter.detail(
-                        #     f"[      SKIP-DATE] Newer than {start_date}: {article['title']}"
-                        # )
+                        reporter.detail(
+                            f"[      SKIP-DATE] Newer than {start_date}: {article['title']}"
+                        )
+                        if debug_noise:
+                            debug_noise.add(
+                                url=article["link"],
+                                title=article["title"],
+                                source=site_config["name"],
+                                reason=f"Newer than start_date {start_date}",
+                                body_preview=body_snippet,
+                                stage="date_filter",
+                            )
                         _live_site_status(
-                            # reporter, site_config["name"], current_page, stats
-                            site_config["name"],
-                            current_page,
-                            stats,
+                            reporter, site_config["name"], current_page, stats
                         )
                         continue
                     if end_date and pub_date < end_date:
-                        # reporter.detail(
-                        #     f"[FINISH] Reached article older than {end_date} on "
-                        #     f"{site_config['name']}: {article['title']!r}"
-                        # )
+                        reporter.detail(
+                            f"[FINISH] Reached article older than {end_date} on "
+                            f"{site_config['name']}: {article['title']!r}"
+                        )
+                        if debug_noise:
+                            debug_noise.add(
+                                url=article["link"],
+                                title=article["title"],
+                                source=site_config["name"],
+                                reason=f"Older than end_date {end_date}",
+                                body_preview=body_snippet,
+                                stage="date_filter",
+                            )
                         reached_floor = True
                         break
 
@@ -869,13 +581,24 @@ def run_html_scraper(
                 try:
                     if is_known_db(db_known, article["title"], body_snippet):
                         stats.skipped += 1
-                        # reporter.detail(
-                        #     f"      [SKIP-DB] Already in Supabase: {article['title']}"
-                        # )
-                        _live_site_status(site_config["name"], current_page, stats)
+                        reporter.detail(
+                            f"      [SKIP-DB] Already in Supabase: {article['title']}"
+                        )
+                        if debug_noise:
+                            debug_noise.add(
+                                url=article["link"],
+                                title=article["title"],
+                                source=site_config["name"],
+                                reason="Already in Supabase",
+                                body_preview=body_snippet,
+                                stage="dedup",
+                            )
+                        _live_site_status(
+                            reporter, site_config["name"], current_page, stats
+                        )
                         continue
                 except Exception as e:
-                    # reporter.warn(f"is_known_db check failed: {e}", stats)
+                    reporter.warn(f"is_known_db check failed: {e}", stats)
                     LOGGER.warning("is_known_db check failed: %s", e)
 
             try:
@@ -884,10 +607,19 @@ def run_html_scraper(
                 )
                 if is_threat:
                     if detail not in SUBSECTOR_FIELDS:
-                        LOGGER.warning(
-                            f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
-                        )
+                        # LOGGER.warning(
+                        #     f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
+                        # )
                         stats.skipped += 1
+                        if debug_noise:
+                            debug_noise.add(
+                                url=article["link"],
+                                title=article["title"],
+                                source=site_config["name"],
+                                reason=f"Unrecognized subsector: {detail}",
+                                body_preview=body_snippet,
+                                stage="validation",
+                            )
                         continue
                     try:
                         sector_data, ss_data = extract_fields(
@@ -895,13 +627,22 @@ def run_html_scraper(
                         )
                     except MissingSubsectorFieldsError as exc:
                         stats.skipped += 1
-                        # reporter.warn(
-                        #     f"Skipping extraction for {article['title']!r}: {exc}",
-                        #     stats,
-                        # )
+                        reporter.warn(
+                            f"Skipping extraction for {article['title']!r}: {exc}",
+                            stats,
+                        )
                         LOGGER.warning(
                             "Skipping extraction for %s: %s", article["title"], exc
                         )
+                        if debug_noise:
+                            debug_noise.add(
+                                url=article["link"],
+                                title=article["title"],
+                                source=site_config["name"],
+                                reason=f"Missing subsector fields: {exc}",
+                                body_preview=body_snippet,
+                                stage="extraction",
+                            )
                         continue
                     stats.validated += 1
 
@@ -937,8 +678,7 @@ def run_html_scraper(
 
                     if sb_only:
                         try:
-                            # handle_vuln(vuln, reporter=reporter, stats=stats)
-                            handle_vuln(vuln, stats=stats)
+                            handle_vuln(vuln, reporter=reporter, stats=stats)
                             stats.output_records += 1
                         except Exception as e:
                             LOGGER.warning(
@@ -962,6 +702,16 @@ def run_html_scraper(
                 else:
                     stats.rejected += 1
                     body_preview = (article["body"] or "")[:250].replace("\n", " ")
+
+                    if debug_noise:
+                        debug_noise.add(
+                            url=article["link"],
+                            title=article["title"],
+                            source=site_config["name"],
+                            reason=f"Not a disruption: {detail}",
+                            body_preview=body_preview,
+                            stage="validation",
+                        )
 
                     if sb_only:
                         try:
@@ -992,11 +742,11 @@ def run_html_scraper(
                         )
             except KeyboardInterrupt:
                 stats.paused = True
-                # reporter.finish_line()
-                # reporter.info(
-                #     f"HTML scraper paused by operator during {site_config['name']}; "
-                #     "flushing completed records."
-                # )
+                reporter.finish_line()
+                reporter.info(
+                    f"HTML scraper paused by operator during {site_config['name']}; "
+                    "flushing completed records."
+                )
                 LOGGER.info(
                     "HTML scraper paused by operator while processing %s article %s",
                     site_config["name"],
@@ -1020,11 +770,11 @@ def run_html_scraper(
             time.sleep(0.25)
         except KeyboardInterrupt:
             stats.paused = True
-            # reporter.finish_line()
-            # reporter.info(
-            #     f"HTML scraper paused by operator during {site_config['name']}; "
-            #     "flushing completed records."
-            # )
+            reporter.finish_line()
+            reporter.info(
+                f"HTML scraper paused by operator during {site_config['name']}; "
+                "flushing completed records."
+            )
             LOGGER.info(
                 "HTML scraper paused by operator between %s pages",
                 site_config["name"],
@@ -1037,21 +787,81 @@ def run_html_scraper(
             new_rows,
             new_noise_rows,
             new_vulns,
-            # reporter,
+            reporter,
             stats,
         )
     else:
-        # reporter.finish_line()
-        # reporter.info(f"Finished {site_config['name']}: {stats.output_records} vuln(s)")
+        reporter.finish_line()
+        reporter.info(f"Finished {site_config['name']}: {stats.output_records} vuln(s)")
         LOGGER.info(
             "Finished %s (Supabase): %d vuln(s)",
             site_config["name"],
             stats.output_records,
         )
-    # if local_reporter:
-    #     reporter.summary(stats)
+    if local_reporter:
+        reporter.summary(stats)
     return stats
 
 
 if __name__ == "__main__":
-    setup_scooper()
+    parser = argparse.ArgumentParser(
+        description="HTML scraper for healthcare news sites"
+    )
+    parser.add_argument(
+        "--use-bert",
+        action="store_true",
+        default=get_config_bool("USE_BERT", False),
+        help="Run BERT pre-filter before LLM validation to skip unrelated articles early",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        default=get_config_bool("VERBOSE", False),
+        help="Show detailed per-article scraper output",
+    )
+    parser.add_argument(
+        "--start-date",
+        type=datetime.date.fromisoformat,
+        default=get_config_date("HTML_START_DATE", None),
+        metavar="YYYY-MM-DD",
+        help="Newest article date to keep, newer articles are skipped (ceiling)",
+    )
+    parser.add_argument(
+        "--end-date",
+        type=datetime.date.fromisoformat,
+        default=get_config_date("HTML_END_DATE", None),
+        metavar="YYYY-MM-DD",
+        help="Oldest article date to keep, crawling stops at older articles (floor)",
+    )
+    parser.add_argument(
+        "--sb-only",
+        action="store_true",
+        default=get_config_bool("HTML_SB_ONLY", False),
+        help="Use Supabase only, no local reads or writes",
+    )
+    parser.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        default=get_config_bool("DEBUG", False),
+        help="Log all rejected/skipped articles (noise) to JSON in data/noise/",
+    )
+
+    args = parser.parse_args()
+
+    noise = NoiseCollector(DEBUG_DIR / "debug_noise_html.json") if args.debug else None
+    for site in HTML_SITES:
+        stats = run_html_scraper(
+            site,
+            use_bert=args.use_bert,
+            verbose=args.verbose,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            sb_only=args.sb_only,
+            debug_noise=noise,
+        )
+        if stats.paused:
+            break
+    if noise:
+        noise.flush()

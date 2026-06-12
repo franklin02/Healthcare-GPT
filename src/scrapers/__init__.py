@@ -1,3 +1,3 @@
-from .scooper import run_html_scraper
+from .scooper import run_scooper, setup_scooper
 
-__all__ = ["run_html_scraper"]
+__all__ = ["run_scooper", "setup_scooper"]

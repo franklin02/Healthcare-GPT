@@ -57,7 +57,7 @@ VULN_CSV_HEADER = [
 ]
 NOISE_CSV_PATH = _PROJECT_ROOT / "data" / "noise" / "scooper_noise.csv"
 NOISE_CSV_HEADER = ["source_name", "title", "link", "reason", "body_preview", "date"]
-RAW_CSV_PATH = _PROJECT_ROOT / "data" / "raw" / "scooper_raw.csv"
+RAW_CSV_PATH = _PROJECT_ROOT / "data" / "raw" / "pytes"
 RAW_CSV_HEADER = ["source_name", "title", "link", "body", "date"]
 
 try:
@@ -149,6 +149,42 @@ HTML_SITES = [
 
 
 SITE_NAMES = [s["name"] for s in HTML_SITES]
+
+
+def _live_site_status(
+    reporter: CliReporter,
+    site_name: str,
+    page: int,
+    stats: PipelineStats,
+) -> None:
+    """Update the per-site sticky counter line (no-op in verbose mode)."""
+    if reporter.verbose:
+        return
+    reporter.tick(
+        site_name,
+        page=page,
+        processed=stats.processed,
+        validated=stats.validated,
+        rejected=stats.rejected,
+        skipped=stats.skipped,
+    )
+
+
+def _bert_status() -> str:
+    """Return a human-readable description of the optional BERT pre-filter."""
+    try:
+        from src.GDELT.BERT_filter import describe_model
+
+        model_id, device_label = describe_model()
+        LOGGER.info("BERT pre-filter enabled: %s on %s", model_id, device_label)
+        return f"BERT pre-filter: {model_id} using {device_label}"
+    except Exception:
+        LOGGER.warning(
+            "Could not load BERT filter for status description", exc_info=True
+        )
+        return "BERT pre-filter: enabled"
+
+
 
 
 def _unseen_df() -> pd.DataFrame:

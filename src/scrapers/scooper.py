@@ -140,7 +140,7 @@ HTML_SITES = [
             "title": None,
             "link_selector": "h3 a",
             "body_selector": "article#content-columns",
-            "date_selector": "",
+            "date_selector": "time[datetime]",  # <- NOTE: verify this manually
             "starting_page": 1,
             "cap": 9,
         },

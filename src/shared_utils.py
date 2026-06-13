@@ -53,6 +53,7 @@ import re
 import subprocess
 import tempfile
 import shutil
+import pandas as pd
 from pathlib import Path
 
 import requests
@@ -1269,6 +1270,86 @@ def clear_directory(directory: Path) -> None:
                 shutil.rmtree(item)
         except Exception as exc:
             LOGGER.warning("Failed to remove %s: %s", item, exc)
+
+
+def df_dup(dfs: list[pd.DataFrame]) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Concatenate a list of DataFrames into one and drop duplicate rows.
+
+    Two rows are duplicates when they share the same ``source_name`` and
+    ``title`` (the same key the unseen-article anti-join uses). The first
+    occurrence is kept. This collapses the same article re-classified across
+    overlapping date windows when scooper instances run in parallel.
+
+    Parameters:
+        dfs: DataFrames to merge (e.g. the per-instance vuln or noise frames).
+
+    Returns:
+        ``(deduped_df, duplicate_titles)`` where ``deduped_df`` is the combined
+        frame with duplicates removed and ``duplicate_titles`` lists each
+        ``title`` that appeared more than once. Callers use ``duplicate_titles``
+        only for the vulnerability frames, to dedup the parallel
+        ``Vulnerability`` objects to match; it is ignored for noise.
+    """
+    frames = [df for df in dfs if df is not None]
+    if not frames:
+        return pd.DataFrame(), []
+
+    # Concatenate only non-empty frames (sidesteps a pandas all-NA concat
+    # warning); if every input was empty, return an empty frame that still
+    # carries the columns so update_csv can write a header.
+    non_empty = [df for df in frames if not df.empty]
+    if not non_empty:
+        return frames[0].iloc[0:0].copy(), []
+
+    combined = pd.concat(non_empty, ignore_index=True)
+
+    key = [c for c in ("source_name", "title") if c in combined.columns]
+    if not key:
+        # No known key columns; fall back to full-row dedup with no names.
+        return combined.drop_duplicates(ignore_index=True), []
+
+    dup_titles: list[str] = []
+    if "title" in combined.columns:
+        dup_mask = combined.duplicated(subset=key, keep="first")
+        dup_titles = combined.loc[dup_mask, "title"].dropna().unique().tolist()
+
+    deduped = combined.drop_duplicates(subset=key, keep="first", ignore_index=True)
+    return deduped, dup_titles
+
+
+def update_csv(df: pd.DataFrame, path: str) -> None:
+    """
+    Append a DataFrame's rows to the CSV at ``path``.
+
+    The header is written only when the file is new or empty, so repeated runs
+    accumulate rows instead of clobbering earlier output (the unseen-article
+    anti-join relies on previously written rows persisting). Missing parent
+    directories are created. Intended for the consolidated, de-duplicated frame
+    returned by :func:`df_dup`.
+
+    Parameters:
+        df: The rows to append.
+        path: Destination CSV path.
+    """
+    if df is None or df.empty:
+        return
+
+    dest = Path(path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    write_header = not dest.exists() or dest.stat().st_size == 0
+    df.to_csv(
+        dest,
+        mode="a",
+        header=write_header,
+        index=False,
+        date_format="%Y-%m-%d",
+    )
+
+
+def update_json(vuls: list[Vulnerability], path: str) -> None:
+    """ """
 
 
 DEBUG_DIR = _PROJECT_ROOT / "data" / "noise"

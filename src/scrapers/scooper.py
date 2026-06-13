@@ -185,8 +185,6 @@ def _bert_status() -> str:
         return "BERT pre-filter: enabled"
 
 
-
-
 def _unseen_df() -> pd.DataFrame:
     """
     Total raw data - (vuln + noise) = data not analyzed

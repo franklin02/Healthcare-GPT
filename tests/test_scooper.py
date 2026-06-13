@@ -61,10 +61,20 @@ def _resp(html: str):
 def test_unseen_df_returns_all_when_nothing_classified():
     _write_raw(
         [
-            {"source_name": "CyberScoop", "title": "A", "link": "u1",
-             "body": "b1", "date": "2026-01-01"},
-            {"source_name": "AHA", "title": "B", "link": "u2",
-             "body": "b2", "date": "2026-01-02"},
+            {
+                "source_name": "CyberScoop",
+                "title": "A",
+                "link": "u1",
+                "body": "b1",
+                "date": "2026-01-01",
+            },
+            {
+                "source_name": "AHA",
+                "title": "B",
+                "link": "u2",
+                "body": "b2",
+                "date": "2026-01-02",
+            },
         ]
     )
 
@@ -77,12 +87,27 @@ def test_unseen_df_returns_all_when_nothing_classified():
 def test_unseen_df_removes_rows_already_in_vuln_and_noise():
     _write_raw(
         [
-            {"source_name": "CyberScoop", "title": "A", "link": "u1",
-             "body": "b1", "date": "2026-01-01"},
-            {"source_name": "AHA", "title": "B", "link": "u2",
-             "body": "b2", "date": "2026-01-02"},
-            {"source_name": "FedScoop", "title": "C", "link": "u3",
-             "body": "b3", "date": "2026-01-03"},
+            {
+                "source_name": "CyberScoop",
+                "title": "A",
+                "link": "u1",
+                "body": "b1",
+                "date": "2026-01-01",
+            },
+            {
+                "source_name": "AHA",
+                "title": "B",
+                "link": "u2",
+                "body": "b2",
+                "date": "2026-01-02",
+            },
+            {
+                "source_name": "FedScoop",
+                "title": "C",
+                "link": "u3",
+                "body": "b3",
+                "date": "2026-01-03",
+            },
         ]
     )
     # A is already a vuln, B is already noise — both should drop out.
@@ -118,17 +143,22 @@ def test_update_csv_appends_rows_with_date_format():
     scooper._setup_cvs()  # writes the raw header once
     df = _raw_frame(
         [
-            {"source_name": "CyberScoop", "title": "A", "link": "u1",
-             "body": "b1", "date": "2026-01-01"},
+            {
+                "source_name": "CyberScoop",
+                "title": "A",
+                "link": "u1",
+                "body": "b1",
+                "date": "2026-01-01",
+            },
         ]
     )
 
     scooper._update_csv(df)
 
     out = pd.read_csv(scooper.RAW_CSV_PATH)
-    assert len(out) == 1                              # header not duplicated
+    assert len(out) == 1  # header not duplicated
     assert list(out.columns) == scooper.RAW_CSV_HEADER
-    assert out.iloc[0]["date"] == "2026-01-01"        # YYYY-MM-DD, no time
+    assert out.iloc[0]["date"] == "2026-01-01"  # YYYY-MM-DD, no time
 
 
 def test_update_csv_empty_df_is_noop():
@@ -147,10 +177,20 @@ def test_run_scooper_counts_validated_and_rejected():
     """One threat + one noise article updates the counters and both frames."""
     df = _raw_frame(
         [
-            {"source_name": "CyberScoop", "title": "Breach", "link": "u1",
-             "body": "confirmed breach", "date": "2026-01-01"},
-            {"source_name": "AHA", "title": "Policy", "link": "u2",
-             "body": "not a disruption", "date": "2026-01-02"},
+            {
+                "source_name": "CyberScoop",
+                "title": "Breach",
+                "link": "u1",
+                "body": "confirmed breach",
+                "date": "2026-01-01",
+            },
+            {
+                "source_name": "AHA",
+                "title": "Policy",
+                "link": "u2",
+                "body": "not a disruption",
+                "date": "2026-01-02",
+            },
         ]
     )
 
@@ -182,8 +222,15 @@ def test_run_scooper_counts_validated_and_rejected():
 
 def test_run_scooper_skips_unrecognized_subsector():
     df = _raw_frame(
-        [{"source_name": "X", "title": "T", "link": "u",
-          "body": "b", "date": "2026-01-01"}]
+        [
+            {
+                "source_name": "X",
+                "title": "T",
+                "link": "u",
+                "body": "b",
+                "date": "2026-01-01",
+            }
+        ]
     )
 
     with (
@@ -203,8 +250,15 @@ def test_run_scooper_skips_unrecognized_subsector():
 
 def test_run_scooper_skips_when_subsector_fields_missing():
     df = _raw_frame(
-        [{"source_name": "X", "title": "T", "link": "u",
-          "body": "b", "date": "2026-01-01"}]
+        [
+            {
+                "source_name": "X",
+                "title": "T",
+                "link": "u",
+                "body": "b",
+                "date": "2026-01-01",
+            }
+        ]
     )
 
     with (
@@ -229,12 +283,27 @@ def test_run_scooper_date_filter_keeps_in_range_and_undated():
     """With date bounds, out-of-range rows drop but undated (NaT) rows ride along."""
     df = _raw_frame(
         [
-            {"source_name": "X", "title": "in", "link": "u1",
-             "body": "b", "date": "2026-06-01"},
-            {"source_name": "X", "title": "old", "link": "u2",
-             "body": "b", "date": "2020-01-01"},
-            {"source_name": "X", "title": "undated", "link": "u3",
-             "body": "b", "date": ""},
+            {
+                "source_name": "X",
+                "title": "in",
+                "link": "u1",
+                "body": "b",
+                "date": "2026-06-01",
+            },
+            {
+                "source_name": "X",
+                "title": "old",
+                "link": "u2",
+                "body": "b",
+                "date": "2020-01-01",
+            },
+            {
+                "source_name": "X",
+                "title": "undated",
+                "link": "u3",
+                "body": "b",
+                "date": "",
+            },
         ]
     )
 
@@ -244,7 +313,7 @@ def test_run_scooper_date_filter_keeps_in_range_and_undated():
     ):
         stats, _, _, noise_df = scooper.run_scooper(
             start_date=datetime.date(2026, 12, 31),  # ceiling (newest kept)
-            end_date=datetime.date(2026, 1, 1),       # floor (oldest kept)
+            end_date=datetime.date(2026, 1, 1),  # floor (oldest kept)
         )
 
     assert stats.processed == 2
@@ -306,8 +375,13 @@ def test_scrape_page_stops_on_known_article():
     # raw_df already contains this (source_name, title) -> stop, exclude it.
     raw_df = pd.DataFrame(
         [
-            {"source_name": "TestSite", "title": "Hospital breach", "link": "x",
-             "body": "x", "date": pd.NaT}
+            {
+                "source_name": "TestSite",
+                "title": "Hospital breach",
+                "link": "x",
+                "body": "x",
+                "date": pd.NaT,
+            }
         ],
         columns=scooper.RAW_CSV_HEADER,
     )

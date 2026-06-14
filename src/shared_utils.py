@@ -1320,7 +1320,7 @@ def update_csv(df: pd.DataFrame, path: Path) -> None:
 
 
 def update_json(vuls: list[Vulnerability], path: str) -> None:
-    """ 
+    """
     TODO: imlement and document later
     """
 

@@ -288,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.sb_only:
             update_csv(clean_vuls, scooper.VULN_CSV_PATH)
             update_csv(clean_noise, scooper.NOISE_CSV_PATH)
-        # ^ 
+        # ^
 
         summaries.append(html_stats)
         if html_stats.paused:

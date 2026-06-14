@@ -1350,6 +1350,7 @@ def update_csv(df: pd.DataFrame, path: str) -> None:
 
 def update_json(vuls: list[Vulnerability], path: str) -> None:
     """ """
+    
 
 
 DEBUG_DIR = _PROJECT_ROOT / "data" / "noise"

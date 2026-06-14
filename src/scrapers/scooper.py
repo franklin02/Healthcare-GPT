@@ -784,10 +784,19 @@ if __name__ == "__main__":
         default=get_config_bool("HTML_SB_ONLY", False),
         help="Use Supabase only, no local reads or writes",
     )
+    parser.add_argument(
+        "--setup",
+        action="store_true",
+        default=False,
+        help="Scrape all sites via setup_scooper() before classifying (first run)",
+    )
 
     args = parser.parse_args()
 
-    stats = run_scooper(
+    if args.setup:
+        setup_scooper(sb_only=args.sb_only)
+
+    stats, vuln_list, vuln_df, noise_df = run_scooper(
         use_bert=args.use_bert,
         verbose=args.verbose,
         start_date=args.start_date,

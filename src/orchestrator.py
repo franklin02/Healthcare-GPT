@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import sys
+import pandas as pd
 from pathlib import Path
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,12 +21,14 @@ from .GDELT.gdelt_seeds import backfill_cyber_seeds
 from .shared_utils import (
     DEBUG_DIR,
     NoiseCollector,
+    df_dup,
     ensure_model_available,
     get_config_bool,
     get_config_int,
     get_config_value,
     model_unavailable_error,
     run_clean,
+    update_csv,
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -253,40 +256,46 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_html:
         import src.scrapers.scooper as scooper
 
-        html_noise = (
-            NoiseCollector(DEBUG_DIR / "debug_noise_html.json") if args.debug else None
-        )
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
-        for site in scooper.HTML_SITES:
-            site_stats = scooper.run_html_scraper(
-                site,
-                use_bert=args.use_bert,
-                verbose=args.verbose,
-                start_date=_parse_date(args.start_date),
-                end_date=_parse_date(args.end_date),
-                sb_only=args.sb_only,
-                reporter=reporter,
-                stats=PipelineStats(site["name"]),
-                debug_noise=html_noise,
-            )
-            html_stats.merge(site_stats)
-            if site_stats.paused:
-                summaries.append(html_stats)
-                if html_noise:
-                    out = html_noise.flush()
-                    if out:
-                        reporter.info(f"Debug noise (HTML): {out}")
-                reporter.info("HTML scraper paused; skipping remaining pipelines.")
-                reporter.summary(summaries)
-                LOGGER.info("HTML scraper paused; skipping remaining pipelines")
-                return 0
-        if html_noise:
-            out = html_noise.flush()
-            if out:
-                reporter.info(f"Debug noise (HTML): {out}")
+
+        scooper.setup_scooper(sb_only=args.sb_only)
+        vuln_dfs: list[pd.DataFrame] = []
+        noise_dfs: list[pd.DataFrame] = []
+
+        # objects will either split here or inside scooper
+        # ideally we will split GDELT and Scooper the same way
+        # but if that gets too complex I can run parallel threads
+        # inside of scooper directly, and all orchastrator would
+        # have to do is call `run_scooper` once
+
+        html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
+            use_bert=args.use_bert,
+            verbose=args.verbose,
+            start_date=_parse_date(args.start_date),
+            end_date=_parse_date(args.end_date),
+            reporter=reporter,
+            stats=html_stats,
+            sb_only=args.sb_only,
+        )
+
+        # NOTE: remind this only stays if we split by k dates
+        vuln_dfs.append(v_df)
+        noise_dfs.append(n_df)
+        clean_vuls, _dup_titles = df_dup(vuln_dfs)
+        clean_noise, _ = df_dup(noise_dfs)
+        if not args.sb_only:
+            update_csv(clean_vuls, scooper.VULN_CSV_PATH)
+            update_csv(clean_noise, scooper.NOISE_CSV_PATH)
+        # ^ 
+
         summaries.append(html_stats)
+        if html_stats.paused:
+            reporter.info("HTML scraper paused; skipping remaining pipelines.")
+            reporter.summary(summaries)
+            LOGGER.info("HTML scraper paused; skipping remaining pipelines")
+            return 0
 
     if summaries:
         reporter.summary(summaries)

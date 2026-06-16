@@ -26,45 +26,41 @@ class TestGetBody:
         """Test with None URL returns empty string"""
         assert helpers.get_body(None) == ""
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_url_normalization(self, mock_get):
+    def test_get_body_url_normalization(self, mock_requests_get):
         """Test that URLs without protocol get https:// prepended"""
         mock_response = MagicMock()
         mock_response.text = "<body><p>Test content</p></body>"
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         helpers.get_body("example.com")
-        mock_get.assert_called_once()
-        args, kwargs = mock_get.call_args
+        mock_requests_get.assert_called_once()
+        args, kwargs = mock_requests_get.call_args
         assert args[0] == "https://example.com"
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_http_protocol_preserved(self, mock_get):
+    def test_get_body_http_protocol_preserved(self, mock_requests_get):
         """Test that explicit http:// protocol is preserved"""
         mock_response = MagicMock()
         mock_response.text = "<body><p>Test content</p></body>"
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         helpers.get_body("http://example.com")
-        args, kwargs = mock_get.call_args
+        args, kwargs = mock_requests_get.call_args
         assert args[0] == "http://example.com"
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_successful_extraction(self, mock_get):
+    def test_get_body_successful_extraction(self, mock_requests_get):
         """Test successful extraction of article body"""
         mock_response = MagicMock()
         mock_response.text = "<html><body><article><p>Paragraph 1</p><p>Paragraph 2</p></article></body></html>"
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         result = helpers.get_body("https://example.com")
         assert "Paragraph 1" in result
         assert "Paragraph 2" in result
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_removes_script_tags(self, mock_get):
+    def test_get_body_removes_script_tags(self, mock_requests_get):
         """Test that script tags are removed"""
         mock_response = MagicMock()
         mock_response.text = """
@@ -76,14 +72,13 @@ class TestGetBody:
             </body>
         """
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         result = helpers.get_body("https://example.com")
         assert "alert" not in result
         assert "Real content" in result
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_removes_noise_classes(self, mock_get):
+    def test_get_body_removes_noise_classes(self, mock_requests_get):
         """Test that noise elements by class are removed"""
         mock_response = MagicMock()
         mock_response.text = """
@@ -96,44 +91,40 @@ class TestGetBody:
             </body>
         """
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         result = helpers.get_body("https://example.com")
         assert "Ad stuff" not in result
         assert "Related articles" not in result
         assert "Real content" in result
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_request_exception(self, mock_get):
+    def test_get_body_request_exception(self, mock_requests_get):
         """Test handling of network errors"""
-        mock_get.side_effect = requests.RequestException("Connection failed")
+        mock_requests_get.side_effect = requests.RequestException("Connection failed")
 
         result = helpers.get_body("https://example.com")
         assert result == ""
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_timeout(self, mock_get):
+    def test_get_body_timeout(self, mock_requests_get):
         """Test handling of timeout"""
-        mock_get.side_effect = requests.Timeout("Request timeout")
+        mock_requests_get.side_effect = requests.Timeout("Request timeout")
 
         result = helpers.get_body("https://example.com")
         assert result == ""
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_uses_headers(self, mock_get):
+    def test_get_body_uses_headers(self, mock_requests_get):
         """Test that proper User-Agent header is used"""
         mock_response = MagicMock()
         mock_response.text = "<body><p>Test</p></body>"
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         helpers.get_body("https://example.com")
-        call_kwargs = mock_get.call_args[1]
+        call_kwargs = mock_requests_get.call_args[1]
         assert "headers" in call_kwargs
         assert "User-Agent" in call_kwargs["headers"]
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_prefers_paragraphs(self, mock_get):
+    def test_get_body_prefers_paragraphs(self, mock_requests_get):
         """Test that paragraph text is preferred over raw text"""
         mock_response = MagicMock()
         mock_response.text = """
@@ -145,15 +136,14 @@ class TestGetBody:
             </body>
         """
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         result = helpers.get_body("https://example.com")
         # Should join paragraphs with double newline
         assert "Paragraph 1" in result
         assert "Paragraph 2" in result
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_strips_noise_by_id(self, mock_get):
+    def test_get_body_strips_noise_by_id(self, mock_requests_get):
         """Ensure elements matched by id regex are removed (covers line 173)."""
         mock_response = MagicMock()
         mock_response.text = """
@@ -165,40 +155,37 @@ class TestGetBody:
             </body>
         """
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         result = helpers.get_body("https://example.com")
         assert "Real content" in result
         assert "Buy now" not in result
 
-    @patch("src.shared_utils.requests.get")
     def test_get_body_no_body_found_prints_and_returns_empty(
-        self, mock_get, capsys=None
+        self, mock_requests_get, capsys=None
     ):
         """Trigger the main is None branch and return empty string (covers lines 189-190)."""
         mock_response = MagicMock()
         mock_response.text = "<html><body></body></html>"
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         result = helpers.get_body("https://example.com")
         assert result == ""
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_falls_back_to_main_text_when_no_paragraphs(self, mock_get):
+    def test_get_body_falls_back_to_main_text_when_no_paragraphs(self, mock_requests_get):
         """Return raw main text when no <p> tags exist (covers line 199)."""
         mock_response = MagicMock()
         mock_response.text = (
             "<body><article>Some plain text without p tags</article></body>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         result = helpers.get_body("https://example.com")
         assert "Some plain text without p tags" in result
 
-    @patch("src.shared_utils.requests.get")
-    def test_get_body_filters_boilerplate_only_pages(self, mock_get):
+    def test_get_body_filters_boilerplate_only_pages(self, mock_requests_get):
         """Return empty string when the page is mostly navigation and footer chrome."""
         mock_response = MagicMock()
         mock_response.text = """
@@ -212,7 +199,7 @@ class TestGetBody:
             </html>
         """
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         result = helpers.get_body("https://example.com")
         assert result == ""
@@ -229,8 +216,7 @@ class TestGetTitle:
         """Test with None URL returns None"""
         assert helpers.get_title(None) is None
 
-    @patch("src.shared_utils.requests.get")
-    def test_extracts_title_from_title_tag(self, mock_get):
+    def test_extracts_title_from_title_tag(self, mock_requests_get):
         """Test that the text of the <title> tag is returned"""
         mock_response = MagicMock()
         mock_response.text = (
@@ -238,12 +224,11 @@ class TestGetTitle:
             "<body><article><p>Content</p></article></body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         assert helpers.get_title("https://example.com") == "Hospital Ransomware Attack"
 
-    @patch("src.shared_utils.requests.get")
-    def test_strips_pipe_site_suffix(self, mock_get):
+    def test_strips_pipe_site_suffix(self, mock_requests_get):
         """Test that ' | Site' suffix is stripped from the title"""
         mock_response = MagicMock()
         mock_response.text = (
@@ -251,14 +236,13 @@ class TestGetTitle:
             "<body></body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         title = helpers.get_title("https://example.com")
         assert title == "Hospital Ransomware Attack"
         assert "Reuters" not in title
 
-    @patch("src.shared_utils.requests.get")
-    def test_strips_dash_site_suffix(self, mock_get):
+    def test_strips_dash_site_suffix(self, mock_requests_get):
         """Test that ' - Site' suffix is stripped from the title"""
         mock_response = MagicMock()
         mock_response.text = (
@@ -266,14 +250,13 @@ class TestGetTitle:
             "<body></body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         title = helpers.get_title("https://example.com")
         assert title == "Hospital Ransomware Attack"
         assert "NBC News" not in title
 
-    @patch("src.shared_utils.requests.get")
-    def test_strips_em_dash_site_suffix(self, mock_get):
+    def test_strips_em_dash_site_suffix(self, mock_requests_get):
         """Test that ' – Site' suffix is stripped from the title"""
         mock_response = MagicMock()
         mock_response.text = (
@@ -281,12 +264,11 @@ class TestGetTitle:
             "<body></body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         assert helpers.get_title("https://example.com") == "Drug Shortage"
 
-    @patch("src.shared_utils.requests.get")
-    def test_strips_only_last_separator_segment(self, mock_get):
+    def test_strips_only_last_separator_segment(self, mock_requests_get):
         """Test that only the last separator segment is stripped, leaving earlier parts intact"""
         mock_response = MagicMock()
         mock_response.text = (
@@ -294,62 +276,57 @@ class TestGetTitle:
             "<body></body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         assert helpers.get_title("https://example.com") == "Attack | Full Story"
 
-    @patch("src.shared_utils.requests.get")
-    def test_falls_back_to_url_when_no_title_tag(self, mock_get):
+    def test_falls_back_to_url_when_no_title_tag(self, mock_requests_get):
         """Test that the raw URL is returned when no <title> tag exists"""
         mock_response = MagicMock()
         mock_response.text = "<html><head></head><body><p>Content</p></body></html>"
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         url = "https://example.com/article"
         assert helpers.get_title(url) == url
 
-    @patch("src.shared_utils.requests.get")
-    def test_falls_back_to_url_when_title_tag_empty(self, mock_get):
+    def test_falls_back_to_url_when_title_tag_empty(self, mock_requests_get):
         """Test that the raw URL is returned when the <title> tag is empty"""
         mock_response = MagicMock()
         mock_response.text = (
             "<html><head><title></title></head><body><p>Content</p></body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         url = "https://example.com/article"
         assert helpers.get_title(url) == url
 
-    @patch("src.shared_utils.requests.get")
-    def test_network_error_returns_url(self, mock_get):
+    def test_network_error_returns_url(self, mock_requests_get):
         """Test that the raw URL is returned on network failure"""
-        mock_get.side_effect = requests.RequestException("Connection failed")
+        mock_requests_get.side_effect = requests.RequestException("Connection failed")
 
         url = "https://example.com"
         assert helpers.get_title(url) == url
 
-    @patch("src.shared_utils.requests.get")
-    def test_normalizes_url_without_scheme(self, mock_get):
+    def test_normalizes_url_without_scheme(self, mock_requests_get):
         """Test that URLs without a scheme get https:// prepended before fetching"""
         mock_response = MagicMock()
         mock_response.text = (
             "<html><head><title>Test</title></head><body></body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         helpers.get_title("example.com")
-        args, _ = mock_get.call_args
+        args, _ = mock_requests_get.call_args
         assert args[0] == "https://example.com"
 
 
 class TestGetBodyAndTitle:
     """Test suite for get_body_and_title function"""
 
-    @patch("src.shared_utils.requests.get")
-    def test_returns_body_and_title(self, mock_get):
+    def test_returns_body_and_title(self, mock_requests_get):
         """Test that both body and title are extracted from a single request"""
         mock_response = MagicMock()
         mock_response.text = (
@@ -357,7 +334,7 @@ class TestGetBodyAndTitle:
             "<body><article><p>Paragraph 1</p><p>Paragraph 2</p></article></body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         body, title = helpers.get_body_and_title("https://example.com")
 
@@ -366,8 +343,7 @@ class TestGetBodyAndTitle:
         assert title == "Hospital Ransomware Attack"
         assert "Reuters" not in title
 
-    @patch("src.shared_utils.requests.get")
-    def test_single_request(self, mock_get):
+    def test_single_request(self, mock_requests_get):
         """Test that only one HTTP request is made (not two)"""
         mock_response = MagicMock()
         mock_response.text = (
@@ -375,10 +351,10 @@ class TestGetBodyAndTitle:
             "<body><article><p>Content</p></article></body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         helpers.get_body_and_title("https://example.com")
-        assert mock_get.call_count == 1
+        assert mock_requests_get.call_count == 1
 
     def test_empty_url(self):
         """Test with empty URL returns empty body and empty title"""
@@ -392,17 +368,15 @@ class TestGetBodyAndTitle:
         assert body == ""
         assert title == ""
 
-    @patch("src.shared_utils.requests.get")
-    def test_network_error(self, mock_get):
+    def test_network_error(self, mock_requests_get):
         """Test that network errors return empty body and URL as title"""
-        mock_get.side_effect = requests.RequestException("Connection failed")
+        mock_requests_get.side_effect = requests.RequestException("Connection failed")
 
         body, title = helpers.get_body_and_title("https://example.com")
         assert body == ""
         assert title == "https://example.com"
 
-    @patch("src.shared_utils.requests.get")
-    def test_empty_body_valid_title(self, mock_get):
+    def test_empty_body_valid_title(self, mock_requests_get):
         """Test page with title but no meaningful body content"""
         mock_response = MagicMock()
         mock_response.text = (
@@ -415,14 +389,13 @@ class TestGetBodyAndTitle:
             "</body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         body, title = helpers.get_body_and_title("https://example.com")
         assert body == ""
         assert title == "Valid Title"
 
-    @patch("src.shared_utils.requests.get")
-    def test_normalizes_url_without_scheme(self, mock_get):
+    def test_normalizes_url_without_scheme(self, mock_requests_get):
         """Test that URLs without a scheme get https:// prepended"""
         mock_response = MagicMock()
         mock_response.text = (
@@ -430,18 +403,17 @@ class TestGetBodyAndTitle:
             "<body><article><p>Content</p></article></body></html>"
         )
         mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
+        mock_requests_get.return_value = mock_response
 
         helpers.get_body_and_title("example.com")
-        args, _ = mock_get.call_args
+        args, _ = mock_requests_get.call_args
         assert args[0] == "https://example.com"
 
 
 class TestAiCheckValidation:
     """Test suite for ai_check_validation function"""
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_valid_threat(self, mock_post):
+    def test_ai_check_validation_valid_threat(self, mock_requests_post):
         """Test valid threat identification"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -453,7 +425,7 @@ class TestAiCheckValidation:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         is_threat, detail = helpers.ai_check_validation(
             "Ransomware hits hospital", LONG_BODY
@@ -461,8 +433,7 @@ class TestAiCheckValidation:
         assert is_threat is True
         assert detail == "cyber_attack"
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_no_threat(self, mock_post):
+    def test_ai_check_validation_no_threat(self, mock_requests_post):
         """Test non-threat identification"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -474,14 +445,13 @@ class TestAiCheckValidation:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         is_threat, detail = helpers.ai_check_validation("Policy news", LONG_BODY)
         assert is_threat is False
         assert detail == "This is just policy news"
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_short_body_skips_llm(self, mock_post):
+    def test_ai_check_validation_short_body_skips_llm(self, mock_requests_post):
         """Test that short bodies return early without calling the LLM"""
         body = "Short body text that is clearly below the minimum threshold."
 
@@ -489,10 +459,9 @@ class TestAiCheckValidation:
 
         assert is_threat is False
         assert detail == "Body too short for LLM review"
-        mock_post.assert_not_called()
+        mock_requests_post.assert_not_called()
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_string_no_response(self, mock_post):
+    def test_ai_check_validation_string_no_response(self, mock_requests_post):
         """Test handling of string 'NO' response"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -504,33 +473,30 @@ class TestAiCheckValidation:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         is_threat, detail = helpers.ai_check_validation("Title", LONG_BODY)
         assert is_threat is False
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_json_parse_error(self, mock_post):
+    def test_ai_check_validation_json_parse_error(self, mock_requests_post):
         """Test handling of invalid JSON response"""
         mock_response = MagicMock()
         mock_response.json.return_value = {"response": "not valid json"}
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         is_threat, detail = helpers.ai_check_validation("Title", LONG_BODY)
         assert is_threat is False
         assert detail == "Parsing Error"
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_request_exception(self, mock_post):
+    def test_ai_check_validation_request_exception(self, mock_requests_post):
         """Test handling of request exceptions"""
-        mock_post.side_effect = requests.RequestException("Connection error")
+        mock_requests_post.side_effect = requests.RequestException("Connection error")
 
         is_threat, detail = helpers.ai_check_validation("Title", LONG_BODY)
         assert is_threat is False
         assert detail == "Parsing Error"
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_drug_shortage(self, mock_post):
+    def test_ai_check_validation_drug_shortage(self, mock_requests_post):
         """Test drug shortage subsector classification"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -542,14 +508,13 @@ class TestAiCheckValidation:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         is_threat, detail = helpers.ai_check_validation("Drug shortage", LONG_BODY)
         assert is_threat is True
         assert detail == "drug_shortage"
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_medical_device(self, mock_post):
+    def test_ai_check_validation_medical_device(self, mock_requests_post):
         """Test medical device shortage subsector"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -561,13 +526,12 @@ class TestAiCheckValidation:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         is_threat, detail = helpers.ai_check_validation("Device shortage", LONG_BODY)
         assert detail == "medical_device_shortage"
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_natural_disaster(self, mock_post):
+    def test_ai_check_validation_natural_disaster(self, mock_requests_post):
         """Test natural disaster subsector"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -579,13 +543,12 @@ class TestAiCheckValidation:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         is_threat, detail = helpers.ai_check_validation("Hurricane", LONG_BODY)
         assert detail == "natural_disaster"
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_posts_correct_url(self, mock_post):
+    def test_ai_check_validation_posts_correct_url(self, mock_requests_post):
         """Test that correct AI URL is used"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -597,14 +560,13 @@ class TestAiCheckValidation:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         helpers.ai_check_validation("Title", LONG_BODY)
-        call_args = mock_post.call_args
+        call_args = mock_requests_post.call_args
         assert call_args[0][0] == helpers.AI_URL
 
-    @patch("src.shared_utils.requests.post")
-    def test_ai_check_validation_uses_correct_model(self, mock_post):
+    def test_ai_check_validation_uses_correct_model(self, mock_requests_post):
         """Test that correct AI model is specified"""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -616,10 +578,10 @@ class TestAiCheckValidation:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         helpers.ai_check_validation("Title", LONG_BODY)
-        call_kwargs = mock_post.call_args[1]
+        call_kwargs = mock_requests_post.call_args[1]
         assert call_kwargs["json"]["model"] == helpers.AI_MODEL
 
 
@@ -638,8 +600,7 @@ class TestExtractFields:
         with pytest.raises(helpers.MissingSubsectorFieldsError):
             helpers.extract_fields("empty_subsector", "Title", "Body")
 
-    @patch("src.shared_utils.requests.post")
-    def test_extract_fields_drug_shortage(self, mock_post):
+    def test_extract_fields_drug_shortage(self, mock_requests_post):
         """Test extraction of drug shortage fields."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -658,7 +619,7 @@ class TestExtractFields:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         sector_data, subsector_data = helpers.extract_fields(
             "drug_shortage", "Drug shortage", "Body"
@@ -668,8 +629,7 @@ class TestExtractFields:
         assert subsector_data["drug_name"] == "Penicillin"
         assert subsector_data["manufacturer"] == "Pfizer"
 
-    @patch("src.shared_utils.requests.post")
-    def test_extract_fields_cyber_attack(self, mock_post):
+    def test_extract_fields_cyber_attack(self, mock_requests_post):
         """Test extraction of cyber attack fields."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -689,14 +649,13 @@ class TestExtractFields:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         _, subsector_data = helpers.extract_fields("cyber_attack", "Ransomware", "Body")
         assert subsector_data["attack_type"] == "ransomware"
         assert subsector_data["ransom_demanded_usd"] == 500000
 
-    @patch("src.shared_utils.requests.post")
-    def test_extract_fields_medical_device(self, mock_post):
+    def test_extract_fields_medical_device(self, mock_requests_post):
         """Test extraction of medical device shortage fields."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -716,7 +675,7 @@ class TestExtractFields:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         _, subsector_data = helpers.extract_fields(
             "medical_device_shortage", "Device shortage", "Body"
@@ -724,8 +683,7 @@ class TestExtractFields:
         assert subsector_data["device_name"] == "Ventilator"
         assert subsector_data["recall_class"] == "Class II"
 
-    @patch("src.shared_utils.requests.post")
-    def test_extract_fields_natural_disaster(self, mock_post):
+    def test_extract_fields_natural_disaster(self, mock_requests_post):
         """Test extraction of natural disaster fields."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -746,7 +704,7 @@ class TestExtractFields:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         _, subsector_data = helpers.extract_fields(
             "natural_disaster", "Hurricane", "Body"
@@ -754,8 +712,7 @@ class TestExtractFields:
         assert subsector_data["disaster_type"] == "Hurricane"
         assert subsector_data["beds_offline"] == 500
 
-    @patch("src.shared_utils.requests.post")
-    def test_extract_fields_other(self, mock_post):
+    def test_extract_fields_other(self, mock_requests_post):
         """Test extraction of other event fields."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -772,16 +729,15 @@ class TestExtractFields:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         _, subsector_data = helpers.extract_fields("other", "Staff shortage", "Body")
         assert subsector_data["event_type"] == "Staff shortage"
         assert subsector_data["severity"] == "High"
 
-    @patch("src.shared_utils.requests.post")
-    def test_extract_fields_request_exception(self, mock_post):
+    def test_extract_fields_request_exception(self, mock_requests_post):
         """Test handling of request exceptions."""
-        mock_post.side_effect = requests.RequestException("Connection error")
+        mock_requests_post.side_effect = requests.RequestException("Connection error")
 
         sector_data, subsector_data = helpers.extract_fields(
             "drug_shortage", "Title", "Body"
@@ -789,12 +745,11 @@ class TestExtractFields:
         assert all(v is None for v in sector_data.values())
         assert all(v is None for v in subsector_data.values())
 
-    @patch("src.shared_utils.requests.post")
-    def test_extract_fields_json_parse_error(self, mock_post):
+    def test_extract_fields_json_parse_error(self, mock_requests_post):
         """Test handling of JSON parse errors."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"response": "not valid json"}
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         sector_data, subsector_data = helpers.extract_fields(
             "drug_shortage", "Title", "Body"
@@ -802,43 +757,40 @@ class TestExtractFields:
         assert all(v is None for v in sector_data.values())
         assert all(v is None for v in subsector_data.values())
 
-    @patch("src.shared_utils.requests.post")
-    def test_extract_fields_uses_json_format(self, mock_post):
+    def test_extract_fields_uses_json_format(self, mock_requests_post):
         """Test that JSON format is requested."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         helpers.extract_fields("drug_shortage", "Title", "Body")
-        call_kwargs = mock_post.call_args[1]
+        call_kwargs = mock_requests_post.call_args[1]
         assert call_kwargs["json"]["format"] == "json"
 
-    @patch("src.shared_utils.requests.post")
-    def test_extract_fields_low_temperature(self, mock_post):
+    def test_extract_fields_low_temperature(self, mock_requests_post):
         """Test that low temperature is used for deterministic extraction."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         helpers.extract_fields("drug_shortage", "Title", "Body")
-        call_kwargs = mock_post.call_args[1]
+        call_kwargs = mock_requests_post.call_args[1]
         assert call_kwargs["json"]["options"]["temperature"] == 0.0
 
-    @patch("src.shared_utils.requests.post")
-    def test_extract_fields_handles_explicit_negative_boolean(self, mock_post):
+    def test_extract_fields_handles_explicit_negative_boolean(self, mock_requests_post):
         """An explicitly negated boolean is requested and returned as false."""
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "response": json.dumps({"ransom_paid": False})
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         _, subsector_data = helpers.extract_fields(
             "cyber_attack",
             "Ransomware",
             "The hospital did not pay the ransom.",
         )
-        prompt = mock_post.call_args[1]["json"]["prompt"]
+        prompt = mock_requests_post.call_args[1]["json"]["prompt"]
         assert "false for an explicit negative statement" in prompt
         assert subsector_data["ransom_paid"] is False
 
@@ -867,9 +819,8 @@ class TestRunBertAndUseBert:
             verbose=False,
         )
 
-    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_use_bert_rejects_none_without_llm(
-        self, mock_post, monkeypatch
+        self, mock_requests_post, monkeypatch
     ):
         """Test that use_bert returns early when BERT rejects the article."""
         monkeypatch.setattr(helpers, "_run_bert", MagicMock(return_value="none"))
@@ -880,11 +831,10 @@ class TestRunBertAndUseBert:
 
         assert is_threat is False
         assert detail == "BERT: unrelated news"
-        mock_post.assert_not_called()
+        mock_requests_post.assert_not_called()
 
-    @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_use_bert_forwards_to_llm_when_flagged(
-        self, mock_post, monkeypatch
+        self, mock_requests_post, monkeypatch
     ):
         """Test that use_bert still calls the LLM when BERT flags the article."""
         monkeypatch.setattr(
@@ -900,7 +850,7 @@ class TestRunBertAndUseBert:
                 }
             )
         }
-        mock_post.return_value = mock_response
+        mock_requests_post.return_value = mock_response
 
         is_threat, detail = helpers.ai_check_validation(
             "Ransomware hits hospital", LONG_BODY, use_bert=True
@@ -908,7 +858,7 @@ class TestRunBertAndUseBert:
 
         assert is_threat is True
         assert detail == "cyber_attack"
-        mock_post.assert_called_once()
+        mock_requests_post.assert_called_once()
 
 
 @pytest.fixture(autouse=True)
@@ -927,10 +877,9 @@ class TestEnsureOllamaModelAvailable:
         rows.extend(f"{model} abc123          2.0 GB    now" for model in models)
         return "\n".join(rows) + "\n"
 
-    @patch("src.shared_utils.subprocess.run")
-    def test_installed_model_passes_and_caches_success(self, mock_run):
+    def test_installed_model_passes_and_caches_success(self, mock_subprocess_run):
         """Installed model should pass and cache the successful check."""
-        mock_run.return_value = MagicMock(
+        mock_subprocess_run.return_value = MagicMock(
             returncode=0,
             stdout=self.ollama_list_output(helpers.AI_MODEL),
             stderr="",
@@ -939,7 +888,7 @@ class TestEnsureOllamaModelAvailable:
         helpers.ensure_model_available()
         helpers.ensure_model_available()
 
-        mock_run.assert_called_once_with(
+        mock_subprocess_run.assert_called_once_with(
             ["ollama", "list"],
             capture_output=True,
             check=False,
@@ -947,11 +896,10 @@ class TestEnsureOllamaModelAvailable:
             timeout=15,
         )
 
-    @patch("src.shared_utils.subprocess.run")
-    def test_cache_is_per_model(self, mock_run):
+    def test_cache_is_per_model(self, mock_subprocess_run):
         """Checking one cached model should not skip checks for another model."""
         alternate_model = f"{helpers.AI_MODEL}-alternate"
-        mock_run.return_value = MagicMock(
+        mock_subprocess_run.return_value = MagicMock(
             returncode=0,
             stdout=self.ollama_list_output(helpers.AI_MODEL, alternate_model),
             stderr="",
@@ -960,13 +908,12 @@ class TestEnsureOllamaModelAvailable:
         helpers.ensure_model_available()
         helpers.ensure_model_available(alternate_model)
 
-        assert mock_run.call_count == 2
+        assert mock_subprocess_run.call_count == 2
 
-    @patch("src.shared_utils.subprocess.run")
-    def test_missing_model_raises_with_pull_guidance_and_is_not_cached(self, mock_run):
+    def test_missing_model_raises_with_pull_guidance_and_is_not_cached(self, mock_subprocess_run):
         """Missing model should fail with exact pull guidance."""
         missing_model = f"{helpers.AI_MODEL}-missing"
-        mock_run.return_value = MagicMock(
+        mock_subprocess_run.return_value = MagicMock(
             returncode=0,
             stdout=self.ollama_list_output(helpers.AI_MODEL),
             stderr="",
@@ -982,19 +929,17 @@ class TestEnsureOllamaModelAvailable:
         assert f"Run: ollama pull {missing_model}" in str(exc.value)
         assert missing_model not in helpers.checked_ollama_models
 
-    @patch("src.shared_utils.subprocess.run")
-    def test_ollama_cli_missing_raises_readable_error(self, mock_run):
+    def test_ollama_cli_missing_raises_readable_error(self, mock_subprocess_run):
         """Missing ollama CLI should raise an error to help users install it."""
-        mock_run.side_effect = FileNotFoundError
+        mock_subprocess_run.side_effect = FileNotFoundError
 
         with pytest.raises(helpers.model_unavailable_error) as exc:
             helpers.ensure_model_available()
         assert "Ollama CLI not found" in str(exc.value)
 
-    @patch("src.shared_utils.subprocess.run")
-    def test_ollama_list_timeout_raises_readable_error(self, mock_run):
+    def test_ollama_list_timeout_raises_readable_error(self, mock_subprocess_run):
         """Timeout on ollama list should raise an error to help users install it."""
-        mock_run.side_effect = subprocess.TimeoutExpired(
+        mock_subprocess_run.side_effect = subprocess.TimeoutExpired(
             cmd=["ollama", "list"],
             timeout=15,
         )
@@ -1003,10 +948,9 @@ class TestEnsureOllamaModelAvailable:
             helpers.ensure_model_available()
         assert "Could not query Ollama models" in str(exc.value)
 
-    @patch("src.shared_utils.subprocess.run")
-    def test_ollama_list_nonzero_returncode_raises_readable_error(self, mock_run):
+    def test_ollama_list_nonzero_returncode_raises_readable_error(self, mock_subprocess_run):
         """A real failed `ollama list` returns nonzero because check=False is used."""
-        mock_run.return_value = MagicMock(
+        mock_subprocess_run.return_value = MagicMock(
             returncode=1,
             stdout="",
             stderr="could not connect to ollama app",

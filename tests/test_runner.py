@@ -817,13 +817,10 @@ class TestRun:
         self, mock_log_error, mock_ensure_raw_dirs, mock_backfill_cyber_seeds
     ):
         """run should fail fast when the configured Ollama model is unavailable."""
-        if True:
-            from unittest.mock import patch
-
-            mock_model_check = patch(
-                "src.GDELT.runner.ensure_model_available",
-                side_effect=runner.model_unavailable_error("model unavailable"),
-            ).start()
+        with patch(
+            "src.GDELT.runner.ensure_model_available",
+            side_effect=runner.model_unavailable_error("model unavailable"),
+        ) as mock_model_check:
             with pytest.raises(SystemExit):
                 runner.run(num_files=1, limit=1)
 

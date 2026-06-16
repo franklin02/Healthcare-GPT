@@ -63,13 +63,9 @@ def _live_site_status(
     """Update the per-site sticky counter line (no-op in verbose mode)."""
     if reporter.verbose:
         return
-    reporter.tick(
-        site_name,
-        page=page,
-        processed=stats.processed,
-        validated=stats.validated,
-        rejected=stats.rejected,
-        skipped=stats.skipped,
+    reporter.instance(site_name).set_step(
+        f"page {page} | proc {stats.processed} val {stats.validated} "
+        f"rej {stats.rejected} skip {stats.skipped}"
     )
 
 
@@ -356,7 +352,6 @@ def flush_html_outputs(
 
     NOTE: only used when reading or writing locally
     """
-    reporter.finish_line()
     prepend_vuln_csv(site_name, new_rows)
     prepend_noise_csv(site_name, new_noise_rows)
     prepend_json_sources(site_name, new_vulns)
@@ -492,7 +487,6 @@ def run_html_scraper(
             )
         except KeyboardInterrupt:
             stats.paused = True
-            reporter.finish_line()
             reporter.info(
                 f"HTML scraper paused by operator during {site_config['name']}; "
                 "flushing completed records."
@@ -742,7 +736,6 @@ def run_html_scraper(
                         )
             except KeyboardInterrupt:
                 stats.paused = True
-                reporter.finish_line()
                 reporter.info(
                     f"HTML scraper paused by operator during {site_config['name']}; "
                     "flushing completed records."
@@ -770,7 +763,6 @@ def run_html_scraper(
             time.sleep(0.25)
         except KeyboardInterrupt:
             stats.paused = True
-            reporter.finish_line()
             reporter.info(
                 f"HTML scraper paused by operator during {site_config['name']}; "
                 "flushing completed records."
@@ -791,7 +783,6 @@ def run_html_scraper(
             stats,
         )
     else:
-        reporter.finish_line()
         reporter.info(f"Finished {site_config['name']}: {stats.output_records} vuln(s)")
         LOGGER.info(
             "Finished %s (Supabase): %d vuln(s)",

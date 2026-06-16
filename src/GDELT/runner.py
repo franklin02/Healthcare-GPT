@@ -484,12 +484,11 @@ def process_staged_seeds(
                 records.append(rec)
                 completed_current = True
             if not reporter.verbose:
-                reporter.progress(i, len(seeds), "staged GDELT seeds")
+                reporter.instance("GDELT").set_progress(i, len(seeds))
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)
             stats.paused = True
-            reporter.finish_line()
             reporter.info(
                 "GDELT seed stitch paused by operator; saving completed records "
                 "and preserving staged seeds."
@@ -950,12 +949,11 @@ def run(
             else:
                 LOGGER.debug("Seed skipped url=%s", url)
             if not reporter.verbose:
-                reporter.progress(i, len(seeds), "GDELT articles")
+                reporter.instance("GDELT").set_progress(i, len(seeds))
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)
             stats.paused = True
-            reporter.finish_line()
             reporter.info(
                 "GDELT pipeline paused by operator; saving completed records "
                 "and preserving seed staging."

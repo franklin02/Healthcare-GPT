@@ -434,6 +434,7 @@ def process_staged_seeds(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     debug_noise: NoiseCollector | None = None,
+    port: int | None = None,
 ) -> list[Vulnerability]:
     """
     Process staged GDELT seeds through validation and extraction while
@@ -446,6 +447,7 @@ def process_staged_seeds(
         reporter: Optional CliReporter for logging progress and details.
         stats: Optional PipelineStats for tracking processing statistics.
         debug_noise: Optional NoiseCollector for recording rejected articles.
+        port: Optional port for the LLM validation service.
 
     Returns:
         A list of vulnerabilities completed from the staged seeds.
@@ -472,6 +474,7 @@ def process_staged_seeds(
                 reporter=reporter,
                 stats=stats,
                 debug_noise=debug_noise,
+                port=port,
             )
             if rec:
                 persist_stage(

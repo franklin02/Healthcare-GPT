@@ -201,20 +201,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Clear all modified directories and files before running",
     )
     parser.add_argument(
-        "--vram",
+        "--models",
         type=int,
-        default=get_config_int("VRAM_TO_USE", 5),
-        help=(
-            "Approximate total VRAM (in GB) to use. Determines how many model instances to run concurrently."
-        ),
+        default=get_config_int("MODELS", 4),
+        help=("Number of model instances to run concurrently."),
     )
     parser.add_argument(
-        "--vram-per-model",
+        "--threads-per-model",
         type=int,
-        default=get_config_int("VRAM_PER_MODEL", 5),
-        help=(
-            "Approximate VRAM (in GB) used by each concurrent model instance. Used with --vram to determine how many model instances to run."
-        ),
+        default=get_config_int("THREADS_PER_MODEL", 4),
+        help=("Number of threads to use per model instance."),
     )
 
     args = parser.parse_args(argv)
@@ -262,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         ]
 
         seen = load_seen(args.seen_urls_file)
-        models_to_run = max(1, args.vram // args.vram_per_model)
+        models_to_run = max(1, args.models)
         chunks = chunk_list(raw_seeds, models_to_run)
 
         if not chunks:
@@ -271,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
         with ThreadPoolExecutor(max_workers=models_to_run) as executor:
             futures = []
             port = 11434
+            n = 0
             for chunk in chunks:
                 futures.append(
                     executor.submit(
@@ -290,7 +287,10 @@ def main(argv: list[str] | None = None) -> int:
                         port=port,
                     )
                 )
-                port += 1
+                n += 1
+                if n == args.threads_per_model:
+                    port += 1
+                    n = 0
             for future in as_completed(futures):
                 future.result()
         if gdelt_noise:

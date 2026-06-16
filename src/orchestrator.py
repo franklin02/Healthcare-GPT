@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import datetime
 import math
-import subprocess
 import sys
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed

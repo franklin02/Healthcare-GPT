@@ -3,7 +3,7 @@ import json
 import sys
 import types
 import subprocess
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 import requests
 import src.shared_utils as helpers
 
@@ -173,7 +173,9 @@ class TestGetBody:
         result = helpers.get_body("https://example.com")
         assert result == ""
 
-    def test_get_body_falls_back_to_main_text_when_no_paragraphs(self, mock_requests_get):
+    def test_get_body_falls_back_to_main_text_when_no_paragraphs(
+        self, mock_requests_get
+    ):
         """Return raw main text when no <p> tags exist (covers line 199)."""
         mock_response = MagicMock()
         mock_response.text = (
@@ -910,7 +912,9 @@ class TestEnsureOllamaModelAvailable:
 
         assert mock_subprocess_run.call_count == 2
 
-    def test_missing_model_raises_with_pull_guidance_and_is_not_cached(self, mock_subprocess_run):
+    def test_missing_model_raises_with_pull_guidance_and_is_not_cached(
+        self, mock_subprocess_run
+    ):
         """Missing model should fail with exact pull guidance."""
         missing_model = f"{helpers.AI_MODEL}-missing"
         mock_subprocess_run.return_value = MagicMock(
@@ -948,7 +952,9 @@ class TestEnsureOllamaModelAvailable:
             helpers.ensure_model_available()
         assert "Could not query Ollama models" in str(exc.value)
 
-    def test_ollama_list_nonzero_returncode_raises_readable_error(self, mock_subprocess_run):
+    def test_ollama_list_nonzero_returncode_raises_readable_error(
+        self, mock_subprocess_run
+    ):
         """A real failed `ollama list` returns nonzero because check=False is used."""
         mock_subprocess_run.return_value = MagicMock(
             returncode=1,

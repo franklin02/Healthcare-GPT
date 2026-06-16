@@ -6,6 +6,8 @@ from datetime import datetime
 import pytest
 
 import src.GDELT.runner as runner
+from src.classes import Vulnerability
+from src.cli_reporter import PipelineStats
 
 
 @pytest.fixture
@@ -78,10 +80,6 @@ def mock_clear_directory():
 def mock_log_error():
     with patch("src.GDELT.runner.LOGGER.error") as mock:
         yield mock
-
-
-from src.classes import Vulnerability
-from src.cli_reporter import PipelineStats
 
 
 def _make_vuln(
@@ -470,7 +468,6 @@ class TestStagedRecovery:
         if True:
             tmp_path = mock_runner_dirs["tmp_path"]
             seeds_dir = mock_runner_dirs["seeds"]
-            validated_dir = mock_runner_dirs["validated"]
             enriched_dir = mock_runner_dirs["enriched"]
             seen_file = tmp_path / "seen_urls.json"
             completed_seed = {
@@ -566,8 +563,6 @@ class TestStagedRecovery:
         if True:
             tmp_path = mock_runner_dirs["tmp_path"]
             seeds_dir = mock_runner_dirs["seeds"]
-            validated_dir = mock_runner_dirs["validated"]
-            enriched_dir = mock_runner_dirs["enriched"]
             seen_file = tmp_path / "seen_urls.json"
             (seeds_dir / "in_flight.json").write_text(
                 json.dumps(

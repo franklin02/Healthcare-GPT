@@ -25,8 +25,8 @@ from .shared_utils import (
     get_config_int,
     get_config_value,
     model_unavailable_error,
-    run_clean,
 )
+from scripts.clean_gdelt import run_clean
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GDELT_CACHE_DIR = _PROJECT_ROOT / "data" / "gdelt_cache"

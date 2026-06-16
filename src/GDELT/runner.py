@@ -53,10 +53,10 @@ from ..shared_utils import (
     get_config_int,
     get_config_value,
     model_unavailable_error,
-    run_clean,
     clear_directory,
     MissingSubsectorFieldsError,
 )
+from scripts.clean_gdelt import run_clean
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 

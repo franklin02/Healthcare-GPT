@@ -227,6 +227,12 @@ def main(argv: list[str] | None = None) -> int:
     reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
 
+    port = args.starting_port
+    for i in range(args.models):
+        subprocess.Popen(
+            f"CUDA_VISIBLE_DEVICES={i % 2} OLLAMA_HOST=127.0.0.1:{port + i} ollama serve"
+        )
+
     if not (args.skip_gdelt and args.skip_html):
         try:
             ensure_model_available()
@@ -270,12 +276,6 @@ def main(argv: list[str] | None = None) -> int:
         seen = load_seen(args.seen_urls_file)
         threads = max(1, args.models) * max(1, args.threads_per_model)
         chunks = chunk_list(raw_seeds, threads)
-        port = args.starting_port
-        for i in range(args.models):
-            subprocess.Popen(
-                f"CUDA_VISIBLE_DEVICES={i % 2} OLLAMA_HOST=127.0.0.1:{port + i} ollama serve"
-            )
-
         if not chunks:
             chunks = [[]]
 

@@ -630,7 +630,9 @@ class TestExtractFields:
     def test_extract_fields_invalid_subsector(self):
         """Test with invalid subsector raises a recoverable error."""
         with pytest.raises(helpers.MissingSubsectorFieldsError):
-            helpers.extract_fields("invalid_subsector", "Title", "Body", TEST_OLLAMA_PORT)
+            helpers.extract_fields(
+                "invalid_subsector", "Title", "Body", TEST_OLLAMA_PORT
+            )
 
     def test_extract_fields_empty_subsector_fields(self, monkeypatch):
         """Test a configured subsector with no fields raises a recoverable error."""

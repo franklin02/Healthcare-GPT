@@ -36,6 +36,20 @@ LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
 
+def _split_date(start: datetime.date, end: datetime.date) -> list[datetime.date]:
+    """
+    Dummy function to split date into K parts. This needs to be rewritten later. 
+    Team hasnt discussed the best/desired way to split dates. Not documenting on purpose
+    """
+    if end > start:
+        raise ValueError(f"dates are backwards")
+
+    half = (end - start) // 2
+    mid = start + half
+    return [start, mid, (mid + datetime.timedelta(days=1)), end]
+
+
+
 def _parse_date(s: str | None) -> datetime.date | None:
     """Parse a YYYY-MM-DD or YYYYMMDD string into a date, or return None."""
     if s is None:
@@ -262,21 +276,30 @@ def main(argv: list[str] | None = None) -> int:
         vuln_dfs: list[pd.DataFrame] = []
         noise_dfs: list[pd.DataFrame] = []
 
-        # objects will either split here or inside scooper
-        # ideally we will split GDELT and Scooper the same way
-        # but if that gets too complex I can run parallel threads
-        # inside of scooper directly, and all orchastrator would
-        # have to do is call `run_scooper` once
+       
+        # K split
+        if args.start_date is not None and args.end_date is not None:
+            dates: list[datetime.date] = _split_date(_parse_date(args.start_date), _parse_date(args.end_date))
+            html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
+                use_bert=args.use_bert,
+                verbose=args.verbose,
+                start_date=dates[0],
+                end_date=dates[1],
+                reporter=reporter,
+                stats=html_stats,
+                sb_only=args.sb_only,
+            )
+            html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
+                use_bert=args.use_bert,
+                verbose=args.verbose,
+                start_date=_parse_date(dates[2]),
+                end_date=_parse_date(dates[3]),
+                reporter=reporter,
+                stats=html_stats,
+                sb_only=args.sb_only,
+            )
 
-        html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
-            use_bert=args.use_bert,
-            verbose=args.verbose,
-            start_date=_parse_date(args.start_date),
-            end_date=_parse_date(args.end_date),
-            reporter=reporter,
-            stats=html_stats,
-            sb_only=args.sb_only,
-        )
+        # TODO: thread per cite implemented here
 
         # NOTE: remind this only stays if we split by k dates
         vuln_dfs.append(v_df)

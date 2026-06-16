@@ -57,7 +57,7 @@ VULN_CSV_HEADER = [
 ]
 NOISE_CSV_PATH = _PROJECT_ROOT / "data" / "noise" / "scooper_noise.csv"
 NOISE_CSV_HEADER = ["source_name", "title", "link", "reason", "body_preview", "date"]
-RAW_CSV_PATH = _PROJECT_ROOT / "data" / "raw" / "pytes"
+RAW_CSV_PATH = _PROJECT_ROOT / "data" / "raw" / "scooper_raw.csv"
 RAW_CSV_HEADER = ["source_name", "title", "link", "body", "date"]
 
 try:

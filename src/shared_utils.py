@@ -1272,19 +1272,23 @@ def clear_directory(directory: Path) -> None:
             LOGGER.warning("Failed to remove %s: %s", item, exc)
 
 
-def df_dup(dfs: list[pd.DataFrame]) -> tuple[pd.DataFrame, list[str]]:
+def df_dup(dfs: list[pd.DataFrame], verbose: bool = False) -> tuple[pd.DataFrame, list[str]]:
     """
-    TODO: document this l8er
+    Deduplicates a lits of dataframes, used to make one single csv write by scooper
+
+    Args:
+        dfs: list of dataframes with the same schema 
+        verbose: prints messages when True
+    Returns: 
+        One unique DataFrame a list of duplicate titles
     """
-    frames = [df for df in dfs if df is not None]
-    if not frames:
+
+    valid_dfs = [df for df in dfs if df is not None and not df.empty]
+    if not valid_dfs:
+        if verbose: print("[WARNING]: All frames were None")
         return pd.DataFrame(), []
 
-    non_empty = [df for df in frames if not df.empty]
-    if not non_empty:
-        return frames[0].iloc[0:0].copy(), []
-
-    combined = pd.concat(non_empty, ignore_index=True)
+    combined = pd.concat(valid_dfs, ignore_index=True)
 
     key = [c for c in ("source_name", "title") if c in combined.columns]
     if not key:
@@ -1299,19 +1303,28 @@ def df_dup(dfs: list[pd.DataFrame]) -> tuple[pd.DataFrame, list[str]]:
     return deduped, dup_titles
 
 
-def update_csv(df: pd.DataFrame, path: Path) -> None:
+def update_csv(df: pd.DataFrame, path: Path, verbose: bool = False) -> None:
     """
-    TODO: document this l8er
+    Appends a csv with a given DataFrame. This is used in scooper after calling 'df_dup'
+
+    Args:
+        df: DataFrame to append
+        path: CSV path 
+        verbose: used to print messages if true
     """
     if df is None or df.empty:
+        if verbose:
+            print(f"[WARNING]df is not usable (it is empty or None)")
         return
 
-    dest = Path(path)
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
-    write_header = not dest.exists() or dest.stat().st_size == 0
+    write_header = not path.exists() or path.stat().st_size == 0
+    if write_header and verbose:
+        print("Writing headers, file was empty or did not exist")
+
     df.to_csv(
-        dest,
+        path,
         mode="a",
         header=write_header,
         index=False,

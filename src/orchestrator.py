@@ -11,7 +11,7 @@ import argparse
 import datetime
 import sys
 import math
-import subprocess
+import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -229,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
 
     port = args.starting_port
     for i in range(args.models):
-        subprocess.Popen(
+        os.system(
             f"CUDA_VISIBLE_DEVICES={i % 2} OLLAMA_HOST=127.0.0.1:{port + i} ollama serve"
         )
 

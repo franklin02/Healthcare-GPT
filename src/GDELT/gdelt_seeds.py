@@ -488,7 +488,6 @@ def backfill_cyber_seeds(
 
     Parameters:
         num_files: The number of most recent GDELT files to scan if no date bounds are provided. Ignored if start_date or end_date is specified.
-        subsector: The subsector to filter for, or "all" for any supported subsector.
         start_date: Optional start date bound (inclusive) in formats like YYYY-MM-DD or YYYYMMDD. If provided, only files with timestamps on or after this date will be processed.
         end_date: Optional end date bound (inclusive) in formats like YYYY-MM-DD or YYYYMMDD. If provided, only files with timestamps on or before this date will be processed.
         reporter: Optional CliReporter for logging progress and warnings.
@@ -497,93 +496,104 @@ def backfill_cyber_seeds(
     Returns:
         A list of unique seed records (dicts) that match the specified subsector and date bounds, extracted from the relevant GDELT GKG files. Each seed record includes the URL, source, themes, subsector, date, and file name.
     """
+    local_reporter = reporter is None
     reporter = reporter or CliReporter(verbose=True)
-    reporter.detail("Fetching GDELT master file list...")
-    LOGGER.debug(
-        "Backfill start num_files=%s start_date=%s end_date=%s",
-        num_files,
-        start_date,
-        end_date,
-    )
-    resp = requests.get(
-        "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt", timeout=15
-    )
-    links = [
-        line.split(" ")[2]
-        for line in resp.text.strip().split("\n")
-        if ".gkg.csv.zip" in line
-    ]
-    start_date = _normalize_date_bound(start_date)
-    end_date = _normalize_date_bound(end_date, end=True)
-    LOGGER.debug("Normalized date bounds start=%s end=%s", start_date, end_date)
-    if start_date:
-        links = [link for link in links if link.split("/")[-1][:14] >= start_date]
-    if end_date:
-        links = [link for link in links if link.split("/")[-1][:14] <= end_date]
-    recent = links if (start_date or end_date) else links[-num_files:]
-    reporter.info(
-        f"Scanning {len(recent)} GDELT files for all subsectors "
-        f"(~{len(recent) * 15 / 60:.1f} hours)"
-    )
-    LOGGER.debug("Scanning %s files", len(recent))
-
-    all_seeds = []
-    total_rows = 0
-    for index, link in enumerate(recent, start=1):
-        fname = link.split("/")[-1]
-        cached_seeds = []
-        try:
-            if SEEDS_DIR.exists():
-                for p in SEEDS_DIR.glob("*.json"):
-                    try:
-                        with open(p, "r", encoding="utf-8") as f:
-                            j = json.load(f)
-                        s = j.get("seed") or j
-                        if isinstance(s, dict) and s.get("file") == fname:
-                            cached_seeds.append(s)
-                    except Exception:
-                        LOGGER.warning("Failed to read cache file %s: %s", p)
-                        continue
-        except Exception:
-            LOGGER.warning("Failed to access cache directory %s: %s", SEEDS_DIR)
-            cached_seeds = []
-
-        if cached_seeds:
-            reporter.detail(f"  Reusing {len(cached_seeds)} cached seeds from {fname}")
-            LOGGER.info("Reusing %s cached seeds from %s", len(cached_seeds), fname)
-            all_seeds.extend(cached_seeds)
-            if recent and not reporter.verbose:
-                reporter.progress(index, len(recent), "GDELT files")
-            continue
-        else:
-            seeds, rows = process_gkg_file(
-                link,
-                cache_dir=cache_dir,
-                reporter=reporter,
-                stats=stats,
-            )
-        all_seeds.extend(seeds)
-        total_rows += rows
-        if recent and not reporter.verbose:
-            reporter.progress(index, len(recent), "GDELT files")
-
-    seen, unique = set(), []
-    for s in all_seeds:
-        if s["url"] not in seen:
-            seen.add(s["url"])
-            unique.append(s)
-    LOGGER.debug("Unique seeds=%s from total_rows=%s", len(unique), total_rows)
-
-    reporter.info(f"Found {len(unique)} unique seeds from {total_rows} rows checked")
-    # Sort unique seeds by date descending for display purposes
-    for s in unique:
-        reporter.detail(f"[{s['date']}]  {s['source']}")
-        reporter.detail(f"  URL: {s['url']}")
-        relevant = [
-            t
-            for t in (s["themes"] or "").split(";")
-            if any(c in t.upper() for c in CYBER_THEMES | HEALTH_THEMES)
+    try:
+        reporter.detail("Fetching GDELT master file list...")
+        LOGGER.debug(
+            "Backfill start num_files=%s start_date=%s end_date=%s",
+            num_files,
+            start_date,
+            end_date,
+        )
+        resp = requests.get(
+            "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt", timeout=15
+        )
+        links = [
+            line.split(" ")[2]
+            for line in resp.text.strip().split("\n")
+            if ".gkg.csv.zip" in line
         ]
-        reporter.detail(f"  Themes: {' | '.join(relevant[:8])}\n")
+        start_date = _normalize_date_bound(start_date)
+        end_date = _normalize_date_bound(end_date, end=True)
+        LOGGER.debug("Normalized date bounds start=%s end=%s", start_date, end_date)
+        if start_date:
+            links = [link for link in links if link.split("/")[-1][:14] >= start_date]
+        if end_date:
+            links = [link for link in links if link.split("/")[-1][:14] <= end_date]
+        recent = links if (start_date or end_date) else links[-num_files:]
+        reporter.info(
+            f"Scanning {len(recent)} GDELT files for all subsectors "
+            f"(~{len(recent) * 15 / 60:.1f} hours)"
+        )
+        LOGGER.debug("Scanning %s files", len(recent))
 
-    return unique
+        gdelt_bar = reporter.instance("GDELT")
+        gdelt_bar.reset(total=len(recent))
+        gdelt_bar.set_step("scanning GDELT files")
+
+        all_seeds = []
+        total_rows = 0
+        for index, link in enumerate(recent, start=1):
+            fname = link.split("/")[-1]
+            cached_seeds = []
+            try:
+                if SEEDS_DIR.exists():
+                    for p in SEEDS_DIR.glob("*.json"):
+                        try:
+                            with open(p, "r", encoding="utf-8") as f:
+                                j = json.load(f)
+                            s = j.get("seed") or j
+                            if isinstance(s, dict) and s.get("file") == fname:
+                                cached_seeds.append(s)
+                        except Exception:
+                            LOGGER.warning("Failed to read cache file %s: %s", p)
+                            continue
+            except Exception:
+                LOGGER.warning("Failed to access cache directory %s: %s", SEEDS_DIR)
+                cached_seeds = []
+
+            if cached_seeds:
+                reporter.detail(
+                    f"  Reusing {len(cached_seeds)} cached seeds from {fname}"
+                )
+                LOGGER.info("Reusing %s cached seeds from %s", len(cached_seeds), fname)
+                all_seeds.extend(cached_seeds)
+                gdelt_bar.advance(1)
+                continue
+            else:
+                seeds, rows = process_gkg_file(
+                    link,
+                    cache_dir=cache_dir,
+                    reporter=reporter,
+                    stats=stats,
+                )
+            all_seeds.extend(seeds)
+            total_rows += rows
+            gdelt_bar.advance(1)
+
+        seen, unique = set(), []
+        for s in all_seeds:
+            if s["url"] not in seen:
+                seen.add(s["url"])
+                unique.append(s)
+        LOGGER.debug("Unique seeds=%s from total_rows=%s", len(unique), total_rows)
+
+        reporter.info(
+            f"Found {len(unique)} unique seeds from {total_rows} rows checked"
+        )
+        # Sort unique seeds by date descending for display purposes
+        for s in unique:
+            reporter.detail(f"[{s['date']}]  {s['source']}")
+            reporter.detail(f"  URL: {s['url']}")
+            relevant = [
+                t
+                for t in (s["themes"] or "").split(";")
+                if any(c in t.upper() for c in CYBER_THEMES | HEALTH_THEMES)
+            ]
+            reporter.detail(f"  Themes: {' | '.join(relevant[:8])}\n")
+
+        return unique
+    finally:
+        if local_reporter:
+            reporter.close()

@@ -1,36 +1,117 @@
-"""Sticky single-line CLI reporter (stdlib only).
+"""tqdm-backed CLI reporter for the (future multi-instance) pipeline.
 
-The reporter keeps at most one "sticky" line at the bottom of the output
-stream and re-draws it after any interrupting message — similar in feel to
-``tqdm.write``, but without the dependency. Two sticky styles are supported:
+An *instance* is one pipeline worker (issue #181). Today the pipeline runs a
+single instance, so the sticky area at the bottom of the screen holds just two
+bars: a shared *task bar* that is re-pointed at whatever unit of work is
+currently running (the GDELT pipeline, then each HTML scraper site) and an
+overall "Pipeline progress" bar with elapsed time. When more than one instance
+is declared via :meth:`CliReporter.build_instances` (demo script, #181), each
+instance instead gets its own persistent bar stacked above the overall bar.
 
-- ``progress(current, total, label)`` for determinate work (fill bar)
-- ``tick(label, **counters)`` for indeterminate work (rolling counters)
+All human output (``info``/``detail``/``warn``/``error`` and records routed
+from :mod:`logging`) is written through :func:`tqdm.write`, so it scrolls in
+the area *above* the bars instead of smashing them.
+
+tqdm is imported and customized in this one module; the rest of the codebase
+talks only to :class:`CliReporter` / :class:`InstanceBar`.
 """
 
 from __future__ import annotations
 
 import logging
+import random
 import shutil
 import sys
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TextIO
 
+from tqdm import tqdm
+
+# Both bars share one shape so the sticky area reads consistently: name, percent,
+# bar, then the free-form current step. The overall bar adds elapsed time before
+# the step. ``{step}`` is OUR placeholder (substituted per update in InstanceBar),
+# not tqdm's ``{postfix}`` — tqdm forces a ", " before postfix, which reads as
+# jank. ``{bar}`` is replaced with a sized ``{bar:N}`` per reporter (CliReporter).
+INSTANCE_BAR_FORMAT = "{desc} {percentage:3.0f}% |{bar}| {step}"
+OVERALL_BAR_FORMAT = "{desc} {percentage:3.0f}% |{bar}| [{elapsed}] {step}"
+_STEP_FIELD = "{step}"
+_MIN_INTERVAL = 0.1
+
+# Both bars use one glyph width, clamped to a floor/ceiling so a wide terminal
+# can't make them swallow the line (and the whole line still fits). Tunable.
+_BAR_WIDTH_MIN, _BAR_WIDTH_MAX = 10, 28
+
+# The sticky area is a *contiguous* stack of tqdm bars starting at position 0.
+# We deliberately do NOT insert blank rows for breathing room: empty position
+# rows OR blank "spacer" bars both corrupt tqdm's cursor/position accounting and
+# leave a ghost copy of the bottom (overall) bar one row down. Contiguous is the
+# only layout tqdm renders cleanly under log scrolling and concurrent threads.
+_BARS_TOP = 0
+
+# A dash of whimsy (issue #191): occasional stand-in step labels shown while a
+# slow call is in flight. Bar step labels only — never logged.
+WHIMS: tuple[str, ...] = (
+    "rejecting everything",
+    "making no mistakes",
+    "spinning GPU fans",
+    "burning tokens",
+    "hallucinating results",
+    "consulting the oracle",
+    "reticulating splines",
+    "asking the model nicely",
+    "double-checking its homework",
+    "separating wheat from chaff",
+    "herding electrons",
+    "warming up the thinking rocks",
+    "negotiating with the LLM",
+    "doomscrolling the news",
+    "sifting through the junk drawer",
+)
+WHIM_CHANCE = 0.15
+_whim_rng = random.Random()
+
 # Module-level handle on the reporter that owns the terminal right now. Low-level
 # code (e.g. logging handlers) has no reporter reference, so it looks here to draw
-# above the sticky line instead of smashing it.
+# above the bars instead of smashing them.
 _active_reporter: "CliReporter | None" = None
 
 
 def set_active_reporter(reporter: "CliReporter | None") -> None:
-    """Register the reporter that currently owns the sticky line."""
+    """Register the reporter that currently owns the bars."""
     global _active_reporter
     _active_reporter = reporter
 
 
 def get_active_reporter() -> "CliReporter | None":
-    """Return the reporter currently owning the sticky line, if any."""
+    """Return the reporter currently owning the bars, if any."""
     return _active_reporter
+
+
+def whim(default: str) -> str:
+    """Return ``default``, or occasionally a whimsical stand-in label.
+
+    Use only for bar step labels while a slow call is in flight, and restore the
+    factual label afterwards — never feed the result to a logger.
+    Patch ``WHIM_CHANCE`` to 0.0 or 1.0 for deterministic tests.
+    """
+    if _whim_rng.random() < WHIM_CHANCE:
+        return _whim_rng.choice(WHIMS)
+    return default
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Render a duration as ``2h 3m 4s`` / ``3m 4s`` / ``4s``."""
+    secs = int(seconds)
+    hours, rem = divmod(secs, 3600)
+    minutes, sec = divmod(rem, 60)
+    if hours:
+        return f"{hours}h {minutes}m {sec}s"
+    if minutes:
+        return f"{minutes}m {sec}s"
+    return f"{sec}s"
 
 
 @dataclass
@@ -49,6 +130,7 @@ class PipelineStats:
     output_records: int = 0
     sites_scanned: int = 0
     paused: bool = False
+    elapsed_seconds: float = 0.0
 
     def merge(self, other: "PipelineStats") -> None:
         self.discovered += other.discovered
@@ -62,6 +144,7 @@ class PipelineStats:
         self.output_records += other.output_records
         self.sites_scanned += other.sites_scanned
         self.paused = self.paused or other.paused
+        self.elapsed_seconds += other.elapsed_seconds
 
     @property
     def rejection_rate(self) -> float:
@@ -72,180 +155,554 @@ class PipelineStats:
         return rejected_or_skipped / outcomes
 
 
-class CliReporter:
-    """Sticky-line reporter with tqdm-like redraw on interrupting output."""
+@dataclass
+class InstanceSpec:
+    """Declaration of one instance bar to build at startup."""
 
-    def __init__(self, verbose: bool = False, stream: TextIO | None = None) -> None:
+    name: str
+    total: int | None = None
+    model: str | None = None
+    endpoint: str | None = None
+
+
+def _is_tty(file: TextIO) -> bool:
+    isatty = getattr(file, "isatty", None)
+    try:
+        return bool(isatty and isatty())
+    except (ValueError, OSError):
+        return False
+
+
+def _supports_unicode(file: TextIO) -> bool:
+    encoding = getattr(file, "encoding", None)
+    if encoding is None:
+        return True
+    return "utf" in encoding.lower()
+
+
+class InstanceBar:
+    """One tqdm progress bar owned by an instance (or shared task slot).
+
+    A *shared* bar (single-instance mode) shows the current task name as its
+    description and is re-pointed at each unit of work via :meth:`start_task`.
+    A non-shared bar keeps the instance name as its description and shows the
+    current task as a ``task: step`` prefix on the step text instead.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        position: int,
+        *,
+        total: int | None = None,
+        model: str | None = None,
+        endpoint: str | None = None,
+        file: TextIO | None = None,
+        disable: bool = False,
+        verbose: bool = False,
+        bar_format: str = INSTANCE_BAR_FORMAT,
+        use_ascii: bool = False,
+        shared: bool = False,
+    ) -> None:
+        self.name = name
+        self.model = model
+        self.endpoint = endpoint
+        self.task: str | None = name if shared else None
+        self._shared = shared
+        self._verbose = verbose
+        self._base_format = bar_format
+        self._step = ""
+        self._bar = tqdm(
+            total=total,
+            position=position,
+            leave=True,
+            desc=self._compose_desc(),
+            bar_format=self._render_bar_format(),
+            file=file,
+            disable=disable,
+            dynamic_ncols=True,
+            mininterval=_MIN_INTERVAL,
+            ascii=use_ascii,
+        )
+
+    def _render_bar_format(self) -> str:
+        # Substitute our literal ``{step}`` ourselves so tqdm never sees it (and
+        # never prepends the ", " it forces before ``{postfix}``). Escape any
+        # braces in the step text so tqdm's later ``.format`` leaves it alone.
+        safe = self._step.replace("{", "{{").replace("}", "}}")
+        return self._base_format.replace(_STEP_FIELD, safe)
+
+    def _compose_desc(self) -> str:
+        base = (self.task or self.name) if self._shared else self.name
+        # Verbose mode annotates which instance is tied to which model endpoint.
+        if self._verbose and self.model:
+            endpoint_label = f" @ {self.endpoint}" if self.endpoint else ""
+            return f"{base} [{self.model}{endpoint_label}]"
+        return base
+
+    def start_task(
+        self,
+        task: str,
+        *,
+        total: int | None = None,
+        model: str | None = None,
+        endpoint: str | None = None,
+    ) -> None:
+        """Re-point the bar at a new unit of work (re-zeroed, fresh labels)."""
+        self.task = task
+        if model is not None:
+            self.model = model
+        if endpoint is not None:
+            self.endpoint = endpoint
+        self._bar.set_description_str(self._compose_desc(), refresh=False)
+        self._step = ""
+        self._bar.bar_format = self._render_bar_format()
+        # Assign total directly: tqdm's reset(total=None) keeps the old total,
+        # but a fresh task must start indeterminate unless told otherwise.
+        self._bar.total = total
+        self._bar.reset()
+
+    def set_total(self, total: int | None) -> None:
+        self._bar.total = total
+        self._bar.refresh()
+
+    def reset(self, total: int | None = None) -> None:
+        """Re-zero the bar for a new phase (e.g. file scan -> seed processing)."""
+        self._bar.reset(total=total)
+
+    def advance(self, n: int = 1) -> None:
+        self._bar.update(n)
+
+    def set_progress(self, current: int, total: int | None = None) -> None:
+        """Set the bar to an absolute position."""
+        if total is not None:
+            self._bar.total = total
+        self._bar.n = current
+        self._bar.refresh()
+
+    def set_step(self, step: str) -> None:
+        """Set the free-form "current step" shown after the bar."""
+        label = str(step)
+        if not self._shared and self.task:
+            label = f"{self.task}: {label}"
+        self._step = label
+        self._bar.bar_format = self._render_bar_format()
+        self._bar.refresh()
+
+    def close(self) -> None:
+        self._bar.close()
+
+
+class CliReporter:
+    """tqdm-backed reporter owning the sticky bars at the bottom of the screen.
+
+    Single-instance mode (the default, and the only mode the real pipeline
+    uses until #181): one shared task bar plus the overall bar. Multi-instance
+    mode (``build_instances`` with two or more specs): one persistent bar per
+    instance, overall bar below them. ``register_instance``/``instance`` route
+    to the right bar in both modes, so runner/scooper call sites are identical.
+    """
+
+    def __init__(
+        self,
+        verbose: bool = False,
+        stream: TextIO | None = None,
+        *,
+        file: TextIO | None = None,
+        disable: bool | None = None,
+    ) -> None:
         self.verbose = verbose
-        self.stream = stream or sys.stdout
-        self._sticky: str | None = None
-        self._sticky_len = 0
+        # ``stream`` is the historical kwarg (tests pass ``stream=StringIO()``);
+        # ``file`` is the tqdm-native name. Either resolves to the output target.
+        self._file = file if file is not None else (stream or sys.stdout)
+        # Bars only animate on a real terminal; pipes/CI/StringIO get clean text
+        # output (logs + summary still print via tqdm.write).
+        self._disable = (not _is_tty(self._file)) if disable is None else disable
+        self._use_ascii = not _supports_unicode(self._file)
+        # One capped bar width for both bars so they line up and the whole line
+        # fits (fixed fallback off-terminal keeps output stable).
+        cols = shutil.get_terminal_size((80, 20)).columns if _is_tty(self._file) else 80
+        bar_width = min(_BAR_WIDTH_MAX, max(_BAR_WIDTH_MIN, cols // 4))
+        self._instance_bar_format = INSTANCE_BAR_FORMAT.replace(
+            "{bar}", f"{{bar:{bar_width}}}"
+        )
+        self._overall_bar_format = OVERALL_BAR_FORMAT.replace(
+            "{bar}", f"{{bar:{bar_width}}}"
+        )
+        self._multi = False
+        self._task: InstanceBar | None = None
+        self._instances: dict[str, InstanceBar] = {}
+        self._order: list[str] = []
+        self._overall: InstanceBar | None = None
+        self._cursor_hidden = False
+        # One reentrant lock guards the bar registry and serializes terminal
+        # draws across threads (tqdm.write log scrolling vs. bar refreshes).
+        # Reentrant because reporter methods hold it while calling bar ops that
+        # re-acquire it through tqdm.
+        self._lock = threading.RLock()
+        tqdm.set_lock(self._lock)
+        self._local = threading.local()
         set_active_reporter(self)
 
-    # ---- public API ----------------------------------------------------
+    # ---- instance + overall bar management ----------------------------
+
+    def _hide_cursor(self) -> None:
+        """Hide the terminal cursor so it doesn't park as a block on a bar row."""
+        if self._disable or self._cursor_hidden:
+            return
+        try:
+            self._file.write("\x1b[?25l")
+            self._file.flush()
+        except Exception:
+            pass
+        self._cursor_hidden = True
+
+    def _show_cursor(self) -> None:
+        if not self._cursor_hidden:
+            return
+        try:
+            self._file.write("\x1b[?25h")
+            self._file.flush()
+        except Exception:
+            pass
+        self._cursor_hidden = False
+
+    def build_instances(
+        self, specs: list[InstanceSpec], *, model_label: str | None = None
+    ) -> None:
+        """Declare the instances for this run and create the overall bar.
+
+        Renders the startup sequence the issue describes: a "Building
+        instances" line, the loaded model, an "Instances built" line, then the
+        stickied overall bar. One spec keeps single-instance mode (shared task
+        bar); two or more switch to multi-instance mode with one persistent
+        bar per spec. The overall bar's total is set separately via
+        ``set_overall_total`` (units of work, not instances).
+        """
+        self.info(f"Building instances ({len(specs)})...")
+        with self._lock:
+            self._hide_cursor()
+            if len(specs) > 1:
+                self._multi = True
+                for spec in specs:
+                    bar = InstanceBar(
+                        spec.name,
+                        position=_BARS_TOP + len(self._order),
+                        total=spec.total,
+                        model=spec.model,
+                        endpoint=spec.endpoint,
+                        file=self._file,
+                        disable=self._disable,
+                        verbose=self.verbose,
+                        bar_format=self._instance_bar_format,
+                        use_ascii=self._use_ascii,
+                    )
+                    self._instances[spec.name] = bar
+                    self._order.append(spec.name)
+            elif specs:
+                spec = specs[0]
+                self._task = InstanceBar(
+                    spec.name,
+                    position=_BARS_TOP,
+                    total=spec.total,
+                    model=spec.model,
+                    endpoint=spec.endpoint,
+                    file=self._file,
+                    disable=self._disable,
+                    verbose=self.verbose,
+                    bar_format=self._instance_bar_format,
+                    use_ascii=self._use_ascii,
+                    shared=True,
+                )
+        if model_label:
+            self.info(f"LLM Model loaded: {model_label}")
+        self.info(f"Instances built ({len(specs)})")
+        self._ensure_overall()
+
+    @contextmanager
+    def bind_instance(self, name: str) -> Iterator[InstanceBar]:
+        """Route this thread's ``register_instance``/``instance`` calls to ``name``.
+
+        Multi-instance mode only: a worker thread binds itself to its declared
+        instance so unit code (runner/scooper) lands on that instance's bar
+        without knowing which instance it runs in.
+        """
+        with self._lock:
+            if not self._multi or name not in self._instances:
+                raise KeyError(
+                    f"unknown instance {name!r}; declare it via build_instances() first"
+                )
+            bar = self._instances[name]
+        previous = getattr(self._local, "instance", None)
+        self._local.instance = name
+        try:
+            yield bar
+        finally:
+            self._local.instance = previous
+
+    def register_instance(
+        self,
+        name: str,
+        *,
+        total: int | None = None,
+        model: str | None = None,
+        endpoint: str | None = None,
+    ) -> InstanceBar:
+        """Return the bar that should track the unit of work called ``name``.
+
+        Single mode: the shared task bar, re-pointed at ``name`` if it was on a
+        different task (note: an unknown name therefore re-tasks the shared bar
+        rather than failing). Multi mode: the bar of the thread's bound
+        instance, or the instance named ``name`` itself; any other name raises
+        ``KeyError``.
+        """
+        return self._resolve_bar(name, total=total, model=model, endpoint=endpoint)
+
+    def instance(self, name: str) -> InstanceBar:
+        """Shorthand for :meth:`register_instance` without metadata updates."""
+        return self._resolve_bar(name)
+
+    def _resolve_bar(
+        self,
+        name: str,
+        *,
+        total: int | None = None,
+        model: str | None = None,
+        endpoint: str | None = None,
+    ) -> InstanceBar:
+        with self._lock:
+            if not self._multi:
+                bar = self._task
+                if bar is None:
+                    self._hide_cursor()
+                    bar = InstanceBar(
+                        name,
+                        position=_BARS_TOP,
+                        total=total,
+                        model=model,
+                        endpoint=endpoint,
+                        file=self._file,
+                        disable=self._disable,
+                        verbose=self.verbose,
+                        bar_format=self._instance_bar_format,
+                        use_ascii=self._use_ascii,
+                        shared=True,
+                    )
+                    self._task = bar
+                    return bar
+            else:
+                bound = getattr(self._local, "instance", None)
+                if bound is not None:
+                    bar = self._instances[bound]
+                elif name in self._instances:
+                    # Addressed by instance name directly: no task re-pointing.
+                    bar = self._instances[name]
+                    self._update_bar(bar, total=total, model=model, endpoint=endpoint)
+                    return bar
+                else:
+                    raise KeyError(
+                        f"unknown instance {name!r}; declare it via "
+                        "build_instances() or bind the thread with bind_instance()"
+                    )
+            if bar.task != name:
+                bar.start_task(name, total=total, model=model, endpoint=endpoint)
+            else:
+                self._update_bar(bar, total=total, model=model, endpoint=endpoint)
+            return bar
+
+    @staticmethod
+    def _update_bar(
+        bar: InstanceBar,
+        *,
+        total: int | None,
+        model: str | None,
+        endpoint: str | None,
+    ) -> None:
+        if total is not None:
+            bar.set_total(total)
+        if model is not None:
+            bar.model = model
+        if endpoint is not None:
+            bar.endpoint = endpoint
+
+    def _ensure_overall(self, total: int | None = None) -> InstanceBar:
+        with self._lock:
+            if self._overall is None:
+                self._hide_cursor()
+                bar_rows = len(self._order) if self._multi else 1
+                # Bottom-most line, contiguous with the instance/task bars above.
+                self._overall = InstanceBar(
+                    "Pipeline progress",
+                    position=_BARS_TOP + bar_rows,
+                    total=total,
+                    file=self._file,
+                    disable=self._disable,
+                    verbose=False,
+                    bar_format=self._overall_bar_format,
+                    use_ascii=self._use_ascii,
+                )
+            elif total is not None:
+                self._overall.set_total(total)
+            return self._overall
+
+    def overall(self) -> InstanceBar:
+        return self._ensure_overall()
+
+    def set_overall_total(self, total: int) -> None:
+        self._ensure_overall(total=total)
+
+    def advance_overall(self, n: int = 1) -> None:
+        self._ensure_overall().advance(n)
+
+    def set_overall_step(self, step: str) -> None:
+        self._ensure_overall().set_step(step)
+
+    # ---- log routing (above the bars) ---------------------------------
+
+    def _write(self, message: str) -> None:
+        tqdm.write(str(message), file=self._file)
 
     def log(self, message: str) -> None:
-        """Print a pre-formatted log line above the sticky bar.
-
-        Single coordinated write path for logging handlers so records redraw
-        cleanly instead of colliding with the progress line.
-        """
-        self._print_above(message)
+        """Single coordinated write path for logging handlers."""
+        self._write(message)
 
     def phase(self, message: str) -> None:
-        """Print a section header; finalizes any active sticky line."""
-        self.finish_line()
-        print(f"\n=== {message} ===", file=self.stream)
+        """Print a section header above the bars."""
+        self._write(f"\n=== {message} ===")
 
     def status(self, message: str) -> None:
-        """Always-visible message printed above the sticky line."""
-        self._print_above(message)
+        """Always-visible message printed above the bars."""
+        self._write(message)
 
     def info(self, message: str) -> None:
         """High-level pipeline message — visible in every mode."""
-        self._print_above(message)
+        self._write(message)
 
     def detail(self, message: str) -> None:
         """Per-item detail — visible only with --verbose."""
         if self.verbose:
-            self._print_above(message)
+            self._write(message)
 
     def warn(self, message: str, stats: PipelineStats | None = None) -> None:
         """Always count warnings; only print them in verbose mode."""
         if stats is not None:
             stats.warnings += 1
         if self.verbose:
-            self._print_above(f"[WARN] {message}")
+            self._write(f"[WARN] {message}")
 
     def error(self, message: str, stats: PipelineStats | None = None) -> None:
         """Always print errors and count them."""
         if stats is not None:
             stats.errors += 1
-        self._print_above(f"[ERROR] {message}")
+        self._write(f"[ERROR] {message}")
 
-    def progress(self, current: int, total: int, label: str = "Progress") -> None:
-        """Draw or update the sticky progress bar.
+    # ---- summary + teardown -------------------------------------------
 
-        When ``current >= total`` (and ``total > 0``) the line is finalized
-        with a newline so the completion state stays visible above any
-        subsequent output.
+    @staticmethod
+    def _safe_close(bar: "InstanceBar | tqdm | None") -> None:
+        if bar is None:
+            return
+        try:
+            bar.close()
+        except Exception:
+            pass
+
+    def finish_bars(self) -> None:
+        """Close every bar (top to bottom) so they freeze as plain lines.
+
+        Idempotent. After this, subsequent output prints below the frozen
+        bars; new bars would start a fresh sticky area.
         """
-        bar = self._progress_bar(current, total)
-        pct = self._percent(current, total)
-        text = f"Progress: {bar} {pct}% {label} ({current}/{total})"
-        self._draw_sticky(text)
-        if total > 0 and current >= total:
-            self.finish_line()
-
-    def tick(self, label: str, **counters: int) -> None:
-        """Draw an indeterminate sticky counter line.
-
-        Used when totals aren't known up front but a single sticky line of
-        rolling counts is still useful (e.g. paginated scraping).
-        """
-        parts = [label] if label else []
-        for key, value in counters.items():
-            parts.append(f"{key}={value}")
-        self._draw_sticky(" | ".join(parts))
-
-    def finish_line(self) -> None:
-        """Terminate any active sticky line with a newline."""
-        if self._sticky is not None:
-            print(file=self.stream)
-            self._sticky = None
-            self._sticky_len = 0
+        with self._lock:
+            for name in self._order:
+                self._safe_close(self._instances.get(name))
+            self._safe_close(self._task)
+            # Close the overall bar last so the cursor ends below the whole stack
+            # and the next write (the summary) lands on a clean line.
+            self._safe_close(self._overall)
+            self._instances.clear()
+            self._order.clear()
+            self._task = None
+            self._overall = None
+            self._show_cursor()
 
     def summary(self, stats: PipelineStats | list[PipelineStats]) -> None:
-        """Print one or more pipeline run summaries."""
-        self.finish_line()
+        """Print the run summary as one table (metrics as rows, runs as columns).
+
+        Summaries mark the end of a run: any live bars are finished first so
+        the summary is the last thing on screen.
+        """
+        self.finish_bars()
         stats_list = stats if isinstance(stats, list) else [stats]
-        print("\n=== Run Summary ===", file=self.stream)
-        for item in stats_list:
-            print(f"{item.name}:", file=self.stream)
-            if item.paused:
-                print("  Paused:         yes", file=self.stream)
-            if item.sites_scanned:
-                print(f"  Sites scanned:  {item.sites_scanned}", file=self.stream)
-            print(f"  Discovered:     {item.discovered}", file=self.stream)
-            print(f"  Processed:      {item.processed}", file=self.stream)
-            print(f"  Validated:      {item.validated}", file=self.stream)
-            print(f"  Rejected:       {item.rejected}", file=self.stream)
-            print(f"  Skipped:        {item.skipped}", file=self.stream)
-            print(f"  Duplicates:     {item.duplicates}", file=self.stream)
-            print(f"  Rejection rate: {item.rejection_rate:.0%}", file=self.stream)
-            print(f"  Warnings:       {item.warnings}", file=self.stream)
-            print(f"  Errors:         {item.errors}", file=self.stream)
-            print(f"  Output records: {item.output_records}", file=self.stream)
 
-    # ---- internals -----------------------------------------------------
+        rows: list[tuple[str, list[str]]] = []
+        if any(item.paused for item in stats_list):
+            rows.append(("Paused", ["yes" if s.paused else "-" for s in stats_list]))
+        if any(item.sites_scanned for item in stats_list):
+            rows.append(
+                (
+                    "Sites scanned",
+                    [
+                        str(s.sites_scanned) if s.sites_scanned else "-"
+                        for s in stats_list
+                    ],
+                )
+            )
+        rows.extend(
+            [
+                ("Discovered", [str(s.discovered) for s in stats_list]),
+                ("Processed", [str(s.processed) for s in stats_list]),
+                ("Validated", [str(s.validated) for s in stats_list]),
+                ("Rejected", [str(s.rejected) for s in stats_list]),
+                ("Skipped", [str(s.skipped) for s in stats_list]),
+                ("Duplicates", [str(s.duplicates) for s in stats_list]),
+                ("Rejection rate", [f"{s.rejection_rate:.0%}" for s in stats_list]),
+                ("Warnings", [str(s.warnings) for s in stats_list]),
+                ("Errors", [str(s.errors) for s in stats_list]),
+                ("Output records", [str(s.output_records) for s in stats_list]),
+                (
+                    "Time elapsed",
+                    [_format_elapsed(s.elapsed_seconds) for s in stats_list],
+                ),
+            ]
+        )
 
-    def _print_above(self, message: str) -> None:
-        saved = self._sticky
-        self._clear_sticky()
-        print(message, file=self.stream)
-        if saved is not None:
-            self._draw_sticky(saved)
+        label_width = max(len(label) for label, _ in rows)
+        col_widths = [
+            max(len(item.name), max(len(row[1][i]) for row in rows))
+            for i, item in enumerate(stats_list)
+        ]
+        header = " " * label_width + "".join(
+            f"  {item.name:>{col_widths[i]}}" for i, item in enumerate(stats_list)
+        )
+        lines = ["\n=== Run Summary ===", header]
+        for label, values in rows:
+            lines.append(
+                f"{label:<{label_width}}"
+                + "".join(f"  {values[i]:>{col_widths[i]}}" for i in range(len(values)))
+            )
+        self._write("\n".join(lines))
 
-    def _draw_sticky(self, text: str) -> None:
-        text = self._truncate_for_width(text)
-        pad = " " * max(self._sticky_len - len(text), 0)
-        print(f"\r{text}{pad}", end="", file=self.stream, flush=True)
-        self._sticky = text
-        self._sticky_len = len(text)
+    def close(self) -> None:
+        """Close every bar and release the active-reporter slot."""
+        self.finish_bars()
+        if get_active_reporter() is self:
+            set_active_reporter(None)
 
-    def _clear_sticky(self) -> None:
-        if self._sticky is not None:
-            print(f"\r{' ' * self._sticky_len}\r", end="", file=self.stream, flush=True)
-            self._sticky = None
-            self._sticky_len = 0
+    def __enter__(self) -> "CliReporter":
+        return self
 
-    def _truncate_for_width(self, text: str) -> str:
-        width = self._term_width()
-        if width is None or len(text) < width:
-            return text
-        return text[: max(width - 2, 1)] + "…"
-
-    def _term_width(self) -> int | None:
-        # Only clamp when writing to a real terminal; otherwise leave full
-        # text so captured output (StringIO, pipes) stays exact.
-        isatty = getattr(self.stream, "isatty", None)
-        if not (isatty and isatty()):
-            return None
-        try:
-            return shutil.get_terminal_size((80, 20)).columns
-        except (OSError, ValueError):
-            return None
-
-    def _progress_bar(self, current: int, total: int, width: int = 10) -> str:
-        total = max(total, 0)
-        current = min(max(current, 0), total) if total else 0
-        if total <= 0 or current == total:
-            filled = width
-        else:
-            filled = int(width * current / total)
-        empty = width - filled
-        if self._supports_unicode():
-            return "[" + ("█" * filled) + ("░" * empty) + "]"
-        return "[" + ("#" * filled) + ("-" * empty) + "]"
-
-    def _percent(self, current: int, total: int) -> int:
-        if total <= 0:
-            return 100
-        return round((current / total) * 100)
-
-    def _supports_unicode(self) -> bool:
-        encoding = getattr(self.stream, "encoding", None)
-        if encoding is None:
-            return True
-        return "utf" in encoding.lower()
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self.close()
+        return False
 
 
 class CliReporterLoggingHandler(logging.Handler):
-    """Route log records through the active reporter so they don't break the bar.
+    """Route log records through the active reporter so they don't break a bar.
 
-    When a reporter owns the sticky line, records are drawn above it via
-    ``reporter.log``. With no active reporter (scripts, tests) the record falls
-    back to ``stderr`` so nothing is silently dropped.
+    When a reporter owns the bars, records are drawn above them via
+    ``reporter.log`` (``tqdm.write``). With no active reporter (scripts, tests)
+    the record falls back to ``stderr`` so nothing is silently dropped.
     """
 
     def emit(self, record: logging.LogRecord) -> None:

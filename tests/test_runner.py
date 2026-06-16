@@ -7,65 +7,78 @@ import pytest
 
 import src.GDELT.runner as runner
 
+
 @pytest.fixture
 def mock_get_body_and_title():
     with patch("src.GDELT.runner.get_body_and_title") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_ai_check_validation():
     with patch("src.GDELT.runner.ai_check_validation") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_extract_fields():
     with patch("src.GDELT.runner.extract_fields") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_save_seen():
     with patch("src.GDELT.runner.save_seen") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_load_seen():
     with patch("src.GDELT.runner.load_seen") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_persist_raw_seeds():
     with patch("src.GDELT.runner.persist_raw_seeds") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_backfill_cyber_seeds():
     with patch("src.GDELT.runner.backfill_cyber_seeds") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_process_seed():
     with patch("src.GDELT.runner.process_seed") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_persist_stage():
     with patch("src.GDELT.runner.persist_stage") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_ensure_raw_dirs():
     with patch("src.GDELT.runner.ensure_raw_dirs") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_clear_directory():
     with patch("src.GDELT.runner.clear_directory") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_log_error():
     with patch("src.GDELT.runner.LOGGER.error") as mock:
         yield mock
+
 
 from src.classes import Vulnerability
 from src.cli_reporter import PipelineStats
@@ -389,7 +402,15 @@ class TestPersistStage:
 class TestStagedRecovery:
     """Tests for stitching staged GDELT files."""
 
-    def test_stitch_staged_records_uses_enriched_stage_without_pipeline_calls(self, mock_runner_dirs, mock_backfill_cyber_seeds, mock_process_seed, mock_load_seen, mock_save_seen, mock_clear_directory):
+    def test_stitch_staged_records_uses_enriched_stage_without_pipeline_calls(
+        self,
+        mock_runner_dirs,
+        mock_backfill_cyber_seeds,
+        mock_process_seed,
+        mock_load_seen,
+        mock_save_seen,
+        mock_clear_directory,
+    ):
         """stitch_staged_records should recover enriched records without processing seeds."""
         if True:
             tmp_path = mock_runner_dirs["tmp_path"]
@@ -413,7 +434,6 @@ class TestStagedRecovery:
             )
 
             if True:
-                mock_backfill = mock_backfill_cyber_seeds
                 recovered = runner.stitch_staged_records(
                     output_path=str(tmp_path),
                     reporter=Mock(),
@@ -439,7 +459,13 @@ class TestStagedRecovery:
         mock_save_seen.assert_not_called()
         mock_clear_directory.assert_not_called()
 
-    def test_stitch_staged_records_can_process_staged_seeds(self, mock_runner_dirs, mock_backfill_cyber_seeds, mock_process_seed, mock_clear_directory):
+    def test_stitch_staged_records_can_process_staged_seeds(
+        self,
+        mock_runner_dirs,
+        mock_backfill_cyber_seeds,
+        mock_process_seed,
+        mock_clear_directory,
+    ):
         """stitch_staged_records should replay staged seeds into usable output."""
         if True:
             tmp_path = mock_runner_dirs["tmp_path"]
@@ -496,7 +522,6 @@ class TestStagedRecovery:
             reporter.verbose = False
 
             if True:
-                mock_backfill = mock_backfill_cyber_seeds
                 mock_process_seed.return_value = _make_vuln(
                     id_value=runner.stable_id(remaining_seed["url"]),
                     direct_link=remaining_seed["url"],
@@ -528,7 +553,9 @@ class TestStagedRecovery:
         assert completed_seed_exists
         assert remaining_seed_exists
 
-    def test_stitch_stage_seeds_pause_does_not_save_in_flight_url_as_seen(self, mock_runner_dirs, mock_process_seed):
+    def test_stitch_stage_seeds_pause_does_not_save_in_flight_url_as_seen(
+        self, mock_runner_dirs, mock_process_seed
+    ):
         """Interrupted seed recovery should leave the seed eligible for retry."""
         in_flight_url = "https://example.com/in-flight"
 
@@ -632,7 +659,9 @@ class TestSaveSeen:
 class TestProcessSeed:
     """Tests for the process_seed function."""
 
-    def test_process_seed_already_seen(self, mock_ai_check_validation, mock_get_body_and_title):
+    def test_process_seed_already_seen(
+        self, mock_ai_check_validation, mock_get_body_and_title
+    ):
         """process_seed should return None if URL already seen."""
         seed = {"url": "https://example.com/test", "source": "test"}
         seen = {"https://example.com/test"}
@@ -643,7 +672,9 @@ class TestProcessSeed:
         mock_get_body_and_title.assert_not_called()
         mock_ai_check_validation.assert_not_called()
 
-    def test_process_seed_empty_body(self, mock_ai_check_validation, mock_get_body_and_title):
+    def test_process_seed_empty_body(
+        self, mock_ai_check_validation, mock_get_body_and_title
+    ):
         """process_seed should return None if body is empty."""
         seed = {"url": "https://example.com/test", "source": "test"}
         seen = set()
@@ -655,9 +686,7 @@ class TestProcessSeed:
         assert "https://example.com/test" not in seen  # Not added because body is empty
 
     def test_process_seed_not_a_disruption(
-        self,
-        mock_ai_check_validation,
-        mock_get_body_and_title
+        self, mock_ai_check_validation, mock_get_body_and_title
     ):
         """process_seed should return None if not validated as disruption."""
         seed = {"url": "https://example.com/test", "source": "test"}
@@ -671,10 +700,7 @@ class TestProcessSeed:
         assert "https://example.com/test" in seen
 
     def test_process_seed_valid_disruption(
-        self,
-        mock_ai_check_validation,
-        mock_extract_fields,
-        mock_get_body_and_title
+        self, mock_ai_check_validation, mock_extract_fields, mock_get_body_and_title
     ):
         """process_seed should return a Vulnerability for valid disruption."""
         seed = {
@@ -709,9 +735,7 @@ class TestProcessSeed:
         assert result.subsector_data.drug_name == "aspirin"
 
     def test_process_seed_invalid_subsector(
-        self,
-        mock_ai_check_validation,
-        mock_get_body_and_title
+        self, mock_ai_check_validation, mock_get_body_and_title
     ):
         """process_seed should skip if subsector is invalid."""
         seed = {"url": "https://example.com/test"}
@@ -725,10 +749,7 @@ class TestProcessSeed:
         assert "https://example.com/test" in seen
 
     def test_process_seed_handles_missing_subsector_fields(
-        self,
-        mock_ai_check_validation,
-        mock_extract_fields,
-        mock_get_body_and_title
+        self, mock_ai_check_validation, mock_extract_fields, mock_get_body_and_title
     ):
         """process_seed should skip when extraction fields are unavailable."""
         seed = {"url": "https://example.com/test"}
@@ -747,10 +768,7 @@ class TestProcessSeed:
         assert stats.warnings == 1
 
     def test_process_seed_all_valid_subsectors(
-        self,
-        mock_ai_check_validation,
-        mock_extract_fields,
-        mock_get_body_and_title
+        self, mock_ai_check_validation, mock_extract_fields, mock_get_body_and_title
     ):
         """process_seed should accept all valid subsectors."""
         valid_subsectors = {
@@ -774,10 +792,7 @@ class TestProcessSeed:
             assert result.subsector == subsector
 
     def test_process_seed_uses_scraped_title_not_url(
-        self,
-        mock_ai_check_validation,
-        mock_extract_fields,
-        mock_get_body_and_title
+        self, mock_ai_check_validation, mock_extract_fields, mock_get_body_and_title
     ):
         """process_seed should use the scraped page title, not the raw URL."""
         seed = {
@@ -803,13 +818,17 @@ class TestProcessSeed:
 class TestRun:
     """Tests for the main run function."""
 
-    def test_run_checks_model_before_setup_or_seed_collection(self, mock_log_error, mock_ensure_raw_dirs, mock_backfill_cyber_seeds):
+    def test_run_checks_model_before_setup_or_seed_collection(
+        self, mock_log_error, mock_ensure_raw_dirs, mock_backfill_cyber_seeds
+    ):
         """run should fail fast when the configured Ollama model is unavailable."""
         if True:
             from unittest.mock import patch
-            mock_model_check = patch("src.GDELT.runner.ensure_model_available", side_effect=runner.model_unavailable_error("model unavailable")).start()
-            mock_ensure_dirs = mock_ensure_raw_dirs
-            mock_backfill = mock_backfill_cyber_seeds
+
+            mock_model_check = patch(
+                "src.GDELT.runner.ensure_model_available",
+                side_effect=runner.model_unavailable_error("model unavailable"),
+            ).start()
             with pytest.raises(SystemExit):
                 runner.run(num_files=1, limit=1)
 
@@ -829,7 +848,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """run should return list of validated records."""
         mock_load_seen.return_value = set()
@@ -863,7 +882,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """run should apply limit to seeds."""
         mock_load_seen.return_value = set()
@@ -886,7 +905,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """run should write to default output location if not specified."""
         mock_load_seen.return_value = set()
@@ -906,7 +925,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """run should process duplicate URLs once across requested subsectors."""
         mock_load_seen.return_value = set()
@@ -956,7 +975,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """run should load/save seen URLs from custom file."""
         mock_load_seen.return_value = set()
@@ -982,7 +1001,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """run should merge with existing output file containing dict with sources list."""
         mock_load_seen.return_value = set()
@@ -1026,7 +1045,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """run should merge with existing output file that is a list."""
         mock_load_seen.return_value = set()
@@ -1063,7 +1082,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """run should replace unexpected existing output content with fresh records."""
         mock_load_seen.return_value = set()
@@ -1101,7 +1120,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """run should create new output file."""
         mock_load_seen.return_value = set()
@@ -1129,13 +1148,18 @@ class TestRun:
             assert "sources" in result
             assert len(result["sources"]) == 1
 
-    def test_run_with_directory_path_as_seen_urls_file(self, mock_backfill_cyber_seeds, mock_ensure_raw_dirs, mock_load_seen, mock_save_seen):
+    def test_run_with_directory_path_as_seen_urls_file(
+        self,
+        mock_backfill_cyber_seeds,
+        mock_ensure_raw_dirs,
+        mock_load_seen,
+        mock_save_seen,
+    ):
         """run should handle directory path for seen_urls_file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             seen_dir = Path(tmpdir)
 
             if True:
-                mock_backfill = mock_backfill_cyber_seeds
                 mock_load = mock_load_seen
                 mock_load.return_value = set()
                 mock_backfill_cyber_seeds.return_value = []
@@ -1159,7 +1183,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """Default run output should show progress but not verbose item numbering."""
         mock_load_seen.return_value = set()
@@ -1182,7 +1206,7 @@ class TestRun:
         mock_persist_raw_seeds,
         mock_persist_stage,
         mock_process_seed,
-        mock_save_seen
+        mock_save_seen,
     ):
         """Verbose run output should show the current per-item progress detail."""
         mock_load_seen.return_value = set()
@@ -1201,7 +1225,17 @@ class TestRun:
         assert "[1/1]" in output
         assert "Progress:" not in output
 
-    def test_run_pause_writes_partial_output_and_preserves_seeds(self, mock_ensure_raw_dirs, mock_load_seen, mock_save_seen, mock_persist_raw_seeds, mock_backfill_cyber_seeds, mock_process_seed, mock_persist_stage, mock_clear_directory):
+    def test_run_pause_writes_partial_output_and_preserves_seeds(
+        self,
+        mock_ensure_raw_dirs,
+        mock_load_seen,
+        mock_save_seen,
+        mock_persist_raw_seeds,
+        mock_backfill_cyber_seeds,
+        mock_process_seed,
+        mock_persist_stage,
+        mock_clear_directory,
+    ):
         """Ctrl-C during processing should write completed records and keep staging."""
         stats = PipelineStats("GDELT")
         seeds = [
@@ -1239,7 +1273,17 @@ class TestRun:
         mock_save_seen.assert_called_once()
         mock_clear.assert_not_called()
 
-    def test_run_pause_before_records_reports_zero_output(self, mock_ensure_raw_dirs, mock_load_seen, mock_save_seen, mock_persist_raw_seeds, mock_backfill_cyber_seeds, mock_process_seed, mock_persist_stage, mock_clear_directory):
+    def test_run_pause_before_records_reports_zero_output(
+        self,
+        mock_ensure_raw_dirs,
+        mock_load_seen,
+        mock_save_seen,
+        mock_persist_raw_seeds,
+        mock_backfill_cyber_seeds,
+        mock_process_seed,
+        mock_persist_stage,
+        mock_clear_directory,
+    ):
         """Ctrl-C before validation completes should still save state cleanly."""
         stats = PipelineStats("GDELT")
         seeds = [{"url": "https://example.com/1", "source": "test"}]
@@ -1272,18 +1316,20 @@ class TestRun:
 class TestEnsureRawDirs:
     """Tests for the ensure_raw_dirs function."""
 
-    def test_ensure_raw_dirs_creates_all_directories(
-        self,
-        mock_runner_dirs
-    ):
+    def test_ensure_raw_dirs_creates_all_directories(self, mock_runner_dirs):
         """ensure_raw_dirs should create all required directories."""
         import shutil
-        for d in [mock_runner_dirs['seeds'], mock_runner_dirs['validated'], mock_runner_dirs['enriched']]:
+
+        for d in [
+            mock_runner_dirs["seeds"],
+            mock_runner_dirs["validated"],
+            mock_runner_dirs["enriched"],
+        ]:
             if d.exists():
                 shutil.rmtree(d)
 
         runner.ensure_raw_dirs()
 
-        assert mock_runner_dirs['seeds'].exists()
-        assert mock_runner_dirs['validated'].exists()
-        assert mock_runner_dirs['enriched'].exists()
+        assert mock_runner_dirs["seeds"].exists()
+        assert mock_runner_dirs["validated"].exists()
+        assert mock_runner_dirs["enriched"].exists()

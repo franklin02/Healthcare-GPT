@@ -1235,23 +1235,17 @@ def ensure_model_available(model: str = AI_MODEL) -> None:
 
 
 def run_clean():
-    clear_directory(_PROJECT_ROOT / "data" / "gdelt_cache")  # gkg cache
-    clear_directory(_PROJECT_ROOT / "data" / "raw" / "gdelt")  # seeds
+    """Clean all GDELT-generated data so the pipeline starts fresh.
 
-    open(
-        _PROJECT_ROOT / "data" / "logs" / "gdelt_runner.log", "w"
-    ).close()  # clear runner log
-    open(
-        _PROJECT_ROOT / "data" / "logs" / "gdelt_seeds.log", "w"
-    ).close()  # clear seeds log
+    Delegates to :func:`scripts.clean_gdelt.run_clean` which owns the
+    canonical implementation.  This wrapper exists for backward compatibility.
+    """
+    # Inline import to avoid circular dependency and keep the scripts package
+    # out of the default import path for shared_utils.
+    import importlib
 
-    os.remove(_PROJECT_ROOT / "data" / "processed" / "GDELT.json") if (
-        _PROJECT_ROOT / "data" / "processed" / "GDELT.json"  # final output
-    ).exists() else None
-    os.remove(_PROJECT_ROOT / "data" / "seen_urls.json") if (
-        _PROJECT_ROOT / "data" / "seen_urls.json"  # deduplication stuffs
-    ).exists() else None
-    LOGGER.info("Cleaning GDELT modified directories and files before run")
+    mod = importlib.import_module("scripts.clean_gdelt")
+    mod.run_clean()
 
 
 def clear_directory(directory: Path) -> None:

@@ -1317,7 +1317,7 @@ def update_csv(df: pd.DataFrame, path: Path, verbose: bool = False) -> None:
     """
     if df is None or df.empty:
         if verbose:
-            print(f"[WARNING]df is not usable (it is empty or None)")
+            print("[WARNING]df is not usable (it is empty or None)")
         return
 
     path.parent.mkdir(parents=True, exist_ok=True)

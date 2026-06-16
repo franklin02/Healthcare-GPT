@@ -153,7 +153,7 @@ def test_update_csv_appends_rows_with_date_format():
         ]
     )
 
-    scooper._update_csv(df)
+    scooper._update_raw_csv(df)
 
     out = pd.read_csv(scooper.RAW_CSV_PATH)
     assert len(out) == 1  # header not duplicated
@@ -165,7 +165,7 @@ def test_update_csv_empty_df_is_noop():
     scooper._setup_cvs()
     before = scooper.RAW_CSV_PATH.read_text()
 
-    scooper._update_csv(pd.DataFrame(columns=scooper.RAW_CSV_HEADER))
+    scooper._update_raw_csv(pd.DataFrame(columns=scooper.RAW_CSV_HEADER))
 
     assert scooper.RAW_CSV_PATH.read_text() == before
 

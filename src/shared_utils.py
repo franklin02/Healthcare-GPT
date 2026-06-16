@@ -6,7 +6,6 @@ Including page fetching, validation of files, JSON and CSV outputs, and URL cons
 The shared utilities aim to simplify and streamline repetitive tasks or operations across the project.
 
 Attributes:
-    - `AI_URL`: The base URL for the AI service.
     - `AI_MODEL`: The specific model that the AI will use for processing.
     - `_PROJECT_ROOT`: Specifies the project's root directory.
     - `READY_FOR_RAG_DIR`: Directory designated for resources ready for retrieval-augmented generation (RAG).
@@ -165,7 +164,6 @@ def get_config_date(
         return default
 
 
-AI_URL = get_config_value("AI_URL", "http://localhost:11434/api/generate")
 AI_MODEL = get_config_value("AI_MODEL", "llama3.2:latest")
 MIN_BODY_CHARS_FOR_LLM = get_config_int("MIN_BODY_CHARS_FOR_LLM", 150) or 150
 BODY_CHAR_LIMIT = get_config_int("BODY_CHAR_LIMIT", 4000) or 4000
@@ -1235,17 +1233,23 @@ def ensure_model_available(model: str = AI_MODEL) -> None:
 
 
 def run_clean():
-    """Clean all GDELT-generated data so the pipeline starts fresh.
+    clear_directory(_PROJECT_ROOT / "data" / "gdelt_cache")  # gkg cache
+    clear_directory(_PROJECT_ROOT / "data" / "raw" / "gdelt")  # seeds
 
-    Delegates to :func:`scripts.clean_gdelt.run_clean` which owns the
-    canonical implementation.  This wrapper exists for backward compatibility.
-    """
-    # Inline import to avoid circular dependency and keep the scripts package
-    # out of the default import path for shared_utils.
-    import importlib
+    open(
+        _PROJECT_ROOT / "data" / "logs" / "gdelt_runner.log", "w"
+    ).close()  # clear runner log
+    open(
+        _PROJECT_ROOT / "data" / "logs" / "gdelt_seeds.log", "w"
+    ).close()  # clear seeds log
 
-    mod = importlib.import_module("scripts.clean_gdelt")
-    mod.run_clean()
+    os.remove(_PROJECT_ROOT / "data" / "processed" / "GDELT.json") if (
+        _PROJECT_ROOT / "data" / "processed" / "GDELT.json"  # final output
+    ).exists() else None
+    os.remove(_PROJECT_ROOT / "data" / "seen_urls.json") if (
+        _PROJECT_ROOT / "data" / "seen_urls.json"  # deduplication stuffs
+    ).exists() else None
+    LOGGER.info("Cleaning GDELT modified directories and files before run")
 
 
 def clear_directory(directory: Path) -> None:

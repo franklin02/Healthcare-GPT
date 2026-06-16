@@ -11,6 +11,7 @@ import argparse
 import datetime
 import sys
 import math
+import subprocess
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -212,6 +213,15 @@ def main(argv: list[str] | None = None) -> int:
         default=get_config_int("THREADS_PER_MODEL", 4),
         help=("Number of threads to use per model instance."),
     )
+    parser.add_argument(
+        "--starting-port",
+        type=int,
+        default=get_config_int("STARTING_PORT", 11434),
+        help=(
+            "Starting port number for LLM instances. Each instance is expected to "
+            "run on a consecutive port (e.g. 11434, 11435, etc.)"
+        ),
+    )
 
     args = parser.parse_args(argv)
     reporter = CliReporter(verbose=args.verbose)
@@ -258,15 +268,19 @@ def main(argv: list[str] | None = None) -> int:
         ]
 
         seen = load_seen(args.seen_urls_file)
-        models_to_run = max(1, args.models) * max(1, args.threads_per_model)
-        chunks = chunk_list(raw_seeds, models_to_run)
+        threads = max(1, args.models) * max(1, args.threads_per_model)
+        chunks = chunk_list(raw_seeds, threads)
+        port = args.starting_port
+        for i in range(args.models):
+            subprocess.Popen(
+                f"CUDA_VISIBLE_DEVICES={i % 2} OLLAMA_HOST=127.0.0.1:{port + i} ollama serve"
+            )
 
         if not chunks:
             chunks = [[]]
 
-        with ThreadPoolExecutor(max_workers=models_to_run) as executor:
+        with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = []
-            port = 11434
             n = 0
             for chunk in chunks:
                 futures.append(

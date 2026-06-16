@@ -270,6 +270,7 @@ def main(argv: list[str] | None = None) -> int:
 
         with ThreadPoolExecutor(max_workers=models_to_run) as executor:
             futures = []
+            port = 11434
             for chunk in chunks:
                 futures.append(
                     executor.submit(
@@ -286,8 +287,10 @@ def main(argv: list[str] | None = None) -> int:
                         stats=gdelt_stats,
                         raw_seeds=chunk,
                         debug_noise=gdelt_noise,
+                        port=port,
                     )
                 )
+                port += 1
             for future in as_completed(futures):
                 future.result()
         if gdelt_noise:

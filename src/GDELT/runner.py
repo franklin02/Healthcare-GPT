@@ -651,6 +651,7 @@ def process_seed(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     debug_noise: NoiseCollector | None = None,
+    port=None,
 ) -> Vulnerability | None:
     """
     Run a single seed through validation + extraction.
@@ -705,7 +706,7 @@ def process_seed(
     excerpt = body[:BODY_CHAR_LIMIT]
 
     is_disruption, detail = ai_check_validation(
-        title, excerpt, use_bert=use_bert, verbose=reporter.verbose
+        title, excerpt, use_bert=use_bert, verbose=reporter.verbose, port=port
     )
     LOGGER.debug(
         "LLM validation url=%s disruption=%s detail=%s", url, is_disruption, detail
@@ -759,7 +760,9 @@ def process_seed(
     LOGGER.info("Disruption confirmed url=%s subsector=%s", url, subsector)
 
     try:
-        sector_data, subsector_data_dict = extract_fields(subsector, title, excerpt)
+        sector_data, subsector_data_dict = extract_fields(
+            subsector, title, excerpt, port=port
+        )
     except MissingSubsectorFieldsError as exc:
         seen.discard(url)
         if stats is not None:
@@ -821,6 +824,7 @@ def run(
     stats: PipelineStats | None = None,
     raw_seeds: list[dict] | None = None,
     debug_noise: NoiseCollector | None = None,
+    port: int | None = None,
 ) -> list[dict]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -840,6 +844,7 @@ def run(
         clean: Whether to clear modified directories and files before running.
         raw_seeds: Raw seed dictionaries to process
         debug_noise: Optional NoiseCollector for recording rejected articles.
+        port: Where to run the ollama server
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -925,6 +930,7 @@ def run(
                 reporter=reporter,
                 stats=stats,
                 debug_noise=debug_noise,
+                port=port,
             )
             if rec:
                 persist_stage(

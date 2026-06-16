@@ -834,7 +834,7 @@ def _run_bert(title: str, body: str, verbose: bool = False) -> str:
 
 
 def ai_check_validation(
-    title, body, use_bert=False, verbose: bool = False
+    title, body, use_bert=False, verbose: bool = False, port: int = 11434
 ) -> tuple[bool, str]:
     """
     Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach at a named healthcare entity based on strict, predefined criteria.
@@ -843,6 +843,7 @@ def ai_check_validation(
         title (str): The title of the article being analyzed.
         body (str): The main content or excerpt of the article.
         use_bert (bool): False by default, calls bert before calling the llm to save time
+        port (int): The port on which the ollama server is running
 
     Returns: A tuple:
         - A boolean indicating whether the article is flagged as a threat (True if operational disruption or confirmed breach).
@@ -956,8 +957,9 @@ def ai_check_validation(
     """
 
     try:
+        url = f"http://localhost:{port}/api/generate"
         resp = requests.post(
-            AI_URL,
+            url,
             json={
                 "model": AI_MODEL,
                 "prompt": prompt,
@@ -1057,7 +1059,7 @@ class MissingSubsectorFieldsError(ValueError):
     """Raised when a subsector has no configured extraction fields."""
 
 
-def extract_fields(subsector, title, body) -> tuple[dict, dict]:
+def extract_fields(subsector, title, body, port) -> tuple[dict, dict]:
     """Extract universal and subsector fields for a validated article.
 
     This function is called after an article classifies as a true vulnerability.
@@ -1068,6 +1070,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         subsector: Subsector returned by ``ai_check_validation``.
         title: Title of the current article.
         body: Full body text of the current article.
+        port: The port on which the ollama server is running.
 
     Returns:
         A tuple with the universal ``LLM_SECTOR_FIELDS`` values first and the
@@ -1129,8 +1132,9 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
     """
 
     try:
+        url = f"http://localhost:{port}/api/generate"
         resp = requests.post(
-            AI_URL,
+            url,
             json={
                 "model": AI_MODEL,
                 "prompt": prompt,

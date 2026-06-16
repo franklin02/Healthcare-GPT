@@ -22,6 +22,12 @@ def mock_requests_post():
         yield mock
 
 @pytest.fixture
+def mock_subprocess_run():
+    """Mock subprocess.run in shared_utils."""
+    with patch("src.shared_utils.subprocess.run") as mock:
+        yield mock
+
+@pytest.fixture
 def mock_save_json():
     """Mock save_json in runner."""
     with patch("src.GDELT.runner.save_json") as mock:

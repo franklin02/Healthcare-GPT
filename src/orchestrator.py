@@ -258,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         ]
 
         seen = load_seen(args.seen_urls_file)
-        models_to_run = max(1, args.models)
+        models_to_run = max(1, args.models) * max(1, args.threads_per_model)
         chunks = chunk_list(raw_seeds, models_to_run)
 
         if not chunks:

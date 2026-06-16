@@ -164,6 +164,7 @@ def get_config_date(
         return default
 
 
+AI_URL = get_config_value("AI_URL", "http://localhost:11434/api/generate")
 AI_MODEL = get_config_value("AI_MODEL", "llama3.2:latest")
 MIN_BODY_CHARS_FOR_LLM = get_config_int("MIN_BODY_CHARS_FOR_LLM", 150) or 150
 BODY_CHAR_LIMIT = get_config_int("BODY_CHAR_LIMIT", 4000) or 4000

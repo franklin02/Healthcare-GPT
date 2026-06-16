@@ -13,13 +13,16 @@ import math
 import sys
 import time
 from pathlib import Path
+from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .cli_reporter import CliReporter, PipelineStats
+from .cli_reporter import CliReporter, InstanceSpec, PipelineStats
 from .logging_utils import get_file_logger
 from .GDELT.gdelt_seeds import backfill_cyber_seeds
 from .GDELT.runner import load_seen
 from .shared_utils import (
+    AI_MODEL,
+    AI_URL,
     DEBUG_DIR,
     NoiseCollector,
     ensure_model_available,
@@ -234,13 +237,36 @@ def main(argv: list[str] | None = None) -> int:
     reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
 
-    if not (args.skip_gdelt and args.skip_html):
+    run_gdelt = not args.skip_gdelt
+    run_html = not args.skip_html
+    # GDELT fans out across args.models model instances, each with
+    # args.threads_per_model worker threads; HTML still runs a single flow, so it
+    # only needs one instance bar. One instance bar per GDELT worker thread.
+    models_to_run = max(1, args.models) * max(1, args.threads_per_model)
+    instance_count = models_to_run if run_gdelt else 1
+    # One overall-bar unit per pipeline phase that will actually run.
+    phases = (["GDELT"] if run_gdelt else []) + (["HTML"] if run_html else [])
+
+    if phases:
         try:
             ensure_model_available()
         except model_unavailable_error as exc:
             LOGGER.error("Model availability check failed: %s", exc)
             print(exc, file=sys.stderr)
             return 1
+        reporter.build_instances(
+            [
+                InstanceSpec(f"Instance {i + 1}", model=AI_MODEL, endpoint=AI_URL)
+                for i in range(instance_count)
+            ],
+            model_label=AI_MODEL,
+        )
+        reporter.set_overall_total(len(phases))
+        reporter.set_overall_step("Initializing")
+
+    # Multi-instance mode (>1 instance) routes per-thread output via bound bars;
+    # single-instance mode shares one bar, so no binding is needed there.
+    multi = instance_count > 1
 
     if not args.skip_gdelt:
         import src.GDELT.runner as runner
@@ -283,33 +309,44 @@ def main(argv: list[str] | None = None) -> int:
             exit(0)
 
         seen = load_seen(args.seen_urls_file)
+        reporter.set_overall_step("GDELT")
+        # main's #202 execution model: args.models instances, each with
+        # args.threads_per_model worker threads, ports assigned per model group.
         threads = max(1, args.models) * max(1, args.threads_per_model)
         chunks = chunk_list(raw_seeds, threads)
-        port = args.starting_port
         if not chunks:
             chunks = [[]]
 
+        def _run_gdelt_chunk(
+            instance_name: str, seed_chunk: list[dict], instance_port: int
+        ) -> None:
+            # Bind the worker thread to its instance bar (multi mode) so the
+            # reporter calls inside runner.run land on that instance's row.
+            binding = reporter.bind_instance(instance_name) if multi else nullcontext()
+            with binding:
+                runner.run(
+                    num_files=args.num_files,
+                    limit=effective_limit,
+                    output_path=args.output_path,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
+                    seen=seen,
+                    use_bert=args.use_bert,
+                    verbose=args.verbose,
+                    reporter=reporter,
+                    stats=gdelt_stats,
+                    raw_seeds=seed_chunk,
+                    debug_noise=gdelt_noise,
+                    port=instance_port,
+                )
+
         with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = []
+            port = args.starting_port
             n = 0
-            for chunk in chunks:
+            for i, chunk in enumerate(chunks):
                 futures.append(
-                    executor.submit(
-                        runner.run,
-                        num_files=args.num_files,
-                        limit=effective_limit,
-                        output_path=args.output_path,
-                        start_date=args.start_date,
-                        end_date=args.end_date,
-                        seen=seen,
-                        use_bert=args.use_bert,
-                        verbose=args.verbose,
-                        reporter=None,
-                        stats=gdelt_stats,
-                        raw_seeds=chunk,
-                        debug_noise=gdelt_noise,
-                        port=port,
-                    )
+                    executor.submit(_run_gdelt_chunk, f"Instance {i + 1}", chunk, port)
                 )
                 n += 1
                 if n == args.threads_per_model:
@@ -326,6 +363,7 @@ def main(argv: list[str] | None = None) -> int:
             f"GDELT processing complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
         )
         summaries.append(gdelt_stats)
+        reporter.advance_overall(1)
         if gdelt_stats.paused:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
             reporter.summary(summaries)
@@ -341,6 +379,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")
+        reporter.set_overall_step("HTML")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
         for site in scooper.HTML_SITES:
             site_stats = scooper.run_html_scraper(
@@ -370,6 +409,7 @@ def main(argv: list[str] | None = None) -> int:
             if out:
                 reporter.info(f"Debug noise (HTML): {out}")
         summaries.append(html_stats)
+        reporter.advance_overall(1)
         LOGGER.info(
             f"HTML/Scooper processing complete in {(time.time() - html_start) / 60:.2f} minutes"
         )

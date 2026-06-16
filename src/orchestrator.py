@@ -30,7 +30,7 @@ from .shared_utils import (
     update_csv,
     update_json,
 )
-from scripts.clean_gdelt import run_clean
+# from scripts.clean_gdelt import run_clean
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GDELT_CACHE_DIR = _PROJECT_ROOT / "data" / "gdelt_cache"

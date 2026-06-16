@@ -195,8 +195,8 @@ def _unseen_df() -> pd.DataFrame:
     Total raw data - (vuln + noise) = data not analyzed
 
     Returns:
-        the raw rows not yet classified into the vulnerability or noise CSVs. Rows are 
-        matched on (source_name, title) — the same identity used to dedupe while 
+        the raw rows not yet classified into the vulnerability or noise CSVs. Rows are
+        matched on (source_name, title) — the same identity used to dedupe while
         scraping. With nothing classified yet, all raw rows are returned.
     """
     key = ["source_name", "title"]
@@ -542,7 +542,7 @@ def _raw_data(
 def setup_scooper(sb_only: bool = False) -> None:
     """
     Sets up the pipeline for future runs. This updates and scrapes all new data, saves it
-    to a CSV, and makes sure things like paths exist for future runs. 
+    to a CSV, and makes sure things like paths exist for future runs.
     """
     _setup_cvs()
     ensure_model_available()
@@ -580,7 +580,7 @@ def run_scooper(
 ) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
     """
     Runs the scooper using the raw and unclassified data. If `site_split` is True,
-    it breaks off and makes a thread per unique site_name. 
+    it breaks off and makes a thread per unique site_name.
 
     Returns:
         - PipelineStats
@@ -665,7 +665,7 @@ def _process_site(
     Validate + extract every row in df, returning this slice's own result
     frames. Holds no shared state, so one instance can run per thread.
 
-    Args: 
+    Args:
         df: Raw and unprocessed dataframe to be classified
         stats:
         use_bert:

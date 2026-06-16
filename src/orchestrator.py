@@ -203,13 +203,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--models",
         type=int,
-        default=get_config_int("MODELS", 4),
+        default=get_config_int("MODELS", 1),
         help=("Number of model instances to run concurrently."),
     )
     parser.add_argument(
         "--threads-per-model",
         type=int,
-        default=get_config_int("THREADS_PER_MODEL", 4),
+        default=get_config_int("THREADS_PER_MODEL", 1),
         help=("Number of threads to use per model instance."),
     )
     parser.add_argument(

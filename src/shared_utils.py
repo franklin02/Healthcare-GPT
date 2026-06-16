@@ -1239,9 +1239,9 @@ def run_clean():
     # Inline import to avoid circular dependency and keep the scripts package
     # out of the default import path for shared_utils.
     import importlib
+
     mod = importlib.import_module("scripts.clean_gdelt")
     mod.run_clean()
-
 
 
 def clear_directory(directory: Path) -> None:

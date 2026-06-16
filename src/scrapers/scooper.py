@@ -80,20 +80,20 @@ SUBSECTOR_FIELDS = list(SUBSECTOR_DATA_CLASSES.keys())
 
 
 HTML_SITES = [
-    # {
-    #     "name": "CyberScoop",
-    #     "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
-    #     "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
-    #     "map": {
-    #         "container": "li.search-results__item",
-    #         "title": None,
-    #         "link_selector": "a.post-item__title-link",
-    #         "body_selector": "div.single-article__content",
-    #         "date_selector": "time[datetime]",
-    #         "starting_page": 1,
-    #         "cap": 10,
-    #     },
-    # },
+    {
+        "name": "CyberScoop",
+        "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
+        "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
+        "map": {
+            "container": "li.search-results__item",
+            "title": None,
+            "link_selector": "a.post-item__title-link",
+            "body_selector": "div.single-article__content",
+            "date_selector": "time[datetime]",
+            "starting_page": 1,
+            "cap": 10,
+        },
+    },
     {
         "name": "StateScoop",
         "url": "https://statescoop.com/search/healthcare/page/1/",
@@ -108,48 +108,48 @@ HTML_SITES = [
             "cap": 7,
         },
     },
-    # {
-    #     "name": "FedScoop",
-    #     "url": "https://fedscoop.com/search/healthcare/",
-    #     "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
-    #     "map": {
-    #         "container": "article.post-item",
-    #         "title": None,
-    #         "link_selector": "a.post-item__title-link",
-    #         "body_selector": "div.single-article__content",
-    #         "date_selector": "time[datetime]",
-    #         "starting_page": 1,
-    #         "cap": 18,
-    #     },
-    # },
-    # {
-    #     "name": "AHA",
-    #     "url": "https://www.aha.org/news",
-    #     "pagination_url": "https://www.aha.org/news?page=%2C{page}",
-    #     "map": {
-    #         "container": "section.views-latest-feed div.views-row",
-    #         "title": None,
-    #         "link_selector": "div.views-field-title span.field-content a",
-    #         "body_selector": "article .body",
-    #         "date_selector": "time[datetime]",
-    #         "starting_page": 0,
-    #         "cap": 10,
-    #     },
-    # },
-    # {
-    #     "name": "HealthIT_News",
-    #     "url": "https://www.techtarget.com/news/health-it",
-    #     "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
-    #     "map": {
-    #         "container": "div.topic-related-item-info",
-    #         "title": None,
-    #         "link_selector": "h3 a",
-    #         "body_selector": "article#content-columns",
-    #         "date_selector": "div.main-article-author-date span",
-    #         "starting_page": 1,
-    #         "cap": 9,
-    #     },
-    # },
+    {
+        "name": "FedScoop",
+        "url": "https://fedscoop.com/search/healthcare/",
+        "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
+        "map": {
+            "container": "article.post-item",
+            "title": None,
+            "link_selector": "a.post-item__title-link",
+            "body_selector": "div.single-article__content",
+            "date_selector": "time[datetime]",
+            "starting_page": 1,
+            "cap": 18,
+        },
+    },
+    {
+        "name": "AHA",
+        "url": "https://www.aha.org/news",
+        "pagination_url": "https://www.aha.org/news?page=%2C{page}",
+        "map": {
+            "container": "section.views-latest-feed div.views-row",
+            "title": None,
+            "link_selector": "div.views-field-title span.field-content a",
+            "body_selector": "article .body",
+            "date_selector": "time[datetime]",
+            "starting_page": 0,
+            "cap": 10,
+        },
+    },
+    {
+        "name": "HealthIT_News",
+        "url": "https://www.techtarget.com/news/health-it",
+        "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
+        "map": {
+            "container": "div.topic-related-item-info",
+            "title": None,
+            "link_selector": "h3 a",
+            "body_selector": "article#content-columns",
+            "date_selector": "div.main-article-author-date span",
+            "starting_page": 1,
+            "cap": 9,
+        },
+    },
 ]
 
 

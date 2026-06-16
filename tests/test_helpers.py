@@ -13,6 +13,7 @@ LONG_BODY = (
     "validation path. It contains enough characters to clear the new minimum "
     "threshold and should still behave like a normal article excerpt for tests."
 )
+TEST_OLLAMA_PORT = 11434
 
 
 class TestGetBody:
@@ -599,9 +600,9 @@ class TestAiCheckValidation:
         }
         mock_post.return_value = mock_response
 
-        helpers.ai_check_validation("Title", LONG_BODY)
+        helpers.ai_check_validation("Title", LONG_BODY, port=TEST_OLLAMA_PORT)
         call_args = mock_post.call_args
-        assert call_args[0][0] == helpers.AI_URL
+        assert call_args[0][0] == f"http://localhost:{TEST_OLLAMA_PORT}/api/generate"
 
     @patch("src.shared_utils.requests.post")
     def test_ai_check_validation_uses_correct_model(self, mock_post):
@@ -629,14 +630,14 @@ class TestExtractFields:
     def test_extract_fields_invalid_subsector(self):
         """Test with invalid subsector raises a recoverable error."""
         with pytest.raises(helpers.MissingSubsectorFieldsError):
-            helpers.extract_fields("invalid_subsector", "Title", "Body")
+            helpers.extract_fields("invalid_subsector", "Title", "Body", TEST_OLLAMA_PORT)
 
     def test_extract_fields_empty_subsector_fields(self, monkeypatch):
         """Test a configured subsector with no fields raises a recoverable error."""
         monkeypatch.setitem(helpers.SUBSECTOR_FIELDS, "empty_subsector", [])
 
         with pytest.raises(helpers.MissingSubsectorFieldsError):
-            helpers.extract_fields("empty_subsector", "Title", "Body")
+            helpers.extract_fields("empty_subsector", "Title", "Body", TEST_OLLAMA_PORT)
 
     @patch("src.shared_utils.requests.post")
     def test_extract_fields_drug_shortage(self, mock_post):
@@ -661,7 +662,7 @@ class TestExtractFields:
         mock_post.return_value = mock_response
 
         sector_data, subsector_data = helpers.extract_fields(
-            "drug_shortage", "Drug shortage", "Body"
+            "drug_shortage", "Drug shortage", "Body", TEST_OLLAMA_PORT
         )
         assert sector_data["exec_summary"] == "Shortage affects hospitals."
         assert sector_data["geography_scope"] == "Northeast"
@@ -691,7 +692,9 @@ class TestExtractFields:
         }
         mock_post.return_value = mock_response
 
-        _, subsector_data = helpers.extract_fields("cyber_attack", "Ransomware", "Body")
+        _, subsector_data = helpers.extract_fields(
+            "cyber_attack", "Ransomware", "Body", TEST_OLLAMA_PORT
+        )
         assert subsector_data["attack_type"] == "ransomware"
         assert subsector_data["ransom_demanded_usd"] == 500000
 
@@ -719,7 +722,7 @@ class TestExtractFields:
         mock_post.return_value = mock_response
 
         _, subsector_data = helpers.extract_fields(
-            "medical_device_shortage", "Device shortage", "Body"
+            "medical_device_shortage", "Device shortage", "Body", TEST_OLLAMA_PORT
         )
         assert subsector_data["device_name"] == "Ventilator"
         assert subsector_data["recall_class"] == "Class II"
@@ -749,7 +752,7 @@ class TestExtractFields:
         mock_post.return_value = mock_response
 
         _, subsector_data = helpers.extract_fields(
-            "natural_disaster", "Hurricane", "Body"
+            "natural_disaster", "Hurricane", "Body", TEST_OLLAMA_PORT
         )
         assert subsector_data["disaster_type"] == "Hurricane"
         assert subsector_data["beds_offline"] == 500
@@ -774,7 +777,9 @@ class TestExtractFields:
         }
         mock_post.return_value = mock_response
 
-        _, subsector_data = helpers.extract_fields("other", "Staff shortage", "Body")
+        _, subsector_data = helpers.extract_fields(
+            "other", "Staff shortage", "Body", TEST_OLLAMA_PORT
+        )
         assert subsector_data["event_type"] == "Staff shortage"
         assert subsector_data["severity"] == "High"
 
@@ -784,7 +789,7 @@ class TestExtractFields:
         mock_post.side_effect = requests.RequestException("Connection error")
 
         sector_data, subsector_data = helpers.extract_fields(
-            "drug_shortage", "Title", "Body"
+            "drug_shortage", "Title", "Body", TEST_OLLAMA_PORT
         )
         assert all(v is None for v in sector_data.values())
         assert all(v is None for v in subsector_data.values())
@@ -797,7 +802,7 @@ class TestExtractFields:
         mock_post.return_value = mock_response
 
         sector_data, subsector_data = helpers.extract_fields(
-            "drug_shortage", "Title", "Body"
+            "drug_shortage", "Title", "Body", TEST_OLLAMA_PORT
         )
         assert all(v is None for v in sector_data.values())
         assert all(v is None for v in subsector_data.values())
@@ -809,7 +814,7 @@ class TestExtractFields:
         mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
         mock_post.return_value = mock_response
 
-        helpers.extract_fields("drug_shortage", "Title", "Body")
+        helpers.extract_fields("drug_shortage", "Title", "Body", TEST_OLLAMA_PORT)
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["format"] == "json"
 
@@ -820,7 +825,7 @@ class TestExtractFields:
         mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
         mock_post.return_value = mock_response
 
-        helpers.extract_fields("drug_shortage", "Title", "Body")
+        helpers.extract_fields("drug_shortage", "Title", "Body", TEST_OLLAMA_PORT)
         call_kwargs = mock_post.call_args[1]
         assert call_kwargs["json"]["options"]["temperature"] == 0.0
 
@@ -837,6 +842,7 @@ class TestExtractFields:
             "cyber_attack",
             "Ransomware",
             "The hospital did not pay the ransom.",
+            TEST_OLLAMA_PORT,
         )
         prompt = mock_post.call_args[1]["json"]["prompt"]
         assert "false for an explicit negative statement" in prompt

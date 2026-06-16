@@ -47,7 +47,7 @@ def _split_date(
     Team hasnt discussed the best/desired way to split dates. Not documenting on purpose
     """
     if end > start:
-        raise ValueError(f"dates are backwards")
+        raise ValueError("dates are backwards")
 
     half = (end - start) // 2
     mid = start + half

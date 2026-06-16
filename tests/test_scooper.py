@@ -18,70 +18,84 @@ def mock_ensure_model_available():
     with patch("src.scrapers.scooper.ensure_model_available") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_check_valid_file():
     with patch("src.scrapers.scooper.check_valid_file") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_fetch_html_page():
     with patch("src.scrapers.scooper.fetch_html_page") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_ai_check_validation():
     with patch("src.scrapers.scooper.ai_check_validation") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_extract_fields():
     with patch("src.scrapers.scooper.extract_fields") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_prepend_vuln_csv():
     with patch("src.scrapers.scooper.prepend_vuln_csv") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_prepend_noise_csv():
     with patch("src.scrapers.scooper.prepend_noise_csv") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_prepend_json_sources():
     with patch("src.scrapers.scooper.prepend_json_sources") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_time_sleep():
     with patch("src.scrapers.scooper.time.sleep") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_get_config_int():
     with patch("src.scrapers.scooper.get_config_int") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_logger_error():
     with patch("src.scrapers.scooper.LOGGER.error") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_load_cite():
     with patch("src.scrapers.scooper.load_cite") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_is_known_db():
     with patch("src.scrapers.scooper.is_known_db") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_handle_vuln():
     with patch("src.scrapers.scooper.handle_vuln") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_insert_noise():
@@ -124,7 +138,10 @@ def test_run_html_scraper_counts_validated_and_rejected_articles(
     ]
 
     mock_fetch_html_page.return_value = (articles, True)
-    mock_ai_check_validation.side_effect = [(True, "cyber_attack"), (False, "No impact")]
+    mock_ai_check_validation.side_effect = [
+        (True, "cyber_attack"),
+        (False, "No impact"),
+    ]
     mock_extract_fields.return_value = ({"exec_summary": "Breach confirmed"}, {})
 
     stats = scooper.run_html_scraper(
@@ -170,7 +187,9 @@ def test_run_html_scraper_handles_missing_subsector_fields(
 
     mock_fetch_html_page.return_value = (articles, True)
     mock_ai_check_validation.return_value = (True, "cyber_attack")
-    mock_extract_fields.side_effect = scooper.MissingSubsectorFieldsError("No fields found")
+    mock_extract_fields.side_effect = scooper.MissingSubsectorFieldsError(
+        "No fields found"
+    )
 
     stats = scooper.run_html_scraper(
         site_config,
@@ -376,7 +395,9 @@ def test_run_html_scraper_logs_model_failure_before_setup_or_fetching(
         },
     }
 
-    mock_ensure_model_available.side_effect = model_unavailable_error("model unavailable")
+    mock_ensure_model_available.side_effect = model_unavailable_error(
+        "model unavailable"
+    )
 
     with pytest.raises(model_unavailable_error):
         scooper.run_html_scraper(
@@ -437,7 +458,10 @@ def test_run_html_scraper_sb_only_skips_local_writes(
     mock_load_cite.return_value = []
     mock_is_known_db.return_value = False
     mock_fetch_html_page.return_value = (articles, True)
-    mock_ai_check_validation.side_effect = [(True, "cyber_attack"), (False, "No impact")]
+    mock_ai_check_validation.side_effect = [
+        (True, "cyber_attack"),
+        (False, "No impact"),
+    ]
     mock_extract_fields.return_value = ({"exec_summary": "Breach confirmed"}, {})
 
     stats = scooper.run_html_scraper(
@@ -500,7 +524,10 @@ def test_run_html_scraper_local_mode_skips_supabase(
 
     monkeypatch.setattr(scooper, "SUPABASE_AVAILABLE", True)
     mock_fetch_html_page.return_value = (articles, True)
-    mock_ai_check_validation.side_effect = [(True, "cyber_attack"), (False, "No impact")]
+    mock_ai_check_validation.side_effect = [
+        (True, "cyber_attack"),
+        (False, "No impact"),
+    ]
     mock_extract_fields.return_value = ({"exec_summary": "Breach confirmed"}, {})
 
     # sb_only defaults to False -> local path

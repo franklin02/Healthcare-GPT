@@ -5,16 +5,17 @@ import pytest
 import src.GDELT.gdelt_seeds as gdelt_seeds
 
 
-
 @pytest.fixture
 def mock_get():
     with patch("src.GDELT.gdelt_seeds.requests.get") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_process():
     with patch("src.GDELT.gdelt_seeds.process_gkg_file") as mock:
         yield mock
+
 
 class TestIsUsLocated:
     """Tests for is_us_located function."""

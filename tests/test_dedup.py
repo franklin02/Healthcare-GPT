@@ -15,15 +15,18 @@ def mock_embed_vulnerability():
         mock.return_value = [0.0] * 384
         yield mock
 
+
 @pytest.fixture
 def mock_find_nearest_vulnerability():
     with patch("src.supabase_function.find_nearest_vulnerability") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_insert_dup():
     with patch("src.supabase_function.insert_duplicate") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_insert_vuln():
@@ -45,14 +48,21 @@ def _make_vuln(subsector: str = "drug_shortage") -> Vulnerability:
 
 
 def test_duplicate_branch_increments_counter_and_emits_detail(
-    mock_embed_vulnerability, mock_find_nearest_vulnerability, mock_insert_dup, mock_insert_vuln
+    mock_embed_vulnerability,
+    mock_find_nearest_vulnerability,
+    mock_insert_dup,
+    mock_insert_vuln,
 ):
     """Same-subsector close neighbor: writes to duplicates, bumps stats, prints [DUPLICATE]."""
     stream = io.StringIO()
     reporter = CliReporter(verbose=True, stream=stream)
     stats = PipelineStats("test")
 
-    mock_find_nearest_vulnerability.return_value = ("existing-uuid", "drug_shortage", 0.1)
+    mock_find_nearest_vulnerability.return_value = (
+        "existing-uuid",
+        "drug_shortage",
+        0.1,
+    )
 
     handle_vuln(_make_vuln(), reporter=reporter, stats=stats)
 
@@ -63,12 +73,19 @@ def test_duplicate_branch_increments_counter_and_emits_detail(
 
 
 def test_subsector_mismatch_does_not_increment_counter(
-    mock_embed_vulnerability, mock_find_nearest_vulnerability, mock_insert_dup, mock_insert_vuln
+    mock_embed_vulnerability,
+    mock_find_nearest_vulnerability,
+    mock_insert_dup,
+    mock_insert_vuln,
 ):
     """Close neighbor but different subsector: inserts as new canonical row, counter stays 0."""
     stats = PipelineStats("test")
 
-    mock_find_nearest_vulnerability.return_value = ("existing-uuid", "cyber_attack", 0.1)
+    mock_find_nearest_vulnerability.return_value = (
+        "existing-uuid",
+        "cyber_attack",
+        0.1,
+    )
 
     handle_vuln(_make_vuln(subsector="drug_shortage"), stats=stats)
 
@@ -78,7 +95,10 @@ def test_subsector_mismatch_does_not_increment_counter(
 
 
 def test_empty_table_does_not_increment_counter(
-    mock_embed_vulnerability, mock_find_nearest_vulnerability, mock_insert_dup, mock_insert_vuln
+    mock_embed_vulnerability,
+    mock_find_nearest_vulnerability,
+    mock_insert_dup,
+    mock_insert_vuln,
 ):
     """find_nearest_vulnerability returns None: first canonical row, counter stays 0."""
     stats = PipelineStats("test")
@@ -93,12 +113,19 @@ def test_empty_table_does_not_increment_counter(
 
 
 def test_far_neighbor_does_not_increment_counter(
-    mock_embed_vulnerability, mock_find_nearest_vulnerability, mock_insert_dup, mock_insert_vuln
+    mock_embed_vulnerability,
+    mock_find_nearest_vulnerability,
+    mock_insert_dup,
+    mock_insert_vuln,
 ):
     """Distance above threshold: inserts as new canonical row, counter stays 0."""
     stats = PipelineStats("test")
 
-    mock_find_nearest_vulnerability.return_value = ("existing-uuid", "drug_shortage", 0.9)
+    mock_find_nearest_vulnerability.return_value = (
+        "existing-uuid",
+        "drug_shortage",
+        0.9,
+    )
 
     handle_vuln(_make_vuln(), stats=stats)
 
@@ -108,10 +135,17 @@ def test_far_neighbor_does_not_increment_counter(
 
 
 def test_duplicate_branch_without_reporter_or_stats_still_inserts(
-    mock_embed_vulnerability, mock_find_nearest_vulnerability, mock_insert_dup, mock_insert_vuln
+    mock_embed_vulnerability,
+    mock_find_nearest_vulnerability,
+    mock_insert_dup,
+    mock_insert_vuln,
 ):
     """Calling without reporter/stats (default args) still writes to duplicates table."""
-    mock_find_nearest_vulnerability.return_value = ("existing-uuid", "drug_shortage", 0.1)
+    mock_find_nearest_vulnerability.return_value = (
+        "existing-uuid",
+        "drug_shortage",
+        0.1,
+    )
 
     handle_vuln(_make_vuln())
 

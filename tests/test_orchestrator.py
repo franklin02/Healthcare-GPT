@@ -34,19 +34,25 @@ def mock_cli_summary():
 
 @pytest.fixture
 def mock_get_config_bool():
-    with patch("src.orchestrator.get_config_bool", side_effect=lambda _, d=False: d) as mock:
+    with patch(
+        "src.orchestrator.get_config_bool", side_effect=lambda _, d=False: d
+    ) as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_get_config_int():
-    with patch("src.orchestrator.get_config_int", side_effect=lambda _, d=None: d) as mock:
+    with patch(
+        "src.orchestrator.get_config_int", side_effect=lambda _, d=None: d
+    ) as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_get_config_value():
-    with patch("src.orchestrator.get_config_value", side_effect=lambda _, d=None: d) as mock:
+    with patch(
+        "src.orchestrator.get_config_value", side_effect=lambda _, d=None: d
+    ) as mock:
         yield mock
 
 
@@ -87,7 +93,7 @@ def test_orchestrator_forwards_verbose_to_html_scraper(
     """Verbose flag should be forwarded to the HTML scraper."""
     sites = [{"name": "TestSite"}]
     monkeypatch.setattr("src.scrapers.scooper.HTML_SITES", sites)
-    
+
     mock_run_html_scraper.return_value = PipelineStats("TestSite")
     result = orchestrator.main(["--skip-gdelt", "--verbose"])
 
@@ -157,7 +163,7 @@ def test_orchestrator_skips_remaining_html_sites_after_html_pause(
     """A paused HTML site should prevent later HTML sites from running."""
     sites = [{"name": "SiteOne"}, {"name": "SiteTwo"}]
     monkeypatch.setattr("src.scrapers.scooper.HTML_SITES", sites)
-    
+
     paused_stats = PipelineStats("SiteOne", paused=True)
     mock_run_html_scraper.return_value = paused_stats
 
@@ -176,7 +182,9 @@ def test_orchestrator_logs_model_availability_failure_before_pipelines(
     mock_run_html_scraper,
 ):
     """Model availability check should fail before any scraping."""
-    mock_ensure_model_available.side_effect = model_unavailable_error("model unavailable")
+    mock_ensure_model_available.side_effect = model_unavailable_error(
+        "model unavailable"
+    )
 
     result = orchestrator.main([])
 

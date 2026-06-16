@@ -75,34 +75,34 @@ SUBSECTOR_FIELDS = list(SUBSECTOR_DATA_CLASSES.keys())
 
 
 HTML_SITES = [
-    {
-        "name": "CyberScoop",
-        "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
-        "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
-        "map": {
-            "container": "li.search-results__item",
-            "title": None,
-            "link_selector": "a.post-item__title-link",
-            "body_selector": "div.single-article__content",
-            "date_selector": "time[datetime]",
-            "starting_page": 1,
-            "cap": 10,
-        },
-    },
     # {
-    #     "name": "StateScoop",
-    #     "url": "https://statescoop.com/search/healthcare/page/1/",
-    #     "pagination_url": "https://statescoop.com/search/healthcare/page/{page}/",
+    #     "name": "CyberScoop",
+    #     "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
+    #     "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
     #     "map": {
-    #         "container": "article.post-item",
+    #         "container": "li.search-results__item",
     #         "title": None,
     #         "link_selector": "a.post-item__title-link",
     #         "body_selector": "div.single-article__content",
     #         "date_selector": "time[datetime]",
     #         "starting_page": 1,
-    #         "cap": 7,
+    #         "cap": 10,
     #     },
     # },
+    {
+        "name": "StateScoop",
+        "url": "https://statescoop.com/search/healthcare/page/1/",
+        "pagination_url": "https://statescoop.com/search/healthcare/page/{page}/",
+        "map": {
+            "container": "article.post-item",
+            "title": None,
+            "link_selector": "a.post-item__title-link",
+            "body_selector": "div.single-article__content",
+            "date_selector": "time[datetime]",
+            "starting_page": 1,
+            "cap": 7,
+        },
+    },
     # {
     #     "name": "FedScoop",
     #     "url": "https://fedscoop.com/search/healthcare/",
@@ -140,7 +140,7 @@ HTML_SITES = [
     #         "title": None,
     #         "link_selector": "h3 a",
     #         "body_selector": "article#content-columns",
-    #         "date_selector": "time[datetime]",  # <- NOTE: verify this manually
+    #         "date_selector": "div.main-article-author-date span",
     #         "starting_page": 1,
     #         "cap": 9,
     #     },
@@ -377,7 +377,7 @@ def _scrape_page(
                     break
             if sb_only:
                 """
-                TODO: current supabse logic wont work, we need a work around. since no one really has
+                TODO: current Supabase logic wont work, we need a work around. since no one really has
                 supabse i will put this off for later.
                 """
 
@@ -567,15 +567,9 @@ def run_scooper(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     sb_only: bool = False,
+    site_split: bool = False,
 ) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
     stats = stats or PipelineStats("Scooper")
-
-    # list will be used to write JSON
-    vuln_list: list[Vulnerability] = []
-
-    # empty dfs with their correct shape
-    vuln_df = pd.DataFrame(columns=VULN_CSV_HEADER)
-    noise_df = pd.DataFrame(columns=NOISE_CSV_HEADER)
 
     # contains raw and unclassified data
     df = _unseen_df()
@@ -589,6 +583,65 @@ def run_scooper(
     # nat_df should always be empty, but in case the scrapper gets an article without a date
     if start_date is not None or end_date is not None:
         df = pd.concat([df, nat_df], ignore_index=True)
+
+    # Single pass over every unseen row.
+    if not site_split:
+        return _process_site(df, stats, use_bert, verbose, sb_only)
+
+    # One thread per site. Partitions are disjoint (each row has exactly one
+    # source_name), so a plain concat reassembles them — no cross-site dedup.
+    sites = [name for name in df["source_name"].dropna().unique()]
+    if not sites:
+        return (
+            stats,
+            [],
+            pd.DataFrame(columns=VULN_CSV_HEADER),
+            pd.DataFrame(columns=NOISE_CSV_HEADER),
+        )
+
+    def _run_site(name: str):
+        sub = df[df["source_name"] == name]
+        # each thread gets its own stats instance to avoid races
+        return _process_site(sub, PipelineStats("HTML"), use_bert, verbose, sb_only)
+
+    vuln_list: list[Vulnerability] = []
+    vuln_frames: list[pd.DataFrame] = []
+    noise_frames: list[pd.DataFrame] = []
+    with ThreadPoolExecutor(max_workers=len(sites)) as executor:
+        for site_stats, vl, vdf, ndf in executor.map(_run_site, sites):
+            stats.merge(site_stats)
+            vuln_list.extend(vl)
+            vuln_frames.append(vdf)
+            noise_frames.append(ndf)
+
+    vuln_df = (
+        pd.concat(vuln_frames, ignore_index=True)
+        if vuln_frames
+        else pd.DataFrame(columns=VULN_CSV_HEADER)
+    )
+    noise_df = (
+        pd.concat(noise_frames, ignore_index=True)
+        if noise_frames
+        else pd.DataFrame(columns=NOISE_CSV_HEADER)
+    )
+    return stats, vuln_list, vuln_df, noise_df
+
+
+def _process_site(
+    df: pd.DataFrame,
+    stats: PipelineStats,
+    use_bert: bool = False,
+    verbose: bool = False,
+    sb_only: bool = False,
+) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
+    """Validate + extract every row in ``df``, returning this slice's own result
+    frames. Holds no shared state, so one instance can run per thread."""
+    # list will be used to write JSON
+    vuln_list: list[Vulnerability] = []
+
+    # empty dfs with their correct shape
+    vuln_df = pd.DataFrame(columns=VULN_CSV_HEADER)
+    noise_df = pd.DataFrame(columns=NOISE_CSV_HEADER)
 
     for row in df.itertuples():
         stats.processed += 1
@@ -790,6 +843,12 @@ if __name__ == "__main__":
         default=False,
         help="Scrape all sites via setup_scooper() before classifying (first run)",
     )
+    parser.add_argument(
+        "--site_split",
+        action="store_true",
+        default=False,
+        help="Gives a site its own thread to run parallel",
+    )
 
     args = parser.parse_args()
 
@@ -802,4 +861,5 @@ if __name__ == "__main__":
         start_date=args.start_date,
         end_date=args.end_date,
         sb_only=args.sb_only,
+        site_split=args.site_split,
     )

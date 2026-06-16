@@ -1335,10 +1335,33 @@ def update_csv(df: pd.DataFrame, path: Path, verbose: bool = False) -> None:
     )
 
 
-def update_json(vuls: list[Vulnerability], path: str) -> None:
+def update_json(vulns: list[Vulnerability], path: str) -> None:
     """
-    TODO: imlement and document later
+    Used to write a list of Vulnerabilities into a given path
+
+    Args:
+        vulns: vulnerabilities to add to the file.
+        path: destination *.json file (created if it does not exist)
     """
+    clean_vulns: list[Vulnerability] = []
+    seen: set[tuple[str,str]] = set()
+    for vuln in vulns:
+        inst = (vuln.title, vuln.source_name)
+        if inst in seen:
+            continue
+        seen.add(inst)
+        clean_vulns.append(vuln)
+
+    file_path = Path(path)
+
+    if file_path.exists():
+        sources = json.loads(file_path.read_text(encoding="utf-8"))["sources"]
+    else:
+        sources = []
+    sources.extend(vuln.to_dict() for vuln in clean_vulns)
+
+    with open(file_path, "w", encoding="utf-8") as json_file:
+        json.dump({"sources": sources}, json_file, indent=2, ensure_ascii=False)
 
 
 DEBUG_DIR = _PROJECT_ROOT / "data" / "noise"

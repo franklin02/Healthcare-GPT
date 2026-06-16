@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import sys
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from pathlib import Path
 
@@ -36,7 +37,9 @@ LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
 
-def _split_date(start: datetime.date, end: datetime.date) -> list[datetime.date]:
+def _split_date(
+    start: datetime.date, end: datetime.date
+) -> list[tuple[datetime.date, datetime.date]]:
     """
     Dummy function to split date into K parts. This needs to be rewritten later.
     Team hasnt discussed the best/desired way to split dates. Not documenting on purpose
@@ -46,7 +49,8 @@ def _split_date(start: datetime.date, end: datetime.date) -> list[datetime.date]
 
     half = (end - start) // 2
     mid = start + half
-    return [start, mid, (mid + datetime.timedelta(days=1)), end]
+
+    return [(start, mid), (mid - datetime.timedelta(days=1), end)]
 
 
 def _parse_date(s: str | None) -> datetime.date | None:
@@ -275,41 +279,66 @@ def main(argv: list[str] | None = None) -> int:
         vuln_dfs: list[pd.DataFrame] = []
         noise_dfs: list[pd.DataFrame] = []
 
-        # K split
+        # K split — one scooper instance per date window, run in parallel.
         if args.start_date is not None and args.end_date is not None:
-            dates: list[datetime.date] = _split_date(
+            dates: list[tuple[datetime.date, datetime.date]] = _split_date(
                 _parse_date(args.start_date), _parse_date(args.end_date)
             )
+
+            def _run_window(
+                window: tuple[datetime.date, datetime.date],
+            ) -> tuple[PipelineStats, list, pd.DataFrame, pd.DataFrame]:
+                start, end = window
+                return scooper.run_scooper(
+                    use_bert=args.use_bert,
+                    verbose=args.verbose,
+                    start_date=start,
+                    end_date=end,
+                    reporter=reporter,
+                    stats=PipelineStats(
+                        "HTML"
+                    ),  # each thread gets its own instance (for now?)
+                    sb_only=args.sb_only,
+                )
+
+            with ThreadPoolExecutor(max_workers=len(dates)) as executor:
+                results = list(executor.map(_run_window, dates))
+
+            for window_stats, _vuln_list, v_df, n_df in results:
+                html_stats.merge(window_stats)
+                vuln_dfs.append(v_df)
+                noise_dfs.append(n_df)
+
+            clean_vuls, _dup_titles = df_dup(vuln_dfs)
+            clean_noise, _ = df_dup(noise_dfs)
+            if not args.sb_only:
+                update_csv(clean_vuls, scooper.VULN_CSV_PATH)
+                update_csv(clean_noise, scooper.NOISE_CSV_PATH)
+            # TODO: write as JSON here
+
+            else:
+                print("SB stuff goes here? ")  # TODO implement sb here
+            # ^
+        # Default, 1 thread per site — run_scooper fans out internally and
+        # returns frames already merged across sites (disjoint, no df_dup).
+        else:
             html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
                 use_bert=args.use_bert,
                 verbose=args.verbose,
-                start_date=dates[0],
-                end_date=dates[1],
+                start_date=_parse_date(args.start_date),
+                end_date=_parse_date(args.end_date),
                 reporter=reporter,
                 stats=html_stats,
                 sb_only=args.sb_only,
+                site_split=True,
             )
-            html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
-                use_bert=args.use_bert,
-                verbose=args.verbose,
-                start_date=_parse_date(dates[2]),
-                end_date=_parse_date(dates[3]),
-                reporter=reporter,
-                stats=html_stats,
-                sb_only=args.sb_only,
-            )
+            if not args.sb_only:
+                update_csv(v_df, scooper.VULN_CSV_PATH)
+                update_csv(n_df, scooper.NOISE_CSV_PATH)
+            else:
+                print("SB stuff goes here? ")  # TODO implement sb here
 
         # TODO: thread per cite implemented here
-
-        # NOTE: remind this only stays if we split by k dates
-        vuln_dfs.append(v_df)
-        noise_dfs.append(n_df)
-        clean_vuls, _dup_titles = df_dup(vuln_dfs)
-        clean_noise, _ = df_dup(noise_dfs)
-        if not args.sb_only:
-            update_csv(clean_vuls, scooper.VULN_CSV_PATH)
-            update_csv(clean_noise, scooper.NOISE_CSV_PATH)
-        # ^
 
         summaries.append(html_stats)
         if html_stats.paused:

@@ -2,19 +2,21 @@
 Scooper scraper that
 
 Functions
+    - '_live_site_status' : updates the per-site sticky counter line (no-op in verbose mode)
+    - '_bert_status()' : returns a human-readable description of the optional BERT pre-filter
+    - '_unseen_df()' : returns a raw df of unclassified data
     - '_setup_csv' : helper function that set ups CSVs and makes sure they exist,
     mostly used on the first run
     - '_scrape_page' : scrapes 1 individual page of a cite. This has catching logic
     that stops once we hit a known cite
     - '_raw_data' : Calls '_scrape_page' and iterates through all pages in a cite.
     This mends everything into 1 DataFrame
-    - '_update_csv' : Helper function that updates the Raw CSV with new found information
+    - '_update_raw_csv' : Helper function that updates the Raw CSV with new found information
     - 'setup_scooper' : function to be called from the orchastrator level. This set up
     the scraper by scrapping before hand, and leaving the classifying step (most expensive)
     to be determined by the user
-    - ''
-    - ''
-    - ''
+    - 'run_scooper' : classifies all the raw data by handing it off DataFrames to `run_scooper`
+    - '_process_site' : takes a dataframe and goes row by row to classify the entire df
 """
 
 import argparse
@@ -41,6 +43,9 @@ from ..shared_utils import (
     get_config_int,
     get_page,
     _PROJECT_ROOT,
+    update_csv,
+    update_json,
+    df_dup,
 )
 
 LOGGER = get_file_logger(__name__, _PROJECT_ROOT / "data" / "logs" / "scooper.log")
@@ -189,10 +194,10 @@ def _unseen_df() -> pd.DataFrame:
     """
     Total raw data - (vuln + noise) = data not analyzed
 
-    Returns the raw rows not yet classified into the vulnerability or noise
-    CSVs. Rows are matched on (source_name, title) — the same identity used to
-    dedupe while scraping. With nothing classified yet, all raw rows are
-    returned.
+    Returns:
+        the raw rows not yet classified into the vulnerability or noise CSVs. Rows are 
+        matched on (source_name, title) — the same identity used to dedupe while 
+        scraping. With nothing classified yet, all raw rows are returned.
     """
     key = ["source_name", "title"]
     raw_df = pd.read_csv(RAW_CSV_PATH, parse_dates=["date"])
@@ -235,7 +240,7 @@ def _setup_cvs() -> None:
                 csv.writer(f).writerow(header)
 
 
-def _update_csv(df: pd.DataFrame) -> None:
+def _update_raw_csv(df: pd.DataFrame) -> None:
     """
     Append newly scraped raw rows to the raw CSV.
 
@@ -264,6 +269,10 @@ def _scrape_page(
     candidate link is fetched to collect article body text and publication date.
     The stop flag is set when a previously processed article is encountered so
     pagination can end early.
+
+    Returns:
+        - DataFrame of new/unseen raw data
+        - A bool, True when we encountered a past article and should stop
     """
     local_only = not sb_only
     # reporter = reporter or CliReporter(verbose=True) # tbr
@@ -533,7 +542,7 @@ def _raw_data(
 def setup_scooper(sb_only: bool = False) -> None:
     """
     Sets up the pipeline for future runs. This updates and scrapes all new data, saves it
-    to a CSV, and makes sure things like paths exist for future runs.
+    to a CSV, and makes sure things like paths exist for future runs. 
     """
     _setup_cvs()
     ensure_model_available()
@@ -556,7 +565,7 @@ def setup_scooper(sb_only: bool = False) -> None:
             results.append(future.result())
 
     new_raw_df = pd.concat(results, ignore_index=True)
-    _update_csv(new_raw_df)
+    _update_raw_csv(new_raw_df)
 
 
 def run_scooper(
@@ -569,10 +578,20 @@ def run_scooper(
     sb_only: bool = False,
     site_split: bool = False,
 ) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
-    stats = stats or PipelineStats("Scooper")
+    """
+    Runs the scooper using the raw and unclassified data. If `site_split` is True,
+    it breaks off and makes a thread per unique site_name. 
+
+    Returns:
+        - PipelineStats
+        - list of new vulns (used to make JSON)
+        - vulnerabilities dataframe (used to write CSV vulnerabilities)
+        - noise dataframes (used to write CSV noise)
+    """
 
     # contains raw and unclassified data
     df = _unseen_df()
+    stats = stats or PipelineStats("Scooper")
 
     nat_df = df[df["date"].isna()]  # all rows that are Not a Time
     if start_date is not None:
@@ -600,9 +619,9 @@ def run_scooper(
         )
 
     def _run_site(name: str):
-        sub = df[df["source_name"] == name]
+        site = df[df["source_name"] == name]
         # each thread gets its own stats instance to avoid races
-        return _process_site(sub, PipelineStats("HTML"), use_bert, verbose, sb_only)
+        return _process_site(site, PipelineStats("HTML"), use_bert, verbose, sb_only)
 
     vuln_list: list[Vulnerability] = []
     vuln_frames: list[pd.DataFrame] = []
@@ -624,6 +643,14 @@ def run_scooper(
         if noise_frames
         else pd.DataFrame(columns=NOISE_CSV_HEADER)
     )
+    clean_vuls, _dup_titles = df_dup(vuln_df)
+    clean_noise, _ = df_dup(noise_df)
+    if not args.sb_only:
+        update_csv(clean_vuls, VULN_CSV_PATH)
+        update_csv(clean_noise, NOISE_CSV_PATH)
+    else:
+        print("SB stuff goes here? ")  # TODO implement sb here
+    update_json(vuln_list)
     return stats, vuln_list, vuln_df, noise_df
 
 
@@ -634,8 +661,23 @@ def _process_site(
     verbose: bool = False,
     sb_only: bool = False,
 ) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
-    """Validate + extract every row in ``df``, returning this slice's own result
-    frames. Holds no shared state, so one instance can run per thread."""
+    """
+    Validate + extract every row in df, returning this slice's own result
+    frames. Holds no shared state, so one instance can run per thread.
+
+    Args: 
+        df: Raw and unprocessed dataframe to be classified
+        stats:
+        use_bert:
+        verbose:
+        sb_only
+
+    Returns:
+        - PipelineStats
+        - list of new vulns (used to make JSON)
+        - vulnerabilities dataframe (used to write CSV vulnerabilities)
+        - noise dataframes (used to write CSV noise)
+    """
     # list will be used to write JSON
     vuln_list: list[Vulnerability] = []
 

@@ -28,6 +28,7 @@ from .shared_utils import (
     model_unavailable_error,
     run_clean,
     update_csv,
+    update_json,
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -314,11 +315,9 @@ def main(argv: list[str] | None = None) -> int:
             if not args.sb_only:
                 update_csv(clean_vuls, scooper.VULN_CSV_PATH)
                 update_csv(clean_noise, scooper.NOISE_CSV_PATH)
-            # TODO: write as JSON here
-
             else:
                 print("SB stuff goes here? ")  # TODO implement sb here
-            # ^
+            update_json(_vuln_list)
         # Default, 1 thread per site — run_scooper fans out internally and
         # returns frames already merged across sites (disjoint, no df_dup).
         else:

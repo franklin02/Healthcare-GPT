@@ -1344,7 +1344,7 @@ def update_json(vulns: list[Vulnerability], path: str) -> None:
         path: destination *.json file (created if it does not exist)
     """
     clean_vulns: list[Vulnerability] = []
-    seen: set[tuple[str,str]] = set()
+    seen: set[tuple[str, str]] = set()
     for vuln in vulns:
         inst = (vuln.title, vuln.source_name)
         if inst in seen:

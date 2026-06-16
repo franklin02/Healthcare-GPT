@@ -1272,20 +1272,23 @@ def clear_directory(directory: Path) -> None:
             LOGGER.warning("Failed to remove %s: %s", item, exc)
 
 
-def df_dup(dfs: list[pd.DataFrame], verbose: bool = False) -> tuple[pd.DataFrame, list[str]]:
+def df_dup(
+    dfs: list[pd.DataFrame], verbose: bool = False
+) -> tuple[pd.DataFrame, list[str]]:
     """
     Deduplicates a lits of dataframes, used to make one single csv write by scooper
 
     Args:
-        dfs: list of dataframes with the same schema 
+        dfs: list of dataframes with the same schema
         verbose: prints messages when True
-    Returns: 
+    Returns:
         One unique DataFrame a list of duplicate titles
     """
 
     valid_dfs = [df for df in dfs if df is not None and not df.empty]
     if not valid_dfs:
-        if verbose: print("[WARNING]: All frames were None")
+        if verbose:
+            print("[WARNING]: All frames were None")
         return pd.DataFrame(), []
 
     combined = pd.concat(valid_dfs, ignore_index=True)
@@ -1309,7 +1312,7 @@ def update_csv(df: pd.DataFrame, path: Path, verbose: bool = False) -> None:
 
     Args:
         df: DataFrame to append
-        path: CSV path 
+        path: CSV path
         verbose: used to print messages if true
     """
     if df is None or df.empty:

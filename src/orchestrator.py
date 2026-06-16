@@ -38,7 +38,7 @@ LOGGER = get_file_logger(__name__, LOG_FILE)
 
 def _split_date(start: datetime.date, end: datetime.date) -> list[datetime.date]:
     """
-    Dummy function to split date into K parts. This needs to be rewritten later. 
+    Dummy function to split date into K parts. This needs to be rewritten later.
     Team hasnt discussed the best/desired way to split dates. Not documenting on purpose
     """
     if end > start:
@@ -47,7 +47,6 @@ def _split_date(start: datetime.date, end: datetime.date) -> list[datetime.date]
     half = (end - start) // 2
     mid = start + half
     return [start, mid, (mid + datetime.timedelta(days=1)), end]
-
 
 
 def _parse_date(s: str | None) -> datetime.date | None:
@@ -276,10 +275,11 @@ def main(argv: list[str] | None = None) -> int:
         vuln_dfs: list[pd.DataFrame] = []
         noise_dfs: list[pd.DataFrame] = []
 
-       
         # K split
         if args.start_date is not None and args.end_date is not None:
-            dates: list[datetime.date] = _split_date(_parse_date(args.start_date), _parse_date(args.end_date))
+            dates: list[datetime.date] = _split_date(
+                _parse_date(args.start_date), _parse_date(args.end_date)
+            )
             html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
                 use_bert=args.use_bert,
                 verbose=args.verbose,

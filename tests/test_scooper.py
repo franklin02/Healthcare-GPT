@@ -13,7 +13,92 @@ def _disable_supabase(monkeypatch):
     monkeypatch.setattr(scooper, "SUPABASE_AVAILABLE", False)
 
 
-def test_run_html_scraper_counts_validated_and_rejected_articles():
+@pytest.fixture
+def mock_ensure_model_available():
+    with patch("src.scrapers.scooper.ensure_model_available") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_check_valid_file():
+    with patch("src.scrapers.scooper.check_valid_file") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_fetch_html_page():
+    with patch("src.scrapers.scooper.fetch_html_page") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_ai_check_validation():
+    with patch("src.scrapers.scooper.ai_check_validation") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_extract_fields():
+    with patch("src.scrapers.scooper.extract_fields") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_prepend_vuln_csv():
+    with patch("src.scrapers.scooper.prepend_vuln_csv") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_prepend_noise_csv():
+    with patch("src.scrapers.scooper.prepend_noise_csv") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_prepend_json_sources():
+    with patch("src.scrapers.scooper.prepend_json_sources") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_time_sleep():
+    with patch("src.scrapers.scooper.time.sleep") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_get_config_int():
+    with patch("src.scrapers.scooper.get_config_int") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_logger_error():
+    with patch("src.scrapers.scooper.LOGGER.error") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_load_cite():
+    with patch("src.scrapers.scooper.load_cite") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_is_known_db():
+    with patch("src.scrapers.scooper.is_known_db") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_handle_vuln():
+    with patch("src.scrapers.scooper.handle_vuln") as mock:
+        yield mock
+
+@pytest.fixture
+def mock_insert_noise():
+    with patch("src.scrapers.scooper.insert_noise") as mock:
+        yield mock
+
+
+def test_run_html_scraper_counts_validated_and_rejected_articles(
+    mock_ensure_model_available,
+    mock_check_valid_file,
+    mock_fetch_html_page,
+    mock_ai_check_validation,
+    mock_extract_fields,
+    mock_prepend_vuln_csv,
+    mock_prepend_noise_csv,
+    mock_prepend_json_sources,
+):
     """One valid and one rejected article should update stats and outputs."""
     site_config = {
         "name": "TestSite",
@@ -38,39 +123,36 @@ def test_run_html_scraper_counts_validated_and_rejected_articles():
         },
     ]
 
-    with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            side_effect=[(True, "cyber_attack"), (False, "No impact")],
-        ),
-        patch(
-            "src.scrapers.scooper.extract_fields",
-            return_value=({"exec_summary": "Breach confirmed"}, {}),
-        ),
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
-    ):
-        stats = scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+    mock_fetch_html_page.return_value = (articles, True)
+    mock_ai_check_validation.side_effect = [(True, "cyber_attack"), (False, "No impact")]
+    mock_extract_fields.return_value = ({"exec_summary": "Breach confirmed"}, {})
+
+    stats = scooper.run_html_scraper(
+        site_config,
+        reporter=CliReporter(stream=io.StringIO()),
+        stats=PipelineStats("TestSite"),
+    )
 
     assert stats.discovered == 2
     assert stats.processed == 2
     assert stats.validated == 1
     assert stats.rejected == 1
     assert stats.output_records == 1
-    mock_vuln_csv.assert_called_once()
-    mock_noise_csv.assert_called_once()
-    mock_json.assert_called_once()
+    mock_prepend_vuln_csv.assert_called_once()
+    mock_prepend_noise_csv.assert_called_once()
+    mock_prepend_json_sources.assert_called_once()
 
 
-def test_run_html_scraper_handles_missing_subsector_fields():
+def test_run_html_scraper_handles_missing_subsector_fields(
+    mock_ensure_model_available,
+    mock_check_valid_file,
+    mock_fetch_html_page,
+    mock_ai_check_validation,
+    mock_extract_fields,
+    mock_prepend_vuln_csv,
+    mock_prepend_noise_csv,
+    mock_prepend_json_sources,
+):
     """Missing extraction fields should skip the article without stopping the run."""
     site_config = {
         "name": "TestSite",
@@ -86,37 +168,34 @@ def test_run_html_scraper_handles_missing_subsector_fields():
         }
     ]
 
-    with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            return_value=(True, "cyber_attack"),
-        ),
-        patch(
-            "src.scrapers.scooper.extract_fields",
-            side_effect=scooper.MissingSubsectorFieldsError("No fields found"),
-        ),
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv"),
-        patch("src.scrapers.scooper.prepend_json_sources"),
-    ):
-        stats = scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+    mock_fetch_html_page.return_value = (articles, True)
+    mock_ai_check_validation.return_value = (True, "cyber_attack")
+    mock_extract_fields.side_effect = scooper.MissingSubsectorFieldsError("No fields found")
+
+    stats = scooper.run_html_scraper(
+        site_config,
+        reporter=CliReporter(stream=io.StringIO()),
+        stats=PipelineStats("TestSite"),
+    )
 
     assert stats.validated == 0
     assert stats.skipped == 1
     assert stats.warnings == 1
     assert stats.output_records == 0
-    mock_vuln_csv.assert_called_once()
-    assert mock_vuln_csv.call_args.args[1] == []
+    mock_prepend_vuln_csv.assert_called_once()
+    assert mock_prepend_vuln_csv.call_args.args[1] == []
 
 
-def test_run_html_scraper_pause_flushes_buffered_outputs():
+def test_run_html_scraper_pause_flushes_buffered_outputs(
+    mock_ensure_model_available,
+    mock_check_valid_file,
+    mock_fetch_html_page,
+    mock_ai_check_validation,
+    mock_extract_fields,
+    mock_prepend_vuln_csv,
+    mock_prepend_noise_csv,
+    mock_prepend_json_sources,
+):
     """Ctrl-C during HTML processing should flush accepted and rejected rows."""
     site_config = {
         "name": "TestSite",
@@ -147,31 +226,19 @@ def test_run_html_scraper_pause_flushes_buffered_outputs():
         },
     ]
 
-    with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            side_effect=[
-                (True, "cyber_attack"),
-                (False, "No impact"),
-                KeyboardInterrupt(),
-            ],
-        ),
-        patch(
-            "src.scrapers.scooper.extract_fields",
-            return_value=({"exec_summary": "Breach confirmed"}, {}),
-        ),
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
-    ):
-        stats = scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+    mock_fetch_html_page.return_value = (articles, True)
+    mock_ai_check_validation.side_effect = [
+        (True, "cyber_attack"),
+        (False, "No impact"),
+        KeyboardInterrupt(),
+    ]
+    mock_extract_fields.return_value = ({"exec_summary": "Breach confirmed"}, {})
+
+    stats = scooper.run_html_scraper(
+        site_config,
+        reporter=CliReporter(stream=io.StringIO()),
+        stats=PipelineStats("TestSite"),
+    )
 
     assert stats.paused is True
     assert stats.discovered == 3
@@ -179,15 +246,22 @@ def test_run_html_scraper_pause_flushes_buffered_outputs():
     assert stats.validated == 1
     assert stats.rejected == 1
     assert stats.output_records == 1
-    mock_vuln_csv.assert_called_once()
-    mock_noise_csv.assert_called_once()
-    mock_json.assert_called_once()
-    assert len(mock_vuln_csv.call_args.args[1]) == 1
-    assert len(mock_noise_csv.call_args.args[1]) == 1
-    assert len(mock_json.call_args.args[1]) == 1
+    mock_prepend_vuln_csv.assert_called_once()
+    mock_prepend_noise_csv.assert_called_once()
+    mock_prepend_json_sources.assert_called_once()
+    assert len(mock_prepend_vuln_csv.call_args.args[1]) == 1
+    assert len(mock_prepend_noise_csv.call_args.args[1]) == 1
+    assert len(mock_prepend_json_sources.call_args.args[1]) == 1
 
 
-def test_run_html_scraper_pause_during_fetch_flushes_empty_outputs():
+def test_run_html_scraper_pause_during_fetch_flushes_empty_outputs(
+    mock_ensure_model_available,
+    mock_check_valid_file,
+    mock_fetch_html_page,
+    mock_prepend_vuln_csv,
+    mock_prepend_noise_csv,
+    mock_prepend_json_sources,
+):
     """Ctrl-C during page fetch should mark pause and still use output helpers."""
     site_config = {
         "name": "TestSite",
@@ -198,31 +272,31 @@ def test_run_html_scraper_pause_during_fetch_flushes_empty_outputs():
         },
     }
 
-    with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch(
-            "src.scrapers.scooper.fetch_html_page",
-            side_effect=KeyboardInterrupt(),
-        ),
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
-    ):
-        stats = scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+    mock_fetch_html_page.side_effect = KeyboardInterrupt()
+
+    stats = scooper.run_html_scraper(
+        site_config,
+        reporter=CliReporter(stream=io.StringIO()),
+        stats=PipelineStats("TestSite"),
+    )
 
     assert stats.paused is True
     assert stats.output_records == 0
-    mock_vuln_csv.assert_called_once_with("TestSite", [])
-    mock_noise_csv.assert_called_once_with("TestSite", [])
-    mock_json.assert_called_once_with("TestSite", [])
+    mock_prepend_vuln_csv.assert_called_once_with("TestSite", [])
+    mock_prepend_noise_csv.assert_called_once_with("TestSite", [])
+    mock_prepend_json_sources.assert_called_once_with("TestSite", [])
 
 
-def test_run_html_scraper_allows_page_cap_override():
+def test_run_html_scraper_allows_page_cap_override(
+    mock_ensure_model_available,
+    mock_check_valid_file,
+    mock_fetch_html_page,
+    mock_ai_check_validation,
+    mock_prepend_vuln_csv,
+    mock_prepend_noise_csv,
+    mock_prepend_json_sources,
+    mock_time_sleep,
+):
     """A page cap of 2 should fetch page 1 and page 2."""
     site_config = {
         "name": "TestSite",
@@ -240,36 +314,31 @@ def test_run_html_scraper_allows_page_cap_override():
         "date": "2026-01-01",
     }
 
-    with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch(
-            "src.scrapers.scooper.fetch_html_page",
-            return_value=([article], False),
-        ) as mock_fetch,
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            return_value=(False, "No impact"),
-        ),
-        patch("src.scrapers.scooper.prepend_vuln_csv"),
-        patch("src.scrapers.scooper.prepend_noise_csv"),
-        patch("src.scrapers.scooper.prepend_json_sources"),
-        patch("src.scrapers.scooper.time.sleep"),
-    ):
-        scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+    mock_fetch_html_page.return_value = ([article], False)
+    mock_ai_check_validation.return_value = (False, "No impact")
 
-    assert mock_fetch.call_count == 2
-    first_url = mock_fetch.call_args_list[0].args[1]
-    second_url = mock_fetch.call_args_list[1].args[1]
+    scooper.run_html_scraper(
+        site_config,
+        reporter=CliReporter(stream=io.StringIO()),
+        stats=PipelineStats("TestSite"),
+    )
+
+    assert mock_fetch_html_page.call_count == 2
+    first_url = mock_fetch_html_page.call_args_list[0].args[1]
+    second_url = mock_fetch_html_page.call_args_list[1].args[1]
     assert first_url == "https://example.com/page-1"
     assert second_url == "https://example.com/page-2"
 
 
-def test_run_html_scraper_start_page_override_can_skip_run():
+def test_run_html_scraper_start_page_override_can_skip_run(
+    mock_ensure_model_available,
+    mock_check_valid_file,
+    mock_get_config_int,
+    mock_fetch_html_page,
+    mock_prepend_vuln_csv,
+    mock_prepend_noise_csv,
+    mock_prepend_json_sources,
+):
     """An HTML_START_PAGE override past the cap should exit without fetching."""
     site_config = {
         "name": "TestSite",
@@ -280,25 +349,23 @@ def test_run_html_scraper_start_page_override_can_skip_run():
         },
     }
 
-    with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch("src.scrapers.scooper.get_config_int", return_value=2),
-        patch("src.scrapers.scooper.fetch_html_page") as mock_fetch,
-        patch("src.scrapers.scooper.prepend_vuln_csv"),
-        patch("src.scrapers.scooper.prepend_noise_csv"),
-        patch("src.scrapers.scooper.prepend_json_sources"),
-    ):
-        scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+    mock_get_config_int.return_value = 2
 
-    mock_fetch.assert_not_called()
+    scooper.run_html_scraper(
+        site_config,
+        reporter=CliReporter(stream=io.StringIO()),
+        stats=PipelineStats("TestSite"),
+    )
+
+    mock_fetch_html_page.assert_not_called()
 
 
-def test_run_html_scraper_logs_model_failure_before_setup_or_fetching():
+def test_run_html_scraper_logs_model_failure_before_setup_or_fetching(
+    mock_ensure_model_available,
+    mock_logger_error,
+    mock_check_valid_file,
+    mock_fetch_html_page,
+):
     """Model availability check should fail before any scraping."""
     site_config = {
         "name": "TestSite",
@@ -309,32 +376,39 @@ def test_run_html_scraper_logs_model_failure_before_setup_or_fetching():
         },
     }
 
-    with (
-        patch(
-            "src.scrapers.scooper.ensure_model_available",
-            side_effect=model_unavailable_error("model unavailable"),
-        ) as mock_model_check,
-        patch("src.scrapers.scooper.LOGGER.error") as mock_log_error,
-        patch("src.scrapers.scooper.check_valid_file") as mock_check_file,
-        patch("src.scrapers.scooper.fetch_html_page") as mock_fetch,
-    ):
-        with pytest.raises(model_unavailable_error):
-            scooper.run_html_scraper(
-                site_config,
-                reporter=CliReporter(stream=io.StringIO()),
-                stats=PipelineStats("TestSite"),
-            )
+    mock_ensure_model_available.side_effect = model_unavailable_error("model unavailable")
 
-    mock_model_check.assert_called_once_with()
-    mock_log_error.assert_called_once_with(
+    with pytest.raises(model_unavailable_error):
+        scooper.run_html_scraper(
+            site_config,
+            reporter=CliReporter(stream=io.StringIO()),
+            stats=PipelineStats("TestSite"),
+        )
+
+    mock_ensure_model_available.assert_called_once_with()
+    mock_logger_error.assert_called_once_with(
         "Model availability check failed: %s",
-        mock_model_check.side_effect,
+        mock_ensure_model_available.side_effect,
     )
-    mock_check_file.assert_not_called()
-    mock_fetch.assert_not_called()
+    mock_check_valid_file.assert_not_called()
+    mock_fetch_html_page.assert_not_called()
 
 
-def test_run_html_scraper_sb_only_skips_local_writes():
+def test_run_html_scraper_sb_only_skips_local_writes(
+    monkeypatch,
+    mock_ensure_model_available,
+    mock_check_valid_file,
+    mock_load_cite,
+    mock_is_known_db,
+    mock_fetch_html_page,
+    mock_ai_check_validation,
+    mock_extract_fields,
+    mock_handle_vuln,
+    mock_insert_noise,
+    mock_prepend_vuln_csv,
+    mock_prepend_noise_csv,
+    mock_prepend_json_sources,
+):
     """sb_only mode routes to Supabase and never touches the local corpus."""
     site_config = {
         "name": "TestSite",
@@ -359,48 +433,47 @@ def test_run_html_scraper_sb_only_skips_local_writes():
         },
     ]
 
-    with (
-        patch("src.scrapers.scooper.SUPABASE_AVAILABLE", True),
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file") as mock_check_file,
-        patch("src.scrapers.scooper.load_cite", return_value=[]),
-        patch("src.scrapers.scooper.is_known_db", return_value=False),
-        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            side_effect=[(True, "cyber_attack"), (False, "No impact")],
-        ),
-        patch(
-            "src.scrapers.scooper.extract_fields",
-            return_value=({"exec_summary": "Breach confirmed"}, {}),
-        ),
-        patch("src.scrapers.scooper.handle_vuln") as mock_handle_vuln,
-        patch("src.scrapers.scooper.insert_noise") as mock_insert_noise,
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
-    ):
-        stats = scooper.run_html_scraper(
-            site_config,
-            sb_only=True,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+    monkeypatch.setattr(scooper, "SUPABASE_AVAILABLE", True)
+    mock_load_cite.return_value = []
+    mock_is_known_db.return_value = False
+    mock_fetch_html_page.return_value = (articles, True)
+    mock_ai_check_validation.side_effect = [(True, "cyber_attack"), (False, "No impact")]
+    mock_extract_fields.return_value = ({"exec_summary": "Breach confirmed"}, {})
+
+    stats = scooper.run_html_scraper(
+        site_config,
+        sb_only=True,
+        reporter=CliReporter(stream=io.StringIO()),
+        stats=PipelineStats("TestSite"),
+    )
 
     # Validated -> Supabase, rejected -> Supabase noise
     mock_handle_vuln.assert_called_once()
     mock_insert_noise.assert_called_once()
     # Local corpus is never seeded or written
-    mock_check_file.assert_not_called()
-    mock_vuln_csv.assert_not_called()
-    mock_noise_csv.assert_not_called()
-    mock_json.assert_not_called()
+    mock_check_valid_file.assert_not_called()
+    mock_prepend_vuln_csv.assert_not_called()
+    mock_prepend_noise_csv.assert_not_called()
+    mock_prepend_json_sources.assert_not_called()
     assert stats.validated == 1
     assert stats.rejected == 1
     assert stats.output_records == 1
 
 
-def test_run_html_scraper_local_mode_skips_supabase():
+def test_run_html_scraper_local_mode_skips_supabase(
+    monkeypatch,
+    mock_ensure_model_available,
+    mock_check_valid_file,
+    mock_fetch_html_page,
+    mock_ai_check_validation,
+    mock_extract_fields,
+    mock_load_cite,
+    mock_handle_vuln,
+    mock_insert_noise,
+    mock_prepend_vuln_csv,
+    mock_prepend_noise_csv,
+    mock_prepend_json_sources,
+):
     """Local mode must not call Supabase helpers even when creds are available."""
     site_config = {
         "name": "TestSite",
@@ -425,38 +498,23 @@ def test_run_html_scraper_local_mode_skips_supabase():
         },
     ]
 
-    with (
-        patch("src.scrapers.scooper.SUPABASE_AVAILABLE", True),
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            side_effect=[(True, "cyber_attack"), (False, "No impact")],
-        ),
-        patch(
-            "src.scrapers.scooper.extract_fields",
-            return_value=({"exec_summary": "Breach confirmed"}, {}),
-        ),
-        patch("src.scrapers.scooper.load_cite") as mock_load_cite,
-        patch("src.scrapers.scooper.handle_vuln") as mock_handle_vuln,
-        patch("src.scrapers.scooper.insert_noise") as mock_insert_noise,
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
-    ):
-        # sb_only defaults to False -> local path
-        scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+    monkeypatch.setattr(scooper, "SUPABASE_AVAILABLE", True)
+    mock_fetch_html_page.return_value = (articles, True)
+    mock_ai_check_validation.side_effect = [(True, "cyber_attack"), (False, "No impact")]
+    mock_extract_fields.return_value = ({"exec_summary": "Breach confirmed"}, {})
+
+    # sb_only defaults to False -> local path
+    scooper.run_html_scraper(
+        site_config,
+        reporter=CliReporter(stream=io.StringIO()),
+        stats=PipelineStats("TestSite"),
+    )
 
     # No Supabase reads or writes
     mock_load_cite.assert_not_called()
     mock_handle_vuln.assert_not_called()
     mock_insert_noise.assert_not_called()
     # Local writers are used instead
-    mock_vuln_csv.assert_called_once()
-    mock_noise_csv.assert_called_once()
-    mock_json.assert_called_once()
+    mock_prepend_vuln_csv.assert_called_once()
+    mock_prepend_noise_csv.assert_called_once()
+    mock_prepend_json_sources.assert_called_once()

@@ -1,3 +1,4 @@
+---
 name: Sphinx Docs
 
 on:
@@ -45,7 +46,16 @@ jobs:
         with:
           path: docs/_build/html
 
+    deploy:
       - name: Deploy to GitHub Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        id: deployment
-        uses: actions/deploy-pages@v4
+        needs: build
+        runs-on: ubuntu-latest
+        environment:
+          name: github-pages
+          url: ${{ steps.deployment.outputs.page_url }}
+        steps:
+          - name: Deploy to GitHub Pages
+            id: deployment
+            uses: actions/deploy-pages@v4
+...

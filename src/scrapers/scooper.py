@@ -12,11 +12,10 @@ import argparse
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
-from ..cli_reporter import CliReporter, PipelineStats, whim
+from ..cli_reporter import CliReporter, PipelineStats
 from ..logging_utils import get_file_logger
 from ..shared_utils import (
     AI_MODEL,
-    AI_URL,
     ai_check_validation,
     check_valid_file,
     DEBUG_DIR,
@@ -61,7 +60,9 @@ def _live_site_status(
     page: int,
     stats: PipelineStats,
 ) -> None:
-    """Update the per-site instance bar's current-step line."""
+    """Update the per-site sticky counter line (no-op in verbose mode)."""
+    if reporter.verbose:
+        return
     reporter.instance(site_name).set_step(
         f"page {page} | proc {stats.processed} val {stats.validated} "
         f"rej {stats.rejected} skip {stats.skipped}"
@@ -410,375 +411,329 @@ def run_html_scraper(
     reporter = reporter or CliReporter(verbose=verbose)
     stats = stats or PipelineStats(site_config["name"])
     stats.sites_scanned += 1
-    run_started = time.monotonic()
+    reporter.phase(f"HTML scraper: {site_config['name']}")
+    reporter.status(f"LLM model: {AI_MODEL}")
+    if use_bert:
+        reporter.status(_bert_status())
     try:
-        reporter.phase(f"HTML scraper: {site_config['name']}")
-        reporter.status(f"LLM model: {AI_MODEL}")
-        site_bar = reporter.register_instance(
-            site_config["name"], model=AI_MODEL, endpoint=AI_URL
+        ensure_model_available()
+    except model_unavailable_error as exc:
+        LOGGER.error("Model availability check failed: %s", exc)
+        raise
+    # Resolve the effective mode before any file/DB work: if sb_only was
+    # requested without creds, fall back to local so the guards below pick the
+    # right side (and check_valid_file seeds the dirs the local writers need).
+    if not SUPABASE_AVAILABLE and sb_only:
+        sb_only = False
+        LOGGER.warning(
+            "sb_only was selected, but no Supabase keys are found; "
+            "falling back to local-only writes."
         )
-        if use_bert:
-            reporter.status(_bert_status())
+
+    # Local mode only: seed the per-site corpus dirs/files. In sb_only mode we
+    # never touch the local corpus, so skip this entirely.
+    if not sb_only:
+        check_valid_file(site_config["name"])
+
+    db_known: list[dict[str, str]] = []
+    if SUPABASE_AVAILABLE and sb_only:
         try:
-            ensure_model_available()
-        except model_unavailable_error as exc:
-            LOGGER.error("Model availability check failed: %s", exc)
-            raise
-        # Resolve the effective mode before any file/DB work: if sb_only was
-        # requested without creds, fall back to local so the guards below pick the
-        # right side (and check_valid_file seeds the dirs the local writers need).
-        if not SUPABASE_AVAILABLE and sb_only:
-            sb_only = False
-            LOGGER.warning(
-                "sb_only was selected, but no Supabase keys are found; "
-                "falling back to local-only writes."
-            )
+            db_known = load_cite(site_config["name"])
+        except Exception as e:
+            message = f"load_cite failed for {site_config['name']}: {e}"
+            LOGGER.warning(message)
+            reporter.warn(message, stats)
 
-        # Local mode only: seed the per-site corpus dirs/files. In sb_only mode we
-        # never touch the local corpus, so skip this entirely.
-        if not sb_only:
-            check_valid_file(site_config["name"])
+    starting_page = get_config_int(
+        "HTML_START_PAGE", site_config["map"]["starting_page"]
+    )
 
-        db_known: list[dict[str, str]] = []
-        if SUPABASE_AVAILABLE and sb_only:
-            try:
-                db_known = load_cite(site_config["name"])
-            except Exception as e:
-                message = f"load_cite failed for {site_config['name']}: {e}"
-                LOGGER.warning(message)
-                reporter.warn(message, stats)
+    cap = site_config["map"]["cap"]
+    current_page = starting_page
 
-        starting_page = get_config_int(
-            "HTML_START_PAGE", site_config["map"]["starting_page"]
-        )
+    """
+    Buffer this run's new vulns + CSV rows so we can prepend them in one shot
+    at the end. Order in these lists is newest-first because pagination
+    progresses oldest-page-last and each page lists articles newest-first.
+    """
+    new_vulns: list[Vulnerability] = []
+    new_rows: list[list[str]] = []
+    new_noise_rows: list[list[str]] = []
 
-        cap = site_config["map"]["cap"]
-        current_page = starting_page
-        if cap != -1:
-            site_bar.set_total(max(cap - starting_page + 1, 1))
+    while True:
+        if cap != -1 and current_page > cap:
+            reporter.info(f"Reached page cap ({cap}) for {site_config['name']}")
+            break
 
-        """
-        Buffer this run's new vulns + CSV rows so we can prepend them in one shot
-        at the end. Order in these lists is newest-first because pagination
-        progresses oldest-page-last and each page lists articles newest-first.
-        """
-        new_vulns: list[Vulnerability] = []
-        new_rows: list[list[str]] = []
-        new_noise_rows: list[list[str]] = []
-
-        while True:
-            if cap != -1 and current_page > cap:
-                reporter.info(f"Reached page cap ({cap}) for {site_config['name']}")
-                break
-
-            if current_page == starting_page:
-                page_url = site_config["url"]
+        if current_page == starting_page:
+            page_url = site_config["url"]
+        else:
+            pagination_url = site_config.get("pagination_url")
+            if pagination_url:
+                page_url = pagination_url.replace("{page}", str(current_page))
             else:
-                pagination_url = site_config.get("pagination_url")
-                if pagination_url:
-                    page_url = pagination_url.replace("{page}", str(current_page))
-                else:
-                    page_param = site_config["map"].get("page_param", "page")
-                    sep = "&" if "?" in site_config["url"] else "?"
-                    page_url = f"{site_config['url']}{sep}{page_param}={current_page}"
+                page_param = site_config["map"].get("page_param", "page")
+                sep = "&" if "?" in site_config["url"] else "?"
+                page_url = f"{site_config['url']}{sep}{page_param}={current_page}"
 
-            try:
-                articles, stop = fetch_html_page(
-                    site_config,
-                    page_url,
-                    reporter=reporter,
-                    stats=stats,
-                    sb_only=sb_only,
-                    debug_noise=debug_noise,
+        try:
+            articles, stop = fetch_html_page(
+                site_config,
+                page_url,
+                reporter=reporter,
+                stats=stats,
+                sb_only=sb_only,
+                debug_noise=debug_noise,
+            )
+        except KeyboardInterrupt:
+            stats.paused = True
+            reporter.info(
+                f"HTML scraper paused by operator during {site_config['name']}; "
+                "flushing completed records."
+            )
+            LOGGER.info(
+                "HTML scraper paused by operator while fetching %s page %d",
+                site_config["name"],
+                current_page,
+            )
+            break
+        except Exception as e:
+            reporter.error(
+                f"Fetching {site_config['name']} page {current_page} ({page_url}): {e}",
+                stats,
+            )
+            LOGGER.warning(
+                "Error fetching %s page %d (%s): %s",
+                site_config["name"],
+                current_page,
+                page_url,
+                e,
+            )
+            return stats
+
+        if not articles:
+            reporter.warn(
+                f"No articles found on page {current_page}; stopping pagination",
+                stats,
+            )
+            break
+
+        stats.discovered += len(articles)
+        reached_floor = False
+
+        for article_index, article in enumerate(articles, start=1):
+            body_snippet = (article["body"] or "")[:250].replace("\n", " ")
+            stats.processed += 1
+            if reporter.verbose:
+                reporter.detail(
+                    f"[{article_index}/{len(articles)}] {article['title'][:90]}"
                 )
-            except KeyboardInterrupt:
-                stats.paused = True
-                reporter.info(
-                    f"HTML scraper paused by operator during {site_config['name']}; "
-                    "flushing completed records."
-                )
-                LOGGER.info(
-                    "HTML scraper paused by operator while fetching %s page %d",
-                    site_config["name"],
-                    current_page,
-                )
-                break
-            except Exception as e:
-                reporter.error(
-                    f"Fetching {site_config['name']} page {current_page} ({page_url}): {e}",
-                    stats,
-                )
-                LOGGER.warning(
-                    "Error fetching %s page %d (%s): %s",
-                    site_config["name"],
-                    current_page,
-                    page_url,
-                    e,
-                )
-                return stats
 
-            if not articles:
-                reporter.warn(
-                    f"No articles found on page {current_page}; stopping pagination",
-                    stats,
-                )
-                break
-
-            stats.discovered += len(articles)
-            site_bar.set_step(f"page {current_page} | {len(articles)} articles")
-            reached_floor = False
-
-            for article_index, article in enumerate(articles, start=1):
-                body_snippet = (article["body"] or "")[:250].replace("\n", " ")
-                stats.processed += 1
-                if reporter.verbose:
-                    reporter.detail(
-                        f"[{article_index}/{len(articles)}] {article['title'][:90]}"
-                    )
-
-                # Date-window filter: skip newer-than-start, stop at older-than-end.
-                if (start_date or end_date) and article.get("date"):
-                    try:
-                        pub_date = datetime.date.fromisoformat(article["date"][:10])
-                    except ValueError:
-                        pub_date = None
-                    if pub_date is not None:
-                        if start_date and pub_date > start_date:
-                            stats.skipped += 1
-                            reporter.detail(
-                                f"[      SKIP-DATE] Newer than {start_date}: {article['title']}"
-                            )
-                            if debug_noise:
-                                debug_noise.add(
-                                    url=article["link"],
-                                    title=article["title"],
-                                    source=site_config["name"],
-                                    reason=f"Newer than start_date {start_date}",
-                                    body_preview=body_snippet,
-                                    stage="date_filter",
-                                )
-                            _live_site_status(
-                                reporter, site_config["name"], current_page, stats
-                            )
-                            continue
-                        if end_date and pub_date < end_date:
-                            reporter.detail(
-                                f"[FINISH] Reached article older than {end_date} on "
-                                f"{site_config['name']}: {article['title']!r}"
-                            )
-                            if debug_noise:
-                                debug_noise.add(
-                                    url=article["link"],
-                                    title=article["title"],
-                                    source=site_config["name"],
-                                    reason=f"Older than end_date {end_date}",
-                                    body_preview=body_snippet,
-                                    stage="date_filter",
-                                )
-                            reached_floor = True
-                            break
-
-                if SUPABASE_AVAILABLE and db_known and sb_only:
-                    try:
-                        if is_known_db(db_known, article["title"], body_snippet):
-                            stats.skipped += 1
-                            reporter.detail(
-                                f"      [SKIP-DB] Already in Supabase: {article['title']}"
-                            )
-                            if debug_noise:
-                                debug_noise.add(
-                                    url=article["link"],
-                                    title=article["title"],
-                                    source=site_config["name"],
-                                    reason="Already in Supabase",
-                                    body_preview=body_snippet,
-                                    stage="dedup",
-                                )
-                            _live_site_status(
-                                reporter, site_config["name"], current_page, stats
-                            )
-                            continue
-                    except Exception as e:
-                        reporter.warn(f"is_known_db check failed: {e}", stats)
-                        LOGGER.warning("is_known_db check failed: %s", e)
-
+            # Date-window filter: skip newer-than-start, stop at older-than-end.
+            if (start_date or end_date) and article.get("date"):
                 try:
-                    site_bar.set_step(whim(f"validating | page {current_page}"))
-                    is_threat, detail = ai_check_validation(
-                        article["title"], article["body"]
-                    )
-                    if is_threat:
-                        if detail not in SUBSECTOR_FIELDS:
-                            # LOGGER.warning(
-                            #     f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
-                            # )
-                            stats.skipped += 1
-                            if debug_noise:
-                                debug_noise.add(
-                                    url=article["link"],
-                                    title=article["title"],
-                                    source=site_config["name"],
-                                    reason=f"Unrecognized subsector: {detail}",
-                                    body_preview=body_snippet,
-                                    stage="validation",
-                                )
-                            continue
-                        try:
-                            sector_data, ss_data = extract_fields(
-                                detail, article["title"], article["body"]
-                            )
-                        except MissingSubsectorFieldsError as exc:
-                            stats.skipped += 1
-                            reporter.warn(
-                                f"Skipping extraction for {article['title']!r}: {exc}",
-                                stats,
-                            )
-                            LOGGER.warning(
-                                "Skipping extraction for %s: %s", article["title"], exc
-                            )
-                            if debug_noise:
-                                debug_noise.add(
-                                    url=article["link"],
-                                    title=article["title"],
-                                    source=site_config["name"],
-                                    reason=f"Missing subsector fields: {exc}",
-                                    body_preview=body_snippet,
-                                    stage="extraction",
-                                )
-                            continue
-                        stats.validated += 1
-
-                        # Wrap the raw dict from the LLM in the matching SubsectorData
-                        # subclass so Vulnerability.to_dict() can call .to_dict() on it.
-                        subsector_cls = SUBSECTOR_DATA_CLASSES.get(detail)
-                        subsector_data = (
-                            subsector_cls.from_dict(ss_data) if subsector_cls else None
+                    pub_date = datetime.date.fromisoformat(article["date"][:10])
+                except ValueError:
+                    pub_date = None
+                if pub_date is not None:
+                    if start_date and pub_date > start_date:
+                        stats.skipped += 1
+                        reporter.detail(
+                            f"[      SKIP-DATE] Newer than {start_date}: {article['title']}"
                         )
-
-                        vuln = Vulnerability(
-                            id=str(uuid.uuid4()),
-                            title=article["title"],
-                            source_name=site_config["name"],
-                            direct_link=article["link"],
-                            subsector=detail,
-                            date_accessed=datetime.datetime.now().strftime(
-                                "%Y-%m-%d %H:%M"
-                            ),
-                            date_published=article.get("date", ""),
-                            content=article["body"],
-                            exec_summary=sector_data.get("exec_summary") or "",
-                            geography_scope=sector_data.get("geography_scope"),
-                            start_date=sector_data.get("start_date"),
-                            end_date=sector_data.get("end_date"),
-                            resilience_or_mitigation_observed=sector_data.get(
-                                "resilience_or_mitigation_observed"
-                            ),
-                            subsector_data=subsector_data,
-                        )
-
-                        LOGGER.info("Validated article: %s", vuln.title)
-
-                        if sb_only:
-                            try:
-                                handle_vuln(vuln, reporter=reporter, stats=stats)
-                                stats.output_records += 1
-                            except Exception as e:
-                                LOGGER.warning(
-                                    "handle_vuln failed for %s: %s", vuln.title, e
-                                )
-                        else:
-                            content_preview = (vuln.content or "")[:250].replace(
-                                "\n", " "
-                            )
-                            new_rows.append(
-                                [
-                                    vuln.date_accessed,
-                                    vuln.date_published,
-                                    vuln.source_name,
-                                    vuln.subsector,
-                                    vuln.title,
-                                    vuln.direct_link,
-                                    vuln.exec_summary,
-                                    content_preview,
-                                ]
-                            )
-                            new_vulns.append(vuln)
-                    else:
-                        stats.rejected += 1
-                        body_preview = (article["body"] or "")[:250].replace("\n", " ")
-
                         if debug_noise:
                             debug_noise.add(
                                 url=article["link"],
                                 title=article["title"],
                                 source=site_config["name"],
-                                reason=f"Not a disruption: {detail}",
-                                body_preview=body_preview,
+                                reason=f"Newer than start_date {start_date}",
+                                body_preview=body_snippet,
+                                stage="date_filter",
+                            )
+                        _live_site_status(
+                            reporter, site_config["name"], current_page, stats
+                        )
+                        continue
+                    if end_date and pub_date < end_date:
+                        reporter.detail(
+                            f"[FINISH] Reached article older than {end_date} on "
+                            f"{site_config['name']}: {article['title']!r}"
+                        )
+                        if debug_noise:
+                            debug_noise.add(
+                                url=article["link"],
+                                title=article["title"],
+                                source=site_config["name"],
+                                reason=f"Older than end_date {end_date}",
+                                body_preview=body_snippet,
+                                stage="date_filter",
+                            )
+                        reached_floor = True
+                        break
+
+            if SUPABASE_AVAILABLE and db_known and sb_only:
+                try:
+                    if is_known_db(db_known, article["title"], body_snippet):
+                        stats.skipped += 1
+                        reporter.detail(
+                            f"      [SKIP-DB] Already in Supabase: {article['title']}"
+                        )
+                        if debug_noise:
+                            debug_noise.add(
+                                url=article["link"],
+                                title=article["title"],
+                                source=site_config["name"],
+                                reason="Already in Supabase",
+                                body_preview=body_snippet,
+                                stage="dedup",
+                            )
+                        _live_site_status(
+                            reporter, site_config["name"], current_page, stats
+                        )
+                        continue
+                except Exception as e:
+                    reporter.warn(f"is_known_db check failed: {e}", stats)
+                    LOGGER.warning("is_known_db check failed: %s", e)
+
+            try:
+                is_threat, detail = ai_check_validation(
+                    article["title"], article["body"]
+                )
+                if is_threat:
+                    if detail not in SUBSECTOR_FIELDS:
+                        # LOGGER.warning(
+                        #     f"[WARNING] Unrecognized subsector '{detail}' — skipping: {article['title']}"
+                        # )
+                        stats.skipped += 1
+                        if debug_noise:
+                            debug_noise.add(
+                                url=article["link"],
+                                title=article["title"],
+                                source=site_config["name"],
+                                reason=f"Unrecognized subsector: {detail}",
+                                body_preview=body_snippet,
                                 stage="validation",
                             )
-
-                        if sb_only:
-                            try:
-                                insert_noise(
-                                    source_name=site_config["name"],
-                                    title=article["title"],
-                                    url=article["link"],
-                                    reason=detail,
-                                    body_preview=body_preview,
-                                    date_accessed=datetime.datetime.now().strftime(
-                                        "%Y-%m-%d %H:%M"
-                                    ),
-                                )
-                            except Exception as e:
-                                LOGGER.warning(
-                                    "insert_noise failed for %s: %s",
-                                    article["title"],
-                                    e,
-                                )
-                        else:
-                            new_noise_rows.append(
-                                [
-                                    datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                    site_config["name"],
-                                    article["title"],
-                                    article["link"],
-                                    detail,
-                                    body_preview,
-                                ]
+                        continue
+                    try:
+                        sector_data, ss_data = extract_fields(
+                            detail, article["title"], article["body"]
+                        )
+                    except MissingSubsectorFieldsError as exc:
+                        stats.skipped += 1
+                        reporter.warn(
+                            f"Skipping extraction for {article['title']!r}: {exc}",
+                            stats,
+                        )
+                        LOGGER.warning(
+                            "Skipping extraction for %s: %s", article["title"], exc
+                        )
+                        if debug_noise:
+                            debug_noise.add(
+                                url=article["link"],
+                                title=article["title"],
+                                source=site_config["name"],
+                                reason=f"Missing subsector fields: {exc}",
+                                body_preview=body_snippet,
+                                stage="extraction",
                             )
-                    _live_site_status(
-                        reporter, site_config["name"], current_page, stats
-                    )
-                except KeyboardInterrupt:
-                    stats.paused = True
-                    reporter.info(
-                        f"HTML scraper paused by operator during {site_config['name']}; "
-                        "flushing completed records."
-                    )
-                    LOGGER.info(
-                        "HTML scraper paused by operator while processing %s article %s",
-                        site_config["name"],
-                        article.get("link", "unknown"),
-                    )
-                    break
-                except Exception as e:
-                    LOGGER.warning(
-                        "Validation failed for %s: %s",
-                        article.get("title", "unknown"),
-                        e,
-                    )
-                    continue
+                        continue
+                    stats.validated += 1
 
-            if stats.paused:
-                break
+                    # Wrap the raw dict from the LLM in the matching SubsectorData
+                    # subclass so Vulnerability.to_dict() can call .to_dict() on it.
+                    subsector_cls = SUBSECTOR_DATA_CLASSES.get(detail)
+                    subsector_data = (
+                        subsector_cls.from_dict(ss_data) if subsector_cls else None
+                    )
 
-            if stop or reached_floor:
-                break
+                    vuln = Vulnerability(
+                        id=str(uuid.uuid4()),
+                        title=article["title"],
+                        source_name=site_config["name"],
+                        direct_link=article["link"],
+                        subsector=detail,
+                        date_accessed=datetime.datetime.now().strftime(
+                            "%Y-%m-%d %H:%M"
+                        ),
+                        date_published=article.get("date", ""),
+                        content=article["body"],
+                        exec_summary=sector_data.get("exec_summary") or "",
+                        geography_scope=sector_data.get("geography_scope"),
+                        start_date=sector_data.get("start_date"),
+                        end_date=sector_data.get("end_date"),
+                        resilience_or_mitigation_observed=sector_data.get(
+                            "resilience_or_mitigation_observed"
+                        ),
+                        subsector_data=subsector_data,
+                    )
 
-            site_bar.advance(1)
-            current_page += 1
-            try:
-                time.sleep(0.25)
+                    LOGGER.info("Validated article: %s", vuln.title)
+
+                    if sb_only:
+                        try:
+                            handle_vuln(vuln, reporter=reporter, stats=stats)
+                            stats.output_records += 1
+                        except Exception as e:
+                            LOGGER.warning(
+                                "handle_vuln failed for %s: %s", vuln.title, e
+                            )
+                    else:
+                        content_preview = (vuln.content or "")[:250].replace("\n", " ")
+                        new_rows.append(
+                            [
+                                vuln.date_accessed,
+                                vuln.date_published,
+                                vuln.source_name,
+                                vuln.subsector,
+                                vuln.title,
+                                vuln.direct_link,
+                                vuln.exec_summary,
+                                content_preview,
+                            ]
+                        )
+                        new_vulns.append(vuln)
+                else:
+                    stats.rejected += 1
+                    body_preview = (article["body"] or "")[:250].replace("\n", " ")
+
+                    if debug_noise:
+                        debug_noise.add(
+                            url=article["link"],
+                            title=article["title"],
+                            source=site_config["name"],
+                            reason=f"Not a disruption: {detail}",
+                            body_preview=body_preview,
+                            stage="validation",
+                        )
+
+                    if sb_only:
+                        try:
+                            insert_noise(
+                                source_name=site_config["name"],
+                                title=article["title"],
+                                url=article["link"],
+                                reason=detail,
+                                body_preview=body_preview,
+                                date_accessed=datetime.datetime.now().strftime(
+                                    "%Y-%m-%d %H:%M"
+                                ),
+                            )
+                        except Exception as e:
+                            LOGGER.warning(
+                                "insert_noise failed for %s: %s", article["title"], e
+                            )
+                    else:
+                        new_noise_rows.append(
+                            [
+                                datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                site_config["name"],
+                                article["title"],
+                                article["link"],
+                                detail,
+                                body_preview,
+                            ]
+                        )
             except KeyboardInterrupt:
                 stats.paused = True
                 reporter.info(
@@ -786,37 +741,57 @@ def run_html_scraper(
                     "flushing completed records."
                 )
                 LOGGER.info(
-                    "HTML scraper paused by operator between %s pages",
+                    "HTML scraper paused by operator while processing %s article %s",
                     site_config["name"],
+                    article.get("link", "unknown"),
                 )
                 break
+            except Exception as e:
+                LOGGER.warning(
+                    "Validation failed for %s: %s", article.get("title", "unknown"), e
+                )
+                continue
 
-        if not sb_only:
-            flush_html_outputs(
-                site_config["name"],
-                new_rows,
-                new_noise_rows,
-                new_vulns,
-                reporter,
-                stats,
-            )
-        else:
+        if stats.paused:
+            break
+
+        if stop or reached_floor:
+            break
+
+        current_page += 1
+        try:
+            time.sleep(0.25)
+        except KeyboardInterrupt:
+            stats.paused = True
             reporter.info(
-                f"Finished {site_config['name']}: {stats.output_records} vuln(s)"
+                f"HTML scraper paused by operator during {site_config['name']}; "
+                "flushing completed records."
             )
             LOGGER.info(
-                "Finished %s (Supabase): %d vuln(s)",
+                "HTML scraper paused by operator between %s pages",
                 site_config["name"],
-                stats.output_records,
             )
-        stats.elapsed_seconds = time.monotonic() - run_started
-        if local_reporter:
-            reporter.summary(stats)
-        return stats
-    finally:
-        stats.elapsed_seconds = time.monotonic() - run_started
-        if local_reporter:
-            reporter.close()
+            break
+
+    if not sb_only:
+        flush_html_outputs(
+            site_config["name"],
+            new_rows,
+            new_noise_rows,
+            new_vulns,
+            reporter,
+            stats,
+        )
+    else:
+        reporter.info(f"Finished {site_config['name']}: {stats.output_records} vuln(s)")
+        LOGGER.info(
+            "Finished %s (Supabase): %d vuln(s)",
+            site_config["name"],
+            stats.output_records,
+        )
+    if local_reporter:
+        reporter.summary(stats)
+    return stats
 
 
 if __name__ == "__main__":

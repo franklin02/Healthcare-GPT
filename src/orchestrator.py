@@ -9,12 +9,17 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import math
 import sys
+import time
 from pathlib import Path
+from contextlib import nullcontext
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .cli_reporter import CliReporter, InstanceSpec, PipelineStats
 from .logging_utils import get_file_logger
 from .GDELT.gdelt_seeds import backfill_cyber_seeds
+from .GDELT.runner import load_seen
 from .shared_utils import (
     AI_MODEL,
     AI_URL,
@@ -60,6 +65,27 @@ def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
     )
 
 
+def chunk_list(items, num_chunks):
+    """
+    Split a list of items into a specified number of chunks, as evenly as possible.
+
+    Args:
+        items: The list of items to split.
+        num_chunks: The number of chunks to create.
+
+    Returns:
+        A list of lists, where each sublist is a chunk of the original items.
+    """
+    if num_chunks is None or num_chunks <= 0:
+        num_chunks = 1
+    if not items:
+        return []
+    chunk_size = math.ceil(len(items) / num_chunks)
+    if chunk_size <= 0:
+        return []
+    return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse CLI options, run selected pipeline stages, and report summaries.
 
@@ -70,7 +96,6 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code. A successful orchestrated run returns ``0``.
     """
-    raw_args = sys.argv[1:] if argv is None else argv
     parser = argparse.ArgumentParser(
         description="Unified runner for GDELT and HTML scrapers"
     )
@@ -179,140 +204,220 @@ def main(argv: list[str] | None = None) -> int:
         default=get_config_bool("CLEAN", False),
         help="Clear all modified directories and files before running",
     )
+    parser.add_argument(
+        "--models",
+        type=int,
+        default=get_config_int("MODELS", 1),
+        help=("Number of model instances to run concurrently."),
+    )
+    parser.add_argument(
+        "--threads-per-model",
+        type=int,
+        default=get_config_int("THREADS_PER_MODEL", 1),
+        help=("Number of threads to use per model instance."),
+    )
+    parser.add_argument(
+        "--starting-port",
+        type=int,
+        default=get_config_int("STARTING_PORT", 11434),
+        help=(
+            "Starting port number for LLM instances. Each instance is expected to "
+            "run on a consecutive port (e.g. 11434, 11435, etc.)"
+        ),
+    )
+    parser.add_argument(
+        "--seeds_only",
+        action="store_true",
+        default=get_config_bool("SEEDS_ONLY", False),
+        help="Process only seed articles, skipping full scraping and processing. Also skips the scooper pipeline.",
+    )
+    start = time.time()
 
     args = parser.parse_args(argv)
+    reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
+
     run_gdelt = not args.skip_gdelt
     run_html = not args.skip_html
+    # GDELT fans out across args.models model instances, each with
+    # args.threads_per_model worker threads; HTML still runs a single flow, so it
+    # only needs one instance bar. One instance bar per GDELT worker thread.
+    models_to_run = max(1, args.models) * max(1, args.threads_per_model)
+    instance_count = models_to_run if run_gdelt else 1
+    # One overall-bar unit per pipeline phase that will actually run.
+    phases = (["GDELT"] if run_gdelt else []) + (["HTML"] if run_html else [])
 
-    with CliReporter(verbose=args.verbose) as reporter:
-        if run_gdelt or run_html:
-            try:
-                ensure_model_available()
-            except model_unavailable_error as exc:
-                LOGGER.error("Model availability check failed: %s", exc)
-                print(exc, file=sys.stderr)
-                return 1
+    if phases:
+        try:
+            ensure_model_available()
+        except model_unavailable_error as exc:
+            LOGGER.error("Model availability check failed: %s", exc)
+            print(exc, file=sys.stderr)
+            return 1
+        reporter.build_instances(
+            [
+                InstanceSpec(f"Instance {i + 1}", model=AI_MODEL, endpoint=AI_URL)
+                for i in range(instance_count)
+            ],
+            model_label=AI_MODEL,
+        )
+        reporter.set_overall_total(len(phases))
+        reporter.set_overall_step("Initializing")
 
-        # Single instance until #181 lands: one shared task bar tracks whatever
-        # unit (GDELT or an HTML site) is running, the overall bar counts units.
-        units: list[str] = ["GDELT"] if run_gdelt else []
-        scooper = None
-        if run_html:
-            import src.scrapers.scooper as scooper
+    # Multi-instance mode (>1 instance) routes per-thread output via bound bars;
+    # single-instance mode shares one bar, so no binding is needed there.
+    multi = instance_count > 1
 
-            units.extend(site["name"] for site in scooper.HTML_SITES)
-        if units:
-            reporter.build_instances(
-                [InstanceSpec("Instance 1", model=AI_MODEL, endpoint=AI_URL)],
-                model_label=AI_MODEL,
-            )
-            reporter.set_overall_total(len(units))
-            reporter.set_overall_step("Initializing")
+    if not args.skip_gdelt:
+        import src.GDELT.runner as runner
 
-        if run_gdelt:
-            import src.GDELT.runner as runner
+        gdelt_start = time.time()
+        n_provided = (
+            any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
+            or args.num_files is not None
+        )
+        l_provided = args.limit is not None
+        effective_limit = args.limit
+        if not l_provided:
+            effective_limit = None if n_provided else 3
 
-            n_provided = _option_provided(raw_args, ("-n", "--num-files"))
-            l_provided = _option_provided(raw_args, ("-l", "--limit"))
-            effective_limit = args.limit
-            if not l_provided:
-                config_limit = get_config_int("GDELT_LIMIT", None)
-                effective_limit = (
-                    config_limit
-                    if config_limit is not None
-                    else (None if n_provided else 3)
-                )
-
-            gdelt_noise = (
-                NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json")
-                if args.debug
-                else None
-            )
-            gdelt_stats = PipelineStats("GDELT")
-            reporter.set_overall_step("GDELT")
-            LOGGER.info("Running GDELT pipeline with args: %s", args)
-            if args.clean:
-                run_clean()
-            raw_seeds = [
-                seed
-                for seed in backfill_cyber_seeds(
-                    num_files=args.num_files,
-                    start_date=args.start_date,
-                    end_date=args.end_date,
-                    cache_dir=GDELT_CACHE_DIR,
-                    reporter=reporter,
-                    stats=gdelt_stats,
-                )
-            ]
-            runner.run(
+        gdelt_noise = (
+            NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
+        )
+        gdelt_stats = PipelineStats("GDELT")
+        reporter.phase("Running GDELT pipeline")
+        LOGGER.info("Running GDELT pipeline with args: %s", args)
+        if args.clean:
+            run_clean()
+        raw_seeds = [
+            seed
+            for seed in backfill_cyber_seeds(
                 num_files=args.num_files,
-                limit=effective_limit,
-                output_path=args.output_path,
                 start_date=args.start_date,
                 end_date=args.end_date,
-                seen_urls_file=args.seen_urls_file,
-                use_bert=args.use_bert,
-                verbose=args.verbose,
+                cache_dir=GDELT_CACHE_DIR,
                 reporter=reporter,
                 stats=gdelt_stats,
-                raw_seeds=raw_seeds,
-                debug_noise=gdelt_noise,
             )
-            if gdelt_noise:
-                out = gdelt_noise.flush()
-                if out:
-                    reporter.info(f"Debug noise (GDELT): {out}")
-            summaries.append(gdelt_stats)
-            reporter.advance_overall(1)
-            if gdelt_stats.paused:
-                reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
-                reporter.summary(summaries)
-                LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
-                return 0
+        ]
+        LOGGER.info(
+            f"Seed collection complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
+        )
+        gdelt_start = time.time()
+        if args.seeds_only:
+            LOGGER.info("Seeds-only mode enabled; skipping full GDELT processing")
+            exit(0)
 
-        if run_html:
-            html_noise = (
-                NoiseCollector(DEBUG_DIR / "debug_noise_html.json")
-                if args.debug
-                else None
-            )
-            html_stats = PipelineStats("HTML")
-            LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
-            for site in scooper.HTML_SITES:
-                reporter.set_overall_step(site["name"])
-                site_stats = scooper.run_html_scraper(
-                    site,
+        seen = load_seen(args.seen_urls_file)
+        reporter.set_overall_step("GDELT")
+        # main's #202 execution model: args.models instances, each with
+        # args.threads_per_model worker threads, ports assigned per model group.
+        threads = max(1, args.models) * max(1, args.threads_per_model)
+        chunks = chunk_list(raw_seeds, threads)
+        if not chunks:
+            chunks = [[]]
+
+        def _run_gdelt_chunk(
+            instance_name: str, seed_chunk: list[dict], instance_port: int
+        ) -> None:
+            # Bind the worker thread to its instance bar (multi mode) so the
+            # reporter calls inside runner.run land on that instance's row.
+            binding = reporter.bind_instance(instance_name) if multi else nullcontext()
+            with binding:
+                runner.run(
+                    num_files=args.num_files,
+                    limit=effective_limit,
+                    output_path=args.output_path,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
+                    seen=seen,
                     use_bert=args.use_bert,
                     verbose=args.verbose,
-                    start_date=_parse_date(args.start_date),
-                    end_date=_parse_date(args.end_date),
-                    sb_only=args.sb_only,
                     reporter=reporter,
-                    stats=PipelineStats(site["name"]),
-                    debug_noise=html_noise,
+                    stats=gdelt_stats,
+                    raw_seeds=seed_chunk,
+                    debug_noise=gdelt_noise,
+                    port=instance_port,
                 )
-                html_stats.merge(site_stats)
-                reporter.advance_overall(1)
-                if site_stats.paused:
-                    summaries.append(html_stats)
-                    if html_noise:
-                        out = html_noise.flush()
-                        if out:
-                            reporter.info(f"Debug noise (HTML): {out}")
-                    reporter.info("HTML scraper paused; skipping remaining pipelines.")
-                    reporter.summary(summaries)
-                    LOGGER.info("HTML scraper paused; skipping remaining pipelines")
-                    return 0
-            if html_noise:
-                out = html_noise.flush()
-                if out:
-                    reporter.info(f"Debug noise (HTML): {out}")
-            summaries.append(html_stats)
 
-        if summaries:
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = []
+            port = args.starting_port
+            n = 0
+            for i, chunk in enumerate(chunks):
+                futures.append(
+                    executor.submit(_run_gdelt_chunk, f"Instance {i + 1}", chunk, port)
+                )
+                n += 1
+                if n == args.threads_per_model:
+                    port += 1
+                    n = 0
+            for future in as_completed(futures):
+                future.result()
+        if gdelt_noise:
+            out = gdelt_noise.flush()
+            if out:
+                reporter.info(f"Debug noise (GDELT): {out}")
+
+        LOGGER.info(
+            f"GDELT processing complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
+        )
+        summaries.append(gdelt_stats)
+        reporter.advance_overall(1)
+        if gdelt_stats.paused:
+            reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
             reporter.summary(summaries)
+            LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
+            return 0
+
+    if not args.skip_html:
+        import src.scrapers.scooper as scooper
+
+        html_start = time.time()
+        html_noise = (
+            NoiseCollector(DEBUG_DIR / "debug_noise_html.json") if args.debug else None
+        )
+        html_stats = PipelineStats("HTML")
+        reporter.phase("Running HTML/Scooper pipeline")
+        reporter.set_overall_step("HTML")
+        LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
+        for site in scooper.HTML_SITES:
+            site_stats = scooper.run_html_scraper(
+                site,
+                use_bert=args.use_bert,
+                verbose=args.verbose,
+                start_date=_parse_date(args.start_date),
+                end_date=_parse_date(args.end_date),
+                sb_only=args.sb_only,
+                reporter=reporter,
+                stats=PipelineStats(site["name"]),
+                debug_noise=html_noise,
+            )
+            html_stats.merge(site_stats)
+            if site_stats.paused:
+                summaries.append(html_stats)
+                if html_noise:
+                    out = html_noise.flush()
+                    if out:
+                        reporter.info(f"Debug noise (HTML): {out}")
+                reporter.info("HTML scraper paused; skipping remaining pipelines.")
+                reporter.summary(summaries)
+                LOGGER.info("HTML scraper paused; skipping remaining pipelines")
+                return 0
+        if html_noise:
+            out = html_noise.flush()
+            if out:
+                reporter.info(f"Debug noise (HTML): {out}")
+        summaries.append(html_stats)
+        reporter.advance_overall(1)
+        LOGGER.info(
+            f"HTML/Scooper processing complete in {(time.time() - html_start) / 60:.2f} minutes"
+        )
+
+    if summaries:
+        reporter.summary(summaries)
     LOGGER.info("Orchestrator run complete with summaries: %s", summaries)
+    LOGGER.info(f"Total execution time: {(time.time() - start) / 60:.2f} minutes")
     return 0
 
 

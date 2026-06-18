@@ -173,8 +173,8 @@ def test_orchestrator_builds_single_instance_and_tracks_units():
     specs = mock_build.call_args.args[0]
     assert len(specs) == 1
     assert specs[0].name == "Instance 1"
-    # The overall bar counts units of work: GDELT + each HTML site.
-    mock_total.assert_called_once_with(3)
+    # The overall bar counts units of work by pipeline phase: GDELT + HTML.
+    mock_total.assert_called_once_with(2)
     steps = [call.args[0] for call in mock_step.call_args_list]
-    assert steps == ["Initializing", "GDELT", "SiteOne", "SiteTwo"]
-    assert mock_advance.call_count == 3
+    assert steps == ["Initializing", "GDELT", "HTML"]
+    assert mock_advance.call_count == 2

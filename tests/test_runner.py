@@ -411,7 +411,6 @@ class TestStagedRecovery:
             seeds_dir.mkdir()
             validated_dir.mkdir()
             enriched_dir.mkdir()
-            seen_file = tmp_path / "seen_urls.json"
             completed_seed = {
                 "url": "https://example.com/completed",
                 "source": "test",
@@ -473,10 +472,11 @@ class TestStagedRecovery:
                     direct_link=remaining_seed["url"],
                     title="Recovered from seed",
                 )
+                seen = set()
                 recovered = runner.stitch_staged_records(
                     output_path=str(tmp_path),
                     stage="seeds",
-                    seen_urls_file=str(seen_file),
+                    seen=seen,
                     reporter=reporter,
                 )
 
@@ -515,7 +515,6 @@ class TestStagedRecovery:
             seeds_dir.mkdir()
             validated_dir.mkdir()
             enriched_dir.mkdir()
-            seen_file = tmp_path / "seen_urls.json"
             (seeds_dir / "in_flight.json").write_text(
                 json.dumps(
                     {
@@ -531,6 +530,7 @@ class TestStagedRecovery:
             reporter.verbose = False
             stats = PipelineStats("GDELT seeds stitch")
 
+            seen = set()
             with (
                 patch("src.GDELT.runner.SEEDS_DIR", seeds_dir),
                 patch("src.GDELT.runner.VALIDATED_DIR", validated_dir),
@@ -543,18 +543,16 @@ class TestStagedRecovery:
                 recovered = runner.stitch_staged_records(
                     output_path=str(tmp_path),
                     stage="seeds",
-                    seen_urls_file=str(seen_file),
+                    seen=seen,
                     reporter=reporter,
                     stats=stats,
                 )
 
-            saved_seen = json.loads(seen_file.read_text(encoding="utf-8"))
             output = json.loads((tmp_path / "GDELT.json").read_text(encoding="utf-8"))
 
         assert recovered == []
         assert output == {"sources": []}
-        assert saved_seen == []
-        assert in_flight_url not in saved_seen
+        assert in_flight_url not in seen
         assert stats.paused is True
 
 
@@ -972,39 +970,6 @@ class TestRun:
     @patch("src.GDELT.runner.process_seed")
     @patch("src.GDELT.runner.persist_stage")
     @patch("src.GDELT.runner.ensure_raw_dirs")
-    def test_run_with_custom_seen_urls_file(
-        self,
-        mock_ensure_dirs,
-        mock_persist_stage,
-        mock_process_seed,
-        mock_backfill,
-        mock_persist_raw,
-        mock_load_seen,
-        mock_save_seen,
-    ):
-        """run should load/save seen URLs from custom file."""
-        mock_load_seen.return_value = set()
-        mock_backfill.return_value = []
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            seen_file = Path(tmpdir) / "custom_seen.json"
-            runner.run(
-                num_files=1,
-                limit=1,
-                seen_urls_file=str(seen_file),
-            )
-
-        # load_seen should be called with the custom file
-        mock_load_seen.assert_called()
-        mock_save_seen.assert_called()
-
-    @patch("src.GDELT.runner.save_seen")
-    @patch("src.GDELT.runner.load_seen")
-    @patch("src.GDELT.runner.persist_raw_seeds")
-    @patch("src.GDELT.runner.backfill_cyber_seeds")
-    @patch("src.GDELT.runner.process_seed")
-    @patch("src.GDELT.runner.persist_stage")
-    @patch("src.GDELT.runner.ensure_raw_dirs")
     def test_run_merges_existing_dict_output(
         self,
         mock_ensure_dirs,
@@ -1185,6 +1150,7 @@ class TestRun:
         """run should handle directory path for seen_urls_file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             seen_dir = Path(tmpdir)
+            seen_file = seen_dir / "seen_urls.json"
 
             with (
                 patch("src.GDELT.runner.backfill_cyber_seeds") as mock_backfill,
@@ -1195,15 +1161,16 @@ class TestRun:
                 mock_load.return_value = set()
                 mock_backfill.return_value = []
 
+                seen = runner.load_seen(seen_file)
                 runner.run(
                     num_files=1,
                     limit=1,
-                    seen_urls_file=str(seen_dir),
+                    seen=seen,
                 )
 
                 mock_load.assert_called()
                 call_path = mock_load.call_args[0][0]
-                assert call_path == seen_dir / "seen_urls.json"
+                assert call_path == seen_file
 
     @patch("src.GDELT.runner.save_seen")
     @patch("src.GDELT.runner.load_seen")
@@ -1223,7 +1190,7 @@ class TestRun:
         mock_save_seen,
         capsys,
     ):
-        """Default run output should show high-level progress but not item numbering."""
+        """Default run output should show progress but not verbose item numbering."""
         mock_load_seen.return_value = set()
         mock_backfill.return_value = [{"url": "https://example.com/1"}]
         mock_process_seed.return_value = None
@@ -1232,6 +1199,8 @@ class TestRun:
             runner.run(num_files=1, limit=1, output_path=tmpdir)
 
         output = capsys.readouterr().out
+        # New reporter renders progress as sticky bars (disabled in non-TTY
+        # capture), so assert the high-level info line instead of bar text.
         assert "Processing 1 GDELT seeds" in output
         assert "[1/1]" not in output
 
@@ -1284,25 +1253,32 @@ class TestRun:
             title="First Article",
         )
 
+        def process_first_then_interrupt(seed, seen_urls, **kwargs):
+            if seed["url"] == "https://example.com/1":
+                seen_urls.add(seed["url"])
+                return first_record
+            raise KeyboardInterrupt
+
         with tempfile.TemporaryDirectory() as tmpdir:
             with (
                 patch("src.GDELT.runner.ensure_raw_dirs"),
                 patch("src.GDELT.runner.load_seen", return_value=set()),
-                patch("src.GDELT.runner.save_seen") as mock_save_seen,
                 patch("src.GDELT.runner.persist_raw_seeds"),
                 patch("src.GDELT.runner.backfill_cyber_seeds", return_value=seeds),
                 patch(
                     "src.GDELT.runner.process_seed",
-                    side_effect=[first_record, KeyboardInterrupt],
+                    side_effect=process_first_then_interrupt,
                 ),
                 patch("src.GDELT.runner.persist_stage"),
                 patch("src.GDELT.runner.clear_directory") as mock_clear,
             ):
+                seen = set()
                 result = runner.run(
                     num_files=1,
                     limit=2,
                     output_path=tmpdir,
                     stats=stats,
+                    seen=seen,
                 )
 
             output_file = Path(tmpdir) / "GDELT.json"
@@ -1313,7 +1289,8 @@ class TestRun:
         assert output["sources"][0]["id"] == "first"
         assert stats.paused is True
         assert stats.output_records == 1
-        mock_save_seen.assert_called_once()
+        # seen should contain the URL that was processed before the interrupt
+        assert "https://example.com/1" in seen
         mock_clear.assert_not_called()
 
     def test_run_pause_before_records_reports_zero_output(self):
@@ -1325,7 +1302,6 @@ class TestRun:
             with (
                 patch("src.GDELT.runner.ensure_raw_dirs"),
                 patch("src.GDELT.runner.load_seen", return_value=set()),
-                patch("src.GDELT.runner.save_seen") as mock_save_seen,
                 patch("src.GDELT.runner.persist_raw_seeds"),
                 patch("src.GDELT.runner.backfill_cyber_seeds", return_value=seeds),
                 patch(
@@ -1335,11 +1311,13 @@ class TestRun:
                 patch("src.GDELT.runner.persist_stage"),
                 patch("src.GDELT.runner.clear_directory") as mock_clear,
             ):
+                seen = set()
                 result = runner.run(
                     num_files=1,
                     limit=1,
                     output_path=tmpdir,
                     stats=stats,
+                    seen=seen,
                 )
 
             output_file = Path(tmpdir) / "GDELT.json"
@@ -1350,7 +1328,8 @@ class TestRun:
         assert output == {"sources": []}
         assert stats.paused is True
         assert stats.output_records == 0
-        mock_save_seen.assert_called_once()
+        # seen should not contain the URL since the interrupt happened before validation completed
+        assert "https://example.com/1" not in seen
         mock_clear.assert_not_called()
 
 

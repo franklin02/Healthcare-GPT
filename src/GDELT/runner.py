@@ -23,7 +23,7 @@ Functions:
     load_seen(seen_file): Load seen URLs from file. Returns a set of URLs that have been seen and processed. If the file does not exist or cannot be read, returns an empty set.
     save_seen(seen, seen_file): Save seen URLs to file.
     process_seed(seed, seen, use_bert, reporter, stats): Run a single seed through validation + extraction. Returns a Vulnerability if validated as a disruption, else None.
-    run(num_files, limit, output_path, start_date, end_date, seen_urls_file, use_bert, verbose, reporter, stats, raw_seeds): Main function to run the GDELT pipeline end-to-end.
+    run(num_files, limit, subsectors, output_path, start_date, end_date, seen_urls_file, use_bert, verbose, reporter, stats): Main function to run the GDELT pipeline end-to-end.
 
 """
 
@@ -31,17 +31,15 @@ import argparse
 import hashlib
 import json
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 
 from .gdelt_seeds import backfill_cyber_seeds
 from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
-from ..cli_reporter import CliReporter, PipelineStats, whim
+from ..cli_reporter import CliReporter, PipelineStats
 from ..logging_utils import get_file_logger
 from ..shared_utils import (
     AI_MODEL,
-    AI_URL,
     ai_check_validation,
     BODY_CHAR_LIMIT,
     DEBUG_DIR,
@@ -431,11 +429,12 @@ def write_output_records(
 
 def process_staged_seeds(
     seeds: list[dict],
-    seen_urls_path: Path,
+    seen: set,
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     debug_noise: NoiseCollector | None = None,
+    port: int | None = None,
 ) -> list[Vulnerability]:
     """
     Process staged GDELT seeds through validation and extraction while
@@ -443,74 +442,63 @@ def process_staged_seeds(
 
     Parameters:
         seeds: The staged seed dictionaries to process.
-        seen_urls_path: The path used to load and save processed URLs.
+        seen: A set of URLs that have already been processed.
         use_bert: Whether to run a BERT pre-filter before LLM validation.
         reporter: Optional CliReporter for logging progress and details.
         stats: Optional PipelineStats for tracking processing statistics.
         debug_noise: Optional NoiseCollector for recording rejected articles.
+        port: Optional port for the LLM validation service.
 
     Returns:
         A list of vulnerabilities completed from the staged seeds.
     """
-    local_reporter = reporter is None
     reporter = reporter or CliReporter()
     stats = stats or PipelineStats("GDELT seed stitch")
-    try:
-        seen = load_seen(seen_urls_path)
-        records = []
-        stats.discovered = len(seeds)
-        reporter.info(f"Processing {len(seeds)} staged GDELT seeds")
-        stitch_bar = reporter.instance("GDELT")
-        stitch_bar.reset(total=len(seeds))
-        stitch_bar.set_step("processing staged seeds")
+    records = []
+    stats.discovered = len(seeds)
+    reporter.info(f"Processing {len(seeds)} staged GDELT seeds")
 
-        for i, seed in enumerate(seeds, start=1):
-            stats.processed += 1
-            url = seed["url"]
-            was_seen = url in seen
-            completed_current = False
-            try:
-                if reporter.verbose:
-                    reporter.detail(f"[{i}/{len(seeds)}]")
-                article_id = stable_id(url)
-                stitch_bar.set_step(whim(f"validating {i}/{len(seeds)}"))
-                rec = process_seed(
-                    seed,
-                    seen,
-                    use_bert=use_bert,
-                    reporter=reporter,
-                    stats=stats,
-                    debug_noise=debug_noise,
+    for i, seed in enumerate(seeds, start=1):
+        stats.processed += 1
+        url = seed["url"]
+        was_seen = url in seen
+        completed_current = False
+        try:
+            if reporter.verbose:
+                reporter.detail(f"[{i}/{len(seeds)}]")
+            article_id = stable_id(url)
+            rec = process_seed(
+                seed,
+                seen,
+                use_bert=use_bert,
+                reporter=reporter,
+                stats=stats,
+                debug_noise=debug_noise,
+                port=port,
+            )
+            if rec:
+                persist_stage(
+                    VALIDATED_DIR, article_id, "validated", url, rec.to_dict()
                 )
-                if rec:
-                    persist_stage(
-                        VALIDATED_DIR, article_id, "validated", url, rec.to_dict()
-                    )
-                    persist_stage(
-                        ENRICHED_DIR, article_id, "enriched", url, rec.to_dict()
-                    )
-                    records.append(rec)
-                    completed_current = True
-                stitch_bar.set_step(f"staged {i}/{len(seeds)}")
-                stitch_bar.advance(1)
-            except KeyboardInterrupt:
-                if not was_seen and not completed_current:
-                    seen.discard(url)
-                stats.paused = True
-                reporter.info(
-                    "GDELT seed stitch paused by operator; saving completed records "
-                    "and preserving staged seeds."
-                )
-                LOGGER.info(
-                    "GDELT seed stitch paused by operator at seed %s/%s", i, len(seeds)
-                )
-                break
+                persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
+                records.append(rec)
+                completed_current = True
+            if not reporter.verbose:
+                reporter.instance("GDELT").set_progress(i, len(seeds))
+        except KeyboardInterrupt:
+            if not was_seen and not completed_current:
+                seen.discard(url)
+            stats.paused = True
+            reporter.info(
+                "GDELT seed stitch paused by operator; saving completed records "
+                "and preserving staged seeds."
+            )
+            LOGGER.info(
+                "GDELT seed stitch paused by operator at seed %s/%s", i, len(seeds)
+            )
+            break
 
-        save_seen(seen, seen_urls_path)
-        return records
-    finally:
-        if local_reporter:
-            reporter.close()
+    return records
 
 
 def load_staged_payloads(
@@ -575,7 +563,7 @@ def load_staged_payloads(
 def stitch_staged_records(
     output_path: str | None = None,
     stage: str = "enriched",
-    seen_urls_file: str | None = None,
+    seen: set | None = None,
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
@@ -589,7 +577,7 @@ def stitch_staged_records(
     Parameters:
         output_path: Optional JSON file or directory path for the final output.
         stage: The recovery stage to stitch: seeds, validated, or enriched.
-        seen_urls_file: Optional path to the JSON file containing processed URLs.
+        seen: Optional set of URLs that have already been processed.
         use_bert: Whether to run a BERT pre-filter during seed recovery.
         reporter: Optional CliReporter for logging progress and details.
         stats: Optional PipelineStats for tracking recovery statistics.
@@ -606,71 +594,56 @@ def stitch_staged_records(
     local_reporter = reporter is None
     reporter = reporter or CliReporter(verbose=verbose)
     stats = stats or PipelineStats(f"GDELT {stage} stitch")
-    run_started = time.monotonic()
-    try:
-        if local_reporter:
-            reporter.phase("GDELT staged recovery")
-        reporter.status(f"Stitch stage: {stage}")
+    if local_reporter:
+        reporter.phase("GDELT staged recovery")
+    reporter.status(f"Stitch stage: {stage}")
 
-        if stage == "seeds":
-            try:
-                ensure_model_available()
-            except model_unavailable_error as exc:
-                LOGGER.error("Model availability check failed: %s", exc)
-                print(exc, file=sys.stderr)
-                sys.exit(1)
-            if use_bert:
-                reporter.status(_bert_status())
-            ensure_raw_dirs()
-            if seen_urls_file:
-                seen_urls_path = Path(seen_urls_file)
-                if seen_urls_path.suffix.lower() != ".json":
-                    seen_urls_path = seen_urls_path / "seen_urls.json"
-            else:
-                seen_urls_path = _resolve_config_path(
-                    get_config_value("SEEN_URLS_FILE", None),
-                    PROJECT_ROOT / "data" / "seen_urls.json",
-                )
-            staged_records = _dedupe_output_records(
-                load_staged_payloads("enriched", reporter=reporter, stats=stats)
-                + load_staged_payloads("validated", reporter=reporter, stats=stats)
-            )
-            completed_urls = {
-                str(record["direct_link"])
-                for record in staged_records
-                if record.get("direct_link")
-            }
-            seeds = load_staged_payloads("seeds", reporter=reporter, stats=stats)
-            remaining_seeds = [
-                seed for seed in seeds if str(seed.get("url", "")) not in completed_urls
-            ]
-            records = process_staged_seeds(
-                remaining_seeds,
-                seen_urls_path=seen_urls_path,
-                use_bert=use_bert,
-                reporter=reporter,
-                stats=stats,
-            )
-            records = staged_records + records
-        else:
-            records = load_staged_payloads(stage, reporter=reporter, stats=stats)
+    if stage == "seeds":
+        try:
+            ensure_model_available()
+        except model_unavailable_error as exc:
+            LOGGER.error("Model availability check failed: %s", exc)
+            print(exc, file=sys.stderr)
+            sys.exit(1)
+        if use_bert:
+            reporter.status(_bert_status())
+        ensure_raw_dirs()
+        if seen is None:
+            seen = load_seen()
+        staged_records = _dedupe_output_records(
+            load_staged_payloads("enriched", reporter=reporter, stats=stats)
+            + load_staged_payloads("validated", reporter=reporter, stats=stats)
+        )
+        completed_urls = {
+            str(record["direct_link"])
+            for record in staged_records
+            if record.get("direct_link")
+        }
+        seeds = load_staged_payloads("seeds", reporter=reporter, stats=stats)
+        remaining_seeds = [
+            seed for seed in seeds if str(seed.get("url", "")) not in completed_urls
+        ]
+        records = process_staged_seeds(
+            remaining_seeds,
+            seen=seen,
+            use_bert=use_bert,
+            reporter=reporter,
+            stats=stats,
+        )
+        records = staged_records + records
+    else:
+        records = load_staged_payloads(stage, reporter=reporter, stats=stats)
 
-        write_output_records(records, output_path, reporter, stats)
+    write_output_records(records, output_path, reporter, stats)
 
-        stats.elapsed_seconds = time.monotonic() - run_started
-        if local_reporter:
-            reporter.summary(stats)
-        formatted_records = []
-        for record in records:
-            data = (
-                record.to_dict() if isinstance(record, Vulnerability) else dict(record)
-            )
-            data["date_published"] = fmt_dt(data.get("date_published", ""))
-            formatted_records.append(data)
-        return _dedupe_output_records(formatted_records)
-    finally:
-        if local_reporter:
-            reporter.close()
+    if local_reporter:
+        reporter.summary(stats)
+    formatted_records = []
+    for record in records:
+        data = record.to_dict() if isinstance(record, Vulnerability) else dict(record)
+        data["date_published"] = fmt_dt(data.get("date_published", ""))
+        formatted_records.append(data)
+    return _dedupe_output_records(formatted_records)
 
 
 def process_seed(
@@ -680,6 +653,7 @@ def process_seed(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     debug_noise: NoiseCollector | None = None,
+    port=None,
 ) -> Vulnerability | None:
     """
     Run a single seed through validation + extraction.
@@ -734,7 +708,7 @@ def process_seed(
     excerpt = body[:BODY_CHAR_LIMIT]
 
     is_disruption, detail = ai_check_validation(
-        title, excerpt, use_bert=use_bert, verbose=reporter.verbose
+        title, excerpt, use_bert=use_bert, verbose=reporter.verbose, port=port
     )
     LOGGER.debug(
         "LLM validation url=%s disruption=%s detail=%s", url, is_disruption, detail
@@ -788,7 +762,9 @@ def process_seed(
     LOGGER.info("Disruption confirmed url=%s subsector=%s", url, subsector)
 
     try:
-        sector_data, subsector_data_dict = extract_fields(subsector, title, excerpt)
+        sector_data, subsector_data_dict = extract_fields(
+            subsector, title, excerpt, port=port
+        )
     except MissingSubsectorFieldsError as exc:
         seen.discard(url)
         if stats is not None:
@@ -843,13 +819,14 @@ def run(
     output_path: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-    seen_urls_file: str | None = None,
+    seen: set | None = None,
     use_bert: bool = False,
     verbose: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     raw_seeds: list[dict] | None = None,
     debug_noise: NoiseCollector | None = None,
+    port: int | None = None,
 ) -> list[dict]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -857,16 +834,19 @@ def run(
      Parameters:
         num_files: Number of GDELT GKG files to scan for seeds.
         limit: Optional cap on the number of seeds to process, useful for testing.
+        subsectors: Comma-separated list of subsectors to include, or "all".
         output_path: Optional path to output JSON file or directory.
         start_date: Optional earliest date for GDELT files to include (YYYYMMDD or ISO format).
         end_date: Optional latest date for GDELT files to include (YYYYMMDD or ISO format).
-        seen_urls_file: Optional path to JSON file for storing/loading seen URLs.
+        seen: Optional set of URLs that have already been processed.
         use_bert: Whether to run a BERT pre-filter before LLM validation.
         verbose: Whether to show detailed per-article output.
         reporter: Optional CliReporter for logging progress and details.
         stats: Optional PipelineStats for tracking statistics.
+        clean: Whether to clear modified directories and files before running.
         raw_seeds: Raw seed dictionaries to process
         debug_noise: Optional NoiseCollector for recording rejected articles.
+        port: Where to run the ollama server
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -888,157 +868,132 @@ def run(
     local_reporter = reporter is None
     reporter = reporter or CliReporter(verbose=verbose)
     stats = stats or PipelineStats("GDELT")
-    run_started = time.monotonic()
+    if local_reporter:
+        reporter.phase("GDELT pipeline")
+    reporter.status(f"LLM model: {AI_MODEL}")
+    if use_bert:
+        reporter.status(_bert_status())
+
     try:
-        if local_reporter:
-            reporter.phase("GDELT pipeline")
-        reporter.status(f"LLM model: {AI_MODEL}")
-        gdelt_bar = reporter.register_instance("GDELT", model=AI_MODEL, endpoint=AI_URL)
-        if use_bert:
-            reporter.status(_bert_status())
+        ensure_model_available()
+    except model_unavailable_error as exc:
+        LOGGER.error("Model availability check failed: %s", exc)
+        print(exc, file=sys.stderr)
+        sys.exit(1)
 
-        if seen_urls_file:
-            seen_urls_path = Path(seen_urls_file)
-            if seen_urls_path.suffix.lower() != ".json":
-                seen_urls_path = seen_urls_path / "seen_urls.json"
-        else:
-            seen_urls_path = _resolve_config_path(
-                get_config_value("SEEN_URLS_FILE", None),
-                PROJECT_ROOT / "data" / "seen_urls.json",
+    ensure_raw_dirs()
+    ensure_cache_dir()
+
+    if seen is None:
+        seen = load_seen()
+
+    if raw_seeds is None:
+        raw_seeds = [
+            seed
+            for seed in backfill_cyber_seeds(
+                num_files=num_files,
+                start_date=start_date,
+                end_date=end_date,
+                cache_dir=GDELT_CACHE_DIR,
+                reporter=reporter,
             )
+        ]
 
+    raw_seeds = dedupe_raw_seeds(raw_seeds or [])
+    LOGGER.debug("Collected %s raw seeds", len(raw_seeds))
+    stats.discovered = len(raw_seeds)
+    persist_raw_seeds(raw_seeds)
+
+    # Date-bounded runs should always process the full matched seed set.
+    if start_date or end_date:
+        limit = None
+
+    seeds = raw_seeds
+    if limit:
+        seeds = seeds[:limit]
+    LOGGER.debug("Processing %s seeds after limit", len(seeds))
+
+    reporter.info(f"Processing {len(seeds)} GDELT seeds")
+    records = []
+    for i, seed in enumerate(seeds, start=1):
+        stats.processed += 1
+        url = seed["url"]
+        was_seen = url in seen
+        completed_current = False
         try:
-            ensure_model_available()
-        except model_unavailable_error as exc:
-            LOGGER.error("Model availability check failed: %s", exc)
-            print(exc, file=sys.stderr)
-            sys.exit(1)
-
-        ensure_raw_dirs()
-        ensure_cache_dir()
-
-        # Load seen URLs once at the start
-        seen = load_seen(seen_urls_path)
-
-        if raw_seeds is None:
-            raw_seeds = [
-                seed
-                for seed in backfill_cyber_seeds(
-                    num_files=num_files,
-                    start_date=start_date,
-                    end_date=end_date,
-                    cache_dir=GDELT_CACHE_DIR,
-                    reporter=reporter,
-                    stats=stats,
+            if reporter.verbose:
+                reporter.detail(f"[{i}/{len(seeds)}]")
+            LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
+            article_id = stable_id(url)
+            rec = process_seed(
+                seed,
+                seen,
+                use_bert=use_bert,
+                reporter=reporter,
+                stats=stats,
+                debug_noise=debug_noise,
+                port=port,
+            )
+            if rec:
+                persist_stage(
+                    VALIDATED_DIR, article_id, "validated", url, rec.to_dict()
                 )
-            ]
+                persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
+                records.append(rec)
+                completed_current = True
+                if SUPABASE_AVAILABLE:
+                    try:
+                        handle_vuln(rec, reporter=reporter, stats=stats)
+                    except Exception as e:
+                        LOGGER.warning("dedup/insert failed for %r: %s", rec.title, e)
+            else:
+                LOGGER.debug("Seed skipped url=%s", url)
+            if not reporter.verbose:
+                reporter.instance("GDELT").set_progress(i, len(seeds))
+        except KeyboardInterrupt:
+            if not was_seen and not completed_current:
+                seen.discard(url)
+            stats.paused = True
+            reporter.info(
+                "GDELT pipeline paused by operator; saving completed records "
+                "and preserving seed staging."
+            )
+            LOGGER.info(
+                "GDELT pipeline paused by operator at seed %s/%s", i, len(seeds)
+            )
+            break
 
-        raw_seeds = dedupe_raw_seeds(raw_seeds or [])
-        LOGGER.debug("Collected %s raw seeds", len(raw_seeds))
-        stats.discovered = len(raw_seeds)
-        persist_raw_seeds(raw_seeds)
+    # Save seen URLs once at the end
+    save_seen(seen)
 
-        # Date-bounded runs should always process the full matched seed set.
-        if start_date or end_date:
-            limit = None
+    LOGGER.debug(
+        "Summary seeds_in=%s validated=%s skipped=%s",
+        len(seeds),
+        len(records),
+        len(seeds) - len(records),
+    )
 
-        seeds = raw_seeds
-        if limit:
-            seeds = seeds[:limit]
-        LOGGER.debug("Processing %s seeds after limit", len(seeds))
+    for rec in records:
+        reporter.detail(f"\n--- {rec.id} ({rec.subsector}) ---")
+        reporter.detail(f"URL: {rec.direct_link}")
+        reporter.detail(f"Source: {rec.source_name}")
+        reporter.detail(f"Fields: {rec.subsector_data}")
 
-        reporter.info(f"Processing {len(seeds)} GDELT seeds")
-        gdelt_bar.reset(total=len(seeds))
-        gdelt_bar.set_step("processing seeds")
-        records = []
-        for i, seed in enumerate(seeds, start=1):
-            stats.processed += 1
-            url = seed["url"]
-            was_seen = url in seen
-            completed_current = False
-            try:
-                if reporter.verbose:
-                    reporter.detail(f"[{i}/{len(seeds)}]")
-                LOGGER.debug("Processing seed %s/%s url=%s", i, len(seeds), seed["url"])
-                article_id = stable_id(url)
-                gdelt_bar.set_step(whim(f"validating {i}/{len(seeds)}"))
-                rec = process_seed(
-                    seed,
-                    seen,
-                    use_bert=use_bert,
-                    reporter=reporter,
-                    stats=stats,
-                    debug_noise=debug_noise,
-                )
-                if rec:
-                    persist_stage(
-                        VALIDATED_DIR, article_id, "validated", url, rec.to_dict()
-                    )
-                    persist_stage(
-                        ENRICHED_DIR, article_id, "enriched", url, rec.to_dict()
-                    )
-                    records.append(rec)
-                    completed_current = True
-                    if SUPABASE_AVAILABLE:
-                        try:
-                            handle_vuln(rec, reporter=reporter, stats=stats)
-                        except Exception as e:
-                            LOGGER.warning(
-                                "dedup/insert failed for %r: %s", rec.title, e
-                            )
-                else:
-                    LOGGER.debug("Seed skipped url=%s", url)
-                gdelt_bar.set_step(f"{i}/{len(seeds)}")
-                gdelt_bar.advance(1)
-            except KeyboardInterrupt:
-                if not was_seen and not completed_current:
-                    seen.discard(url)
-                stats.paused = True
-                reporter.info(
-                    "GDELT pipeline paused by operator; saving completed records "
-                    "and preserving seed staging."
-                )
-                LOGGER.info(
-                    "GDELT pipeline paused by operator at seed %s/%s", i, len(seeds)
-                )
-                break
+    write_output_records(records, output_path, reporter, stats)
 
-        # Save seen URLs once at the end
-        save_seen(seen, seen_urls_path)
+    if stats.paused:
+        reporter.detail(f"Preserved seed staging directory: {SEEDS_DIR}")
+        LOGGER.debug("Preserved seeds directory after pause: %s", SEEDS_DIR)
+    else:
+        # Clear the seed files after a successful pipeline run.
+        clear_directory(SEEDS_DIR)
+        reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")
+        LOGGER.debug("Cleared seeds directory: %s", SEEDS_DIR)
 
-        LOGGER.debug(
-            "Summary seeds_in=%s validated=%s skipped=%s",
-            len(seeds),
-            len(records),
-            len(seeds) - len(records),
-        )
+    if local_reporter:
+        reporter.summary(stats)
 
-        for rec in records:
-            reporter.detail(f"\n--- {rec.id} ({rec.subsector}) ---")
-            reporter.detail(f"URL: {rec.direct_link}")
-            reporter.detail(f"Source: {rec.source_name}")
-            reporter.detail(f"Fields: {rec.subsector_data}")
-
-        write_output_records(records, output_path, reporter, stats)
-
-        if stats.paused:
-            reporter.detail(f"Preserved seed staging directory: {SEEDS_DIR}")
-            LOGGER.debug("Preserved seeds directory after pause: %s", SEEDS_DIR)
-        else:
-            # Clear the seed files after a successful pipeline run.
-            clear_directory(SEEDS_DIR)
-            reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")
-            LOGGER.debug("Cleared seeds directory: %s", SEEDS_DIR)
-
-        stats.elapsed_seconds = time.monotonic() - run_started
-        if local_reporter:
-            reporter.summary(stats)
-
-        return records
-    finally:
-        stats.elapsed_seconds = time.monotonic() - run_started
-        if local_reporter:
-            reporter.close()
+    return records
 
 
 if __name__ == "__main__":
@@ -1129,10 +1084,11 @@ if __name__ == "__main__":
             arg in ("-o", "--output-path") or arg.startswith("--output-path=")
             for arg in sys.argv[1:]
         )
+        seen = load_seen()
         stitch_staged_records(
             output_path=args.output_path if output_path_provided else None,
             stage=args.stitch_stage or "enriched",
-            seen_urls_file=args.seen_urls_file,
+            seen=seen,
             use_bert=args.use_bert,
             verbose=args.verbose,
         )
@@ -1152,6 +1108,7 @@ if __name__ == "__main__":
     if args.clean:
         run_clean()
 
+    seen = load_seen()
     noise = NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
     run(
         num_files=args.num_files,
@@ -1159,11 +1116,12 @@ if __name__ == "__main__":
         output_path=args.output_path,
         start_date=args.start_date,
         end_date=args.end_date,
-        seen_urls_file=args.seen_urls_file,
+        seen=seen,
         use_bert=args.use_bert,
         verbose=args.verbose,
         reporter=CliReporter(verbose=args.verbose),
         debug_noise=noise,
     )
+    save_seen(seen)
     if noise:
         noise.flush()

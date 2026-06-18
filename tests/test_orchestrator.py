@@ -57,6 +57,18 @@ def mock_get_config_value():
 
 
 @pytest.fixture
+def mock_setup_scooper():
+    with patch("src.scrapers.scooper.setup_scooper") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_run_scooper():
+    with patch("src.scrapers.scooper.run_scooper") as mock:
+        yield mock
+
+
+@pytest.fixture
 def mock_run_html_scraper():
     with patch("src.scrapers.scooper.run_html_scraper") as mock:
         yield mock
@@ -82,23 +94,20 @@ def test_orchestrator_forwards_verbose_to_gdelt_runner(
 
 
 def test_orchestrator_forwards_verbose_to_html_scraper(
-    monkeypatch,
     mock_ensure_model_available,
-    mock_get_config_bool,
-    mock_get_config_int,
-    mock_get_config_value,
-    mock_run_html_scraper,
+    mock_setup_scooper,
+    mock_run_scooper,
     mock_cli_summary,
 ):
-    """Verbose flag should be forwarded to the HTML scraper."""
-    sites = [{"name": "TestSite"}]
-    monkeypatch.setattr("src.scrapers.scooper.HTML_SITES", sites)
-
-    mock_run_html_scraper.return_value = PipelineStats("TestSite")
+    """Verbose flag should be forwarded to run_scooper."""
+    # The main branch API now expects a tuple return value
+    mock_run_scooper.return_value = (PipelineStats("Scooper"), [], None, None)
+    
     result = orchestrator.main(["--skip-gdelt", "--verbose"])
 
     assert result == 0
-    assert mock_run_html_scraper.call_args.kwargs["verbose"] is True
+    # Verify the verbose flag was forwarded properly
+    assert mock_run_scooper.call_args.kwargs.get("verbose") is True
 
 
 def test_orchestrator_help_documents_html_limit_overrides(capsys):
@@ -133,7 +142,7 @@ def test_orchestrator_skips_html_after_gdelt_pause(
     mock_get_config_value,
     mock_backfill_cyber_seeds,
     mock_runner_run,
-    mock_run_html_scraper,
+    mock_run_scooper,
     mock_cli_summary,
 ):
     """A paused GDELT run should stop later orchestrator stages cleanly."""
@@ -148,30 +157,24 @@ def test_orchestrator_skips_html_after_gdelt_pause(
 
     assert result == 0
     mock_runner_run.assert_called_once()
-    mock_run_html_scraper.assert_not_called()
+    mock_run_scooper.assert_not_called()
     mock_cli_summary.assert_called_once()
 
 
-def test_orchestrator_skips_remaining_html_sites_after_html_pause(
-    monkeypatch,
+def test_orchestrator_handles_html_pause(
     mock_ensure_model_available,
-    mock_backfill_cyber_seeds,
-    mock_runner_run,
-    mock_run_html_scraper,
+    mock_setup_scooper,
+    mock_run_scooper,
     mock_cli_summary,
 ):
-    """A paused HTML site should prevent later HTML sites from running."""
-    sites = [{"name": "SiteOne"}, {"name": "SiteTwo"}]
-    monkeypatch.setattr("src.scrapers.scooper.HTML_SITES", sites)
+    """A paused run_scooper result should summarize once and exit cleanly."""
+    paused_stats = PipelineStats("Scooper", paused=True)
+    mock_run_scooper.return_value = (paused_stats, [], None, None)
 
-    paused_stats = PipelineStats("SiteOne", paused=True)
-    mock_run_html_scraper.return_value = paused_stats
-
-    result = orchestrator.main([])
+    result = orchestrator.main(["--skip-gdelt"])
 
     assert result == 0
-    assert mock_run_html_scraper.call_count == 1
-    assert mock_run_html_scraper.call_args.kwargs["stats"].name == "SiteOne"
+    mock_run_scooper.assert_called_once()
     mock_cli_summary.assert_called_once()
 
 
@@ -179,7 +182,7 @@ def test_orchestrator_logs_model_availability_failure_before_pipelines(
     mock_ensure_model_available,
     mock_logger_error,
     mock_runner_run,
-    mock_run_html_scraper,
+    mock_run_scooper,
 ):
     """Model availability check should fail before any scraping."""
     mock_ensure_model_available.side_effect = model_unavailable_error(
@@ -196,7 +199,7 @@ def test_orchestrator_logs_model_availability_failure_before_pipelines(
         mock_ensure_model_available.side_effect,
     )
     mock_runner_run.assert_not_called()
-    mock_run_html_scraper.assert_not_called()
+    mock_run_scooper.assert_not_called()
 
 
 def test_orchestrator_skips_model_check_when_all_model_pipelines_are_skipped(

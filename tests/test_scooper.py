@@ -6,11 +6,9 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from src.cli_reporter import CliReporter, PipelineStats
-from src.shared_utils import model_unavailable_error
 import src.scrapers.scooper as scooper
 
-VALID_SUBSECTOR = "cyber_attack"
+VALID_SUBSECTOR = scooper.SUBSECTOR_FIELDS[0]
 
 
 @pytest.fixture(autouse=True)

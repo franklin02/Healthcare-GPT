@@ -52,6 +52,7 @@ import re
 import subprocess
 import tempfile
 import shutil
+import pandas as pd
 from pathlib import Path
 
 import requests
@@ -1266,6 +1267,98 @@ def clear_directory(directory: Path) -> None:
                 shutil.rmtree(item)
         except Exception as exc:
             LOGGER.warning("Failed to remove %s: %s", item, exc)
+
+
+def df_dup(
+    dfs: list[pd.DataFrame], verbose: bool = False
+) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Deduplicates a lits of dataframes, used to make one single csv write by scooper
+
+    Args:
+        dfs: list of dataframes with the same schema
+        verbose: prints messages when True
+    Returns:
+        One unique DataFrame a list of duplicate titles
+    """
+
+    valid_dfs = [df for df in dfs if df is not None and not df.empty]
+    if not valid_dfs:
+        if verbose:
+            print("[WARNING]: All frames were None")
+        return pd.DataFrame(), []
+
+    combined = pd.concat(valid_dfs, ignore_index=True)
+
+    key = [c for c in ("source_name", "title") if c in combined.columns]
+    if not key:
+        return combined.drop_duplicates(ignore_index=True), []
+
+    dup_titles: list[str] = []
+    if "title" in combined.columns:
+        dup_mask = combined.duplicated(subset=key, keep="first")
+        dup_titles = combined.loc[dup_mask, "title"].dropna().unique().tolist()
+
+    deduped = combined.drop_duplicates(subset=key, keep="first", ignore_index=True)
+    return deduped, dup_titles
+
+
+def update_csv(df: pd.DataFrame, path: Path, verbose: bool = False) -> None:
+    """
+    Appends a csv with a given DataFrame. This is used in scooper after calling 'df_dup'
+
+    Args:
+        df: DataFrame to append
+        path: CSV path
+        verbose: used to print messages if true
+    """
+    if df is None or df.empty:
+        if verbose:
+            print("[WARNING]df is not usable (it is empty or None)")
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    write_header = not path.exists() or path.stat().st_size == 0
+    if write_header and verbose:
+        print("Writing headers, file was empty or did not exist")
+
+    df.to_csv(
+        path,
+        mode="a",
+        header=write_header,
+        index=False,
+        date_format="%Y-%m-%d",
+    )
+
+
+def update_json(vulns: list[Vulnerability], path: str) -> None:
+    """
+    Used to write a list of Vulnerabilities into a given path
+
+    Args:
+        vulns: vulnerabilities to add to the file.
+        path: destination *.json file (created if it does not exist)
+    """
+    clean_vulns: list[Vulnerability] = []
+    seen: set[tuple[str, str]] = set()
+    for vuln in vulns:
+        inst = (vuln.title, vuln.source_name)
+        if inst in seen:
+            continue
+        seen.add(inst)
+        clean_vulns.append(vuln)
+
+    file_path = Path(path)
+
+    if file_path.exists():
+        sources = json.loads(file_path.read_text(encoding="utf-8"))["sources"]
+    else:
+        sources = []
+    sources.extend(vuln.to_dict() for vuln in clean_vulns)
+
+    with open(file_path, "w", encoding="utf-8") as json_file:
+        json.dump({"sources": sources}, json_file, indent=2, ensure_ascii=False)
 
 
 DEBUG_DIR = _PROJECT_ROOT / "data" / "noise"

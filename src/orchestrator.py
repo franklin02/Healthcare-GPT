@@ -222,6 +222,12 @@ def main(argv: list[str] | None = None) -> int:
             "run on a consecutive port (e.g. 11434, 11435, etc.)"
         ),
     )
+    parser.add_argument(
+        "--seeds_only",
+        action="store_true",
+        default=get_config_bool("SEEDS_ONLY", False),
+        help="Process only seed articles, skipping full scraping and processing. Also skips the scooper pipeline.",
+    )
     start = time.time()
 
     args = parser.parse_args(argv)
@@ -272,6 +278,9 @@ def main(argv: list[str] | None = None) -> int:
             f"Seed collection complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
         )
         gdelt_start = time.time()
+        if args.seeds_only:
+            LOGGER.info("Seeds-only mode enabled; skipping full GDELT processing")
+            exit(0)
 
         seen = load_seen(args.seen_urls_file)
         threads = max(1, args.models) * max(1, args.threads_per_model)

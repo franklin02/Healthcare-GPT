@@ -590,8 +590,7 @@ class TestStagedRecovery:
 
         assert recovered == []
         assert output == {"sources": []}
-        assert saved_seen == []
-        assert in_flight_url not in saved_seen
+        assert in_flight_url not in seen
         assert stats.paused is True
 
 
@@ -1146,21 +1145,23 @@ class TestRun:
         """run should handle directory path for seen_urls_file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             seen_dir = Path(tmpdir)
+            seen_file = seen_dir / "seen_urls.json"
 
             if True:
                 mock_load = mock_load_seen
                 mock_load.return_value = set()
                 mock_backfill_cyber_seeds.return_value = []
 
+                seen = runner.load_seen(seen_file)
                 runner.run(
                     num_files=1,
                     limit=1,
-                    seen_urls_file=str(seen_dir),
+                    seen=seen,
                 )
 
                 mock_load.assert_called()
                 call_path = mock_load.call_args[0][0]
-                assert call_path == seen_dir / "seen_urls.json"
+                assert call_path == seen_file
 
     def test_run_default_output_is_compact(
         self,
@@ -1237,6 +1238,12 @@ class TestRun:
             title="First Article",
         )
 
+        def process_first_then_interrupt(seed, seen_urls, **kwargs):
+            if seed["url"] == "https://example.com/1":
+                seen_urls.add(seed["url"])
+                return first_record
+            raise KeyboardInterrupt
+
         with tempfile.TemporaryDirectory() as tmpdir:
             if True:
                 mock_load_seen.return_value = set()
@@ -1248,6 +1255,7 @@ class TestRun:
                     limit=2,
                     output_path=tmpdir,
                     stats=stats,
+                    seen=seen,
                 )
 
             output_file = Path(tmpdir) / "GDELT.json"
@@ -1258,7 +1266,8 @@ class TestRun:
         assert output["sources"][0]["id"] == "first"
         assert stats.paused is True
         assert stats.output_records == 1
-        mock_save_seen.assert_called_once()
+        # seen should contain the URL that was processed before the interrupt
+        assert "https://example.com/1" in seen
         mock_clear.assert_not_called()
 
     def test_run_pause_before_records_reports_zero_output(
@@ -1287,6 +1296,7 @@ class TestRun:
                     limit=1,
                     output_path=tmpdir,
                     stats=stats,
+                    seen=seen,
                 )
 
             output_file = Path(tmpdir) / "GDELT.json"
@@ -1297,7 +1307,8 @@ class TestRun:
         assert output == {"sources": []}
         assert stats.paused is True
         assert stats.output_records == 0
-        mock_save_seen.assert_called_once()
+        # seen should not contain the URL since the interrupt happened before validation completed
+        assert "https://example.com/1" not in seen
         mock_clear.assert_not_called()
 
 

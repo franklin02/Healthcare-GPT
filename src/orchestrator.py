@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import math
 import sys
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
 from .GDELT.gdelt_seeds import backfill_cyber_seeds
+from .GDELT.runner import load_seen
 from .shared_utils import (
     DEBUG_DIR,
     NoiseCollector,
@@ -58,6 +61,27 @@ def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
     )
 
 
+def chunk_list(items, num_chunks):
+    """
+    Split a list of items into a specified number of chunks, as evenly as possible.
+
+    Args:
+        items: The list of items to split.
+        num_chunks: The number of chunks to create.
+
+    Returns:
+        A list of lists, where each sublist is a chunk of the original items.
+    """
+    if num_chunks is None or num_chunks <= 0:
+        num_chunks = 1
+    if not items:
+        return []
+    chunk_size = math.ceil(len(items) / num_chunks)
+    if chunk_size <= 0:
+        return []
+    return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse CLI options, run selected pipeline stages, and report summaries.
 
@@ -68,7 +92,6 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Process exit code. A successful orchestrated run returns ``0``.
     """
-    raw_args = sys.argv[1:] if argv is None else argv
     parser = argparse.ArgumentParser(
         description="Unified runner for GDELT and HTML scrapers"
     )
@@ -177,6 +200,27 @@ def main(argv: list[str] | None = None) -> int:
         default=get_config_bool("CLEAN", False),
         help="Clear all modified directories and files before running",
     )
+    parser.add_argument(
+        "--models",
+        type=int,
+        default=get_config_int("MODELS", 1),
+        help=("Number of model instances to run concurrently."),
+    )
+    parser.add_argument(
+        "--threads-per-model",
+        type=int,
+        default=get_config_int("THREADS_PER_MODEL", 1),
+        help=("Number of threads to use per model instance."),
+    )
+    parser.add_argument(
+        "--starting-port",
+        type=int,
+        default=get_config_int("STARTING_PORT", 11434),
+        help=(
+            "Starting port number for LLM instances. Each instance is expected to "
+            "run on a consecutive port (e.g. 11434, 11435, etc.)"
+        ),
+    )
 
     args = parser.parse_args(argv)
     reporter = CliReporter(verbose=args.verbose)
@@ -193,16 +237,14 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_gdelt:
         import src.GDELT.runner as runner
 
-        n_provided = _option_provided(raw_args, ("-n", "--num-files"))
-        l_provided = _option_provided(raw_args, ("-l", "--limit"))
+        n_provided = (
+            any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
+            or args.num_files is not None
+        )
+        l_provided = args.limit is not None
         effective_limit = args.limit
         if not l_provided:
-            config_limit = get_config_int("GDELT_LIMIT", None)
-            effective_limit = (
-                config_limit
-                if config_limit is not None
-                else (None if n_provided else 3)
-            )
+            effective_limit = None if n_provided else 3
 
         gdelt_noise = (
             NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
@@ -223,24 +265,47 @@ def main(argv: list[str] | None = None) -> int:
                 stats=gdelt_stats,
             )
         ]
-        runner.run(
-            num_files=args.num_files,
-            limit=effective_limit,
-            output_path=args.output_path,
-            start_date=args.start_date,
-            end_date=args.end_date,
-            seen_urls_file=args.seen_urls_file,
-            use_bert=args.use_bert,
-            verbose=args.verbose,
-            reporter=reporter,
-            stats=gdelt_stats,
-            raw_seeds=raw_seeds,
-            debug_noise=gdelt_noise,
-        )
+
+        seen = load_seen(args.seen_urls_file)
+        threads = max(1, args.models) * max(1, args.threads_per_model)
+        chunks = chunk_list(raw_seeds, threads)
+        port = args.starting_port
+        if not chunks:
+            chunks = [[]]
+
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = []
+            n = 0
+            for chunk in chunks:
+                futures.append(
+                    executor.submit(
+                        runner.run,
+                        num_files=args.num_files,
+                        limit=effective_limit,
+                        output_path=args.output_path,
+                        start_date=args.start_date,
+                        end_date=args.end_date,
+                        seen=seen,
+                        use_bert=args.use_bert,
+                        verbose=args.verbose,
+                        reporter=None,
+                        stats=gdelt_stats,
+                        raw_seeds=chunk,
+                        debug_noise=gdelt_noise,
+                        port=port,
+                    )
+                )
+                n += 1
+                if n == args.threads_per_model:
+                    port += 1
+                    n = 0
+            for future in as_completed(futures):
+                future.result()
         if gdelt_noise:
             out = gdelt_noise.flush()
             if out:
                 reporter.info(f"Debug noise (GDELT): {out}")
+
         summaries.append(gdelt_stats)
         if gdelt_stats.paused:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")

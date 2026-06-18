@@ -419,7 +419,7 @@ def main(argv: list[str] | None = None) -> int:
             reporter.summary(summaries)
             LOGGER.info("HTML scraper paused; skipping remaining pipelines")
             return 0
-        
+
         LOGGER.info(
             f"HTML/Scooper processing complete in {(time.time() - html_start) / 60:.2f} minutes"
         )

@@ -307,17 +307,23 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.info("Running GDELT pipeline with args: %s", args)
         if args.clean:
             run_clean()
-        raw_seeds = [
-            seed
-            for seed in backfill_cyber_seeds(
-                num_files=args.num_files,
-                start_date=args.start_date,
-                end_date=args.end_date,
-                cache_dir=GDELT_CACHE_DIR,
-                reporter=reporter,
-                stats=gdelt_stats,
-            )
-        ]
+        # Seed collection runs in the main thread before the per-instance fan-out.
+        # In multi-instance mode no thread is bound yet, so bind it to the first
+        # instance's bar; otherwise backfill_cyber_seeds' reporter.instance("GDELT")
+        # can't resolve a bar and raises KeyError.
+        seed_binding = reporter.bind_instance("Instance 1") if multi else nullcontext()
+        with seed_binding:
+            raw_seeds = [
+                seed
+                for seed in backfill_cyber_seeds(
+                    num_files=args.num_files,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
+                    cache_dir=GDELT_CACHE_DIR,
+                    reporter=reporter,
+                    stats=gdelt_stats,
+                )
+            ]
         LOGGER.info(
             f"Seed collection complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
         )

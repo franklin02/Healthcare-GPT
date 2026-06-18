@@ -82,20 +82,20 @@ SUBSECTOR_FIELDS = list(SUBSECTOR_DATA_CLASSES.keys())
 
 
 HTML_SITES = [
-    {
-        "name": "CyberScoop",
-        "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
-        "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
-        "map": {
-            "container": "li.search-results__item",
-            "title": None,
-            "link_selector": "a.post-item__title-link",
-            "body_selector": "div.single-article__content",
-            "date_selector": "time[datetime]",
-            "starting_page": 1,
-            "cap": 10,
-        },
-    },
+    # {
+    #     "name": "CyberScoop",
+    #     "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
+    #     "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
+    #     "map": {
+    #         "container": "li.search-results__item",
+    #         "title": None,
+    #         "link_selector": "a.post-item__title-link",
+    #         "body_selector": "div.single-article__content",
+    #         "date_selector": "time[datetime]",
+    #         "starting_page": 1,
+    #         "cap": 10,
+    #     },
+    # },
     {
         "name": "StateScoop",
         "url": "https://statescoop.com/search/healthcare/page/1/",
@@ -110,20 +110,20 @@ HTML_SITES = [
             "cap": 7,
         },
     },
-    {
-        "name": "FedScoop",
-        "url": "https://fedscoop.com/search/healthcare/",
-        "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
-        "map": {
-            "container": "article.post-item",
-            "title": None,
-            "link_selector": "a.post-item__title-link",
-            "body_selector": "div.single-article__content",
-            "date_selector": "time[datetime]",
-            "starting_page": 1,
-            "cap": 18,
-        },
-    },
+    # {
+    #     "name": "FedScoop",
+    #     "url": "https://fedscoop.com/search/healthcare/",
+    #     "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
+    #     "map": {
+    #         "container": "article.post-item",
+    #         "title": None,
+    #         "link_selector": "a.post-item__title-link",
+    #         "body_selector": "div.single-article__content",
+    #         "date_selector": "time[datetime]",
+    #         "starting_page": 1,
+    #         "cap": 18,
+    #     },
+    # },
     {
         "name": "AHA",
         "url": "https://www.aha.org/news",
@@ -138,20 +138,20 @@ HTML_SITES = [
             "cap": 10,
         },
     },
-    {
-        "name": "HealthIT_News",
-        "url": "https://www.techtarget.com/news/health-it",
-        "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
-        "map": {
-            "container": "div.topic-related-item-info",
-            "title": None,
-            "link_selector": "h3 a",
-            "body_selector": "article#content-columns",
-            "date_selector": "div.main-article-author-date span",
-            "starting_page": 1,
-            "cap": 9,
-        },
-    },
+    # {
+    #     "name": "HealthIT_News",
+    #     "url": "https://www.techtarget.com/news/health-it",
+    #     "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
+    #     "map": {
+    #         "container": "div.topic-related-item-info",
+    #         "title": None,
+    #         "link_selector": "h3 a",
+    #         "body_selector": "article#content-columns",
+    #         "date_selector": "div.main-article-author-date span",
+    #         "starting_page": 1,
+    #         "cap": 9,
+    #     },
+    # },
 ]
 
 
@@ -564,10 +564,14 @@ def run_scooper(
     stats: PipelineStats | None = None,
     sb_only: bool = False,
     site_split: bool = False,
+    port: int = 11434,
 ) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
     """
     Runs the scooper using the raw and unclassified data. If `site_split` is True,
     it breaks off and makes a thread per unique site_name.
+
+    `port` is the Ollama port the LLM validation/extraction calls target, so
+    callers can pin one scooper instance per model endpoint.
 
     Returns:
         - PipelineStats
@@ -592,7 +596,7 @@ def run_scooper(
 
     # Single pass over every unseen row.
     if not site_split:
-        return _process_site(df, stats, use_bert, verbose, sb_only)
+        return _process_site(df, stats, use_bert, verbose, sb_only, port)
 
     # One thread per site. Partitions are disjoint (each row has exactly one
     # source_name), so a plain concat reassembles them — no cross-site dedup.
@@ -608,7 +612,9 @@ def run_scooper(
     def _run_site(name: str):
         site = df[df["source_name"] == name]
         # each thread gets its own stats instance to avoid races
-        return _process_site(site, PipelineStats("HTML"), use_bert, verbose, sb_only)
+        return _process_site(
+            site, PipelineStats("HTML"), use_bert, verbose, sb_only, port
+        )
 
     vuln_list: list[Vulnerability] = []
     vuln_frames: list[pd.DataFrame] = []
@@ -671,6 +677,7 @@ def _process_site(
     use_bert: bool = False,
     verbose: bool = False,
     sb_only: bool = False,
+    port: int = 11434,
 ) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
     """
     Validate + extract every row in df, returning this slice's own result
@@ -719,7 +726,7 @@ def _process_site(
 
         try:
             is_threat, detail = ai_check_validation(
-                title, body, use_bert=use_bert, verbose=verbose
+                title, body, use_bert=use_bert, verbose=verbose, port=port
             )
             if is_threat:
                 if detail not in SUBSECTOR_FIELDS:
@@ -729,7 +736,7 @@ def _process_site(
                     stats.skipped += 1
                     continue
                 try:
-                    sector_data, ss_data = extract_fields(detail, title, body)
+                    sector_data, ss_data = extract_fields(detail, title, body, port)
                 except MissingSubsectorFieldsError as exc:
                     stats.skipped += 1
                     LOGGER.warning("Skipping extraction for %s: %s", title, exc)

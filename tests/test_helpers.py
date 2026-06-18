@@ -766,7 +766,7 @@ class TestExtractFields:
         mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
         mock_requests_post.return_value = mock_response
 
-        helpers.extract_fields("drug_shortage", "Title", "Body")
+        helpers.extract_fields("drug_shortage", "Title", "Body", TEST_OLLAMA_PORT)
         call_kwargs = mock_requests_post.call_args[1]
         assert call_kwargs["json"]["format"] == "json"
 
@@ -776,7 +776,7 @@ class TestExtractFields:
         mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
         mock_requests_post.return_value = mock_response
 
-        helpers.extract_fields("drug_shortage", "Title", "Body")
+        helpers.extract_fields("drug_shortage", "Title", "Body", TEST_OLLAMA_PORT)
         call_kwargs = mock_requests_post.call_args[1]
         assert call_kwargs["json"]["options"]["temperature"] == 0.0
 

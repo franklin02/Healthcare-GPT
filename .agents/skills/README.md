@@ -13,14 +13,22 @@ of them — the only difference is where each agent looks for skills.
 | Skill | What it does |
 | --- | --- |
 | [`create-issue`](create-issue/SKILL.md) | Draft and open a GitHub issue from a request or problem, matching this repo's issue style, with a copy-pasteable markdown fallback and an AI provenance label. |
+| [`find-improvement-issues`](find-improvement-issues/SKILL.md) | Scan the repo for evidence-backed cleanup, tech-debt, docs, test-gap, and refactor opportunities, then draft work-item issues spanning quick fixes to deep refactors — something for everyone. Drafts for review; only creates with `gh` after confirmation. |
 
-> `create-issue` uses the [GitHub CLI](https://cli.github.com) (`gh`) to open
-> the issue. `gh` is **optional**: if it isn't installed or authenticated, the
-> skill instead prints the finished issue as copy-pasteable markdown for the
-> GitHub web form. See [GitHub CLI (`gh`)](#github-cli-gh) below to enable
-> one-step creation.
+> `create-issue` and `find-improvement-issues` use the
+> [GitHub CLI](https://cli.github.com) (`gh`) to open issues. `gh` is
+> **optional**: if it isn't installed or authenticated, they instead print each
+> finished issue as copy-pasteable markdown for the GitHub web form. See
+> [GitHub CLI (`gh`)](#github-cli-gh) below to enable one-step creation.
 
 ## Using these skills
+
+These skills are committed, so they travel with the repo — every teammate gets
+them on `git pull`. Setup is **per machine, once**: on each device you use
+(laptop, lab workstation, remote box), clone or pull the repo and do the
+one-time activation for your agent below. Codex needs nothing; Claude Code needs
+one command per checkout. `gh` (for issue creation) is likewise installed and
+authenticated once per device — see [GitHub CLI (`gh`)](#github-cli-gh).
 
 ### Codex — works out of the box
 

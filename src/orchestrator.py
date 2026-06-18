@@ -23,15 +23,12 @@ from .GDELT.runner import load_seen
 from .shared_utils import (
     DEBUG_DIR,
     NoiseCollector,
-    df_dup,
     ensure_model_available,
     get_config_bool,
     get_config_int,
     get_config_value,
     model_unavailable_error,
     run_clean,
-    update_csv,
-    update_json,
 )
 # from scripts.clean_gdelt import run_clean
 
@@ -371,21 +368,16 @@ def main(argv: list[str] | None = None) -> int:
             with ThreadPoolExecutor(max_workers=len(dates)) as executor:
                 results = list(executor.map(_run_window, dates))
 
-            for window_stats, _vuln_list, v_df, n_df in results:
+            vuln_lists: list = []
+            for window_stats, w_vuln_list, v_df, n_df in results:
                 html_stats.merge(window_stats)
                 vuln_dfs.append(v_df)
                 noise_dfs.append(n_df)
+                vuln_lists.extend(w_vuln_list)
 
-            clean_vuls, _dup_titles = df_dup(vuln_dfs)
-            clean_noise, _ = df_dup(noise_dfs)
-            if not args.sb_only:
-                update_csv(clean_vuls, scooper.VULN_CSV_PATH)
-                update_csv(clean_noise, scooper.NOISE_CSV_PATH)
-            else:
-                print("SB stuff goes here? ")  # TODO implement sb here
-            update_json(_vuln_list)
-        # Default, 1 thread per site — run_scooper fans out internally and
-        # returns frames already merged across sites (disjoint, no df_dup).
+            scooper.save_results(vuln_lists, vuln_dfs, noise_dfs, sb_only=args.sb_only)
+        # Default: one thread per site. run_scooper fans out internally and
+        # returns frames merged across sites (disjoint); we persist them here.
         else:
             html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
                 use_bert=args.use_bert,
@@ -397,11 +389,7 @@ def main(argv: list[str] | None = None) -> int:
                 sb_only=args.sb_only,
                 site_split=True,
             )
-            if not args.sb_only:
-                update_csv(v_df, scooper.VULN_CSV_PATH)
-                update_csv(n_df, scooper.NOISE_CSV_PATH)
-            else:
-                print("SB stuff goes here? ")  # TODO implement sb here
+            scooper.save_results(vuln_list, [v_df], [n_df], sb_only=args.sb_only)
 
         # TODO: thread per cite implemented here
 

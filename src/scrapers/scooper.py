@@ -64,6 +64,8 @@ NOISE_CSV_PATH = _PROJECT_ROOT / "data" / "noise" / "scooper_noise.csv"
 NOISE_CSV_HEADER = ["source_name", "title", "link", "reason", "body_preview", "date"]
 RAW_CSV_PATH = _PROJECT_ROOT / "data" / "raw" / "scooper_raw.csv"
 RAW_CSV_HEADER = ["source_name", "title", "link", "body", "date"]
+SCOOPER_JSON_PATH = _PROJECT_ROOT / "data" / "processed" / "scooper.json"
+SCOOPER_JSON_PATH = _PROJECT_ROOT / "data" / "processed" / "scooper.json"
 
 try:
     from src.supabase_function import has_supabase_creds
@@ -282,7 +284,6 @@ def _scrape_page(
     link_elements = soup.select(m["container"])
 
     if not link_elements:
-        print(f"container '{m['container']}' matched 0 elements on {page_url} ")  # tbr
         # reporter.warn(
         #     f"container '{m['container']}' matched 0 elements on {page_url}; "
         #     "check HTML_SITES config",
@@ -308,7 +309,7 @@ def _scrape_page(
             a_tag = el if el.name == "a" else el.select_one("a[href]")
 
         if not a_tag:
-            print(  # tbr
+            LOGGER.warning(
                 f"link_selector '{m.get('link_selector')}' found no anchor "
                 f"in a '{m['container']}' item",
             )
@@ -354,7 +355,7 @@ def _scrape_page(
 
             body_el = article_soup.select_one(body_selector)
             if not body_el:
-                print(  # tbr
+                LOGGER.warning(
                     f"body_selector '{body_selector}' matched nothing on "
                     f"{entry['link']}; skipping article",
                 )
@@ -378,9 +379,10 @@ def _scrape_page(
                     # f"[FINISH] Reached known article on {site_config['name']}: "
                     # f"{entry['title']!r}"
                     # )
-                    print(  # tbr
-                        f"[FINISH] Reached known article on {site_config['name']}: "
-                        f"{entry['title']!r}"
+                    LOGGER.info(
+                        "[FINISH] Reached known article on %s: %r",
+                        site_config["name"],
+                        entry["title"],
                     )
                     stop = True
                     break
@@ -392,14 +394,15 @@ def _scrape_page(
 
             date_el = article_soup.select_one(date_selector) if date_selector else None
             raw_date = date_el.get("datetime", "") if date_el else ""
-            date = pd.to_datetime(raw_date, errors="coerce").normalize()
+            date = pd.to_datetime(raw_date, errors="coerce")
+            if pd.notna(date):
+                date = date.normalize()
 
             time.sleep(0.25)
         except Exception as e:
             # reporter.warn(
             #     f"Could not fetch article body at {entry['link']}: {e}", stats
             # )
-            print(f"Could not fetch article body at {entry['link']}: {e}")  # tbr
             LOGGER.warning("Error fetching article body:%s", e)
             if stats is not None:
                 stats.skipped += 1
@@ -444,7 +447,7 @@ def _raw_data(
     while True:
         if cap != -1 and current_page > cap:
             # reporter.info(f"Reached page cap ({cap}) for {site_config['name']}")
-            print(f"Reached page cap ({cap}) for {site_config['name']}")  # tbr
+            LOGGER.info(f"Reached page cap ({cap}) for {site_config['name']}")
             break
 
         if current_page == starting_page:
@@ -465,7 +468,6 @@ def _raw_data(
             )
         except KeyboardInterrupt:
             stats.paused = True
-            # tbr
             # reporter.finish_line()
             # reporter.info(
             #     f"HTML scraper paused by operator during {site_config['name']}; "
@@ -478,13 +480,6 @@ def _raw_data(
             )
             break
         except Exception as e:
-            print(
-                f"Fetching {site_config['name']} page {current_page} ({page_url}): {e}"
-            )  # tbr
-            # reporter.error(
-            #     f"Fetching {site_config['name']} page {current_page} ({page_url}): {e}",
-            #     stats,
-            # )
             LOGGER.warning(
                 "Error fetching %s page %d (%s): %s",
                 site_config["name"],
@@ -495,9 +490,9 @@ def _raw_data(
             return new_df
 
         if articles.empty:
-            print(
+            LOGGER.warning(
                 f"No articles found on page {current_page}; stopping pagination"
-            )  # tbr
+            )
             # reporter.warn(
             #     f"No articles found on page {current_page}; stopping pagination",
             #     stats,
@@ -518,17 +513,9 @@ def _raw_data(
             time.sleep(0.25)
         except KeyboardInterrupt:
             stats.paused = True
-            print(  # tbr
-                f"HTML scraper paused by operator during {site_config['name']}; "
-                "flushing completed records."
-            )
-            # reporter.finish_line()
-            # reporter.info(
-            #     f"HTML scraper paused by operator during {site_config['name']}; "
-            #     "flushing completed records."
-            # )
             LOGGER.info(
-                "HTML scraper paused by operator between %s pages",
+                "HTML scraper paused by operator between %s pages; "
+                "flushing completed records.",
                 site_config["name"],
             )
             break
@@ -551,7 +538,7 @@ def setup_scooper(sb_only: bool = False) -> None:
 
     raw_df = pd.read_csv(RAW_CSV_PATH)
     if raw_df.empty:
-        print("Empty or new CSV, running from scratch")  # delete me l8er
+        LOGGER.info("Empty or new CSV, running from scratch")  # delete me l8er
 
     with ThreadPoolExecutor(max_workers=len(SITE_NAMES)) as executor:
         futures = []
@@ -643,15 +630,39 @@ def run_scooper(
         if noise_frames
         else pd.DataFrame(columns=NOISE_CSV_HEADER)
     )
-    clean_vuls, _dup_titles = df_dup(vuln_df)
-    clean_noise, _ = df_dup(noise_df)
-    if not args.sb_only:
+    return stats, vuln_list, vuln_df, noise_df
+
+
+def save_results(
+    vuln_list: list[Vulnerability],
+    vuln_dfs: list[pd.DataFrame],
+    noise_dfs: list[pd.DataFrame],
+    sb_only: bool = False,
+) -> None:
+    """
+    Persist classified scooper results. Dedups across the given frames, appends
+    to the vuln/noise CSVs, and writes the JSON corpus.
+
+    Accepts lists of frames so it serves both the single-pass/site-split route
+    (wrap one frame in a list) and the date-split route (one frame per window).
+    Empty frames/lists are handled gracefully. When `sb_only` is set, local CSV
+    writes are skipped (Supabase path TODO); the JSON corpus is always written.
+
+    Args:
+        vuln_list: validated vulnerabilities used to build the JSON corpus
+        vuln_dfs: list of vulnerability frames to dedupe + append to the vuln CSV
+        noise_dfs: list of noise frames to dedupe + append to the noise CSV
+        sb_only: skip local CSV writes when True
+    """
+    if not sb_only:
+        clean_vuls, _ = df_dup(vuln_dfs)
+        clean_noise, _ = df_dup(noise_dfs)
         update_csv(clean_vuls, VULN_CSV_PATH)
         update_csv(clean_noise, NOISE_CSV_PATH)
     else:
         print("SB stuff goes here? ")  # TODO implement sb here
-    update_json(vuln_list)
-    return stats, vuln_list, vuln_df, noise_df
+    SCOOPER_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    update_json(vuln_list, str(SCOOPER_JSON_PATH))
 
 
 def _process_site(
@@ -696,15 +707,15 @@ def _process_site(
 
         if verbose:
             if not source_name:
-                print(f"No source name found for this row: {row}")
+                LOGGER.info(f"No source name found for this row: {row}")
             if not title:
-                print(f"No title found for this row: {row}")
+                LOGGER.info(f"No title found for this row: {row}")
             if not body:
-                print(f"No body found for this row: {row}")
+                LOGGER.info(f"No body found for this row: {row}")
             if not link:
-                print(f"No link found for this row: {row}")
+                LOGGER.info(f"No link found for this row: {row}")
             if not date_published:
-                print(f"No date found for this row: {row}")
+                LOGGER.info(f"No date found for this row: {row}")
 
         try:
             is_threat, detail = ai_check_validation(
@@ -712,9 +723,6 @@ def _process_site(
             )
             if is_threat:
                 if detail not in SUBSECTOR_FIELDS:
-                    print(
-                        f"[WARNING] Unrecognized subsector '{detail}' — skipping: {title}"
-                    )  # tbr
                     LOGGER.warning(
                         f"[WARNING] Unrecognized subsector '{detail}' — skipping: {title}"
                     )
@@ -724,10 +732,6 @@ def _process_site(
                     sector_data, ss_data = extract_fields(detail, title, body)
                 except MissingSubsectorFieldsError as exc:
                     stats.skipped += 1
-                    # reporter.warn( # tbr
-                    #     f"Skipping extraction for {article['title']!r}: {exc}",
-                    #     stats,
-                    # )
                     LOGGER.warning("Skipping extraction for %s: %s", title, exc)
                     continue
                 stats.validated += 1
@@ -792,7 +796,7 @@ def _process_site(
                         ignore_index=True,
                     )
                     if verbose:
-                        print(f"[VULN] {detail}: {title}")  # tbr
+                        LOGGER.info(f"[VULN] {detail}: {title}")
 
             else:  # this is noise
                 body_preview = body[:250].replace("\n", " ")
@@ -822,15 +826,10 @@ def _process_site(
                 )
                 stats.rejected += 1
                 if verbose:
-                    print(f"[NOISE] {detail}: {title}")  # tbr
+                    LOGGER.info(f"[NOISE] {detail}: {title}")
 
         except KeyboardInterrupt:
             stats.paused = True
-            # reporter.finish_line() # tbr
-            # reporter.info(
-            #     f"HTML scraper paused by operator during {site_config['name']}; "
-            #     "flushing completed records."
-            # )
             LOGGER.info(
                 "HTML scraper paused by operator while processing this article %s",
                 link,
@@ -905,3 +904,4 @@ if __name__ == "__main__":
         sb_only=args.sb_only,
         site_split=args.site_split,
     )
+    save_results(vuln_list, [vuln_df], [noise_df], sb_only=args.sb_only)

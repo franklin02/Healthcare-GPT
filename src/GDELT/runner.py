@@ -429,7 +429,7 @@ def write_output_records(
 
 def process_staged_seeds(
     seeds: list[dict],
-    seen: set,
+    seen_urls_path: Path,
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
@@ -454,6 +454,7 @@ def process_staged_seeds(
     """
     reporter = reporter or CliReporter()
     stats = stats or PipelineStats("GDELT seed stitch")
+    seen = load_seen(seen_urls_path)
     records = []
     stats.discovered = len(seeds)
     reporter.info(f"Processing {len(seeds)} staged GDELT seeds")
@@ -499,6 +500,7 @@ def process_staged_seeds(
             )
             break
 
+    save_seen(seen, seen_urls_path)
     return records
 
 
@@ -564,7 +566,7 @@ def load_staged_payloads(
 def stitch_staged_records(
     output_path: str | None = None,
     stage: str = "enriched",
-    seen: set | None = None,
+    seen_urls_file: str | None = None,
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
@@ -609,8 +611,12 @@ def stitch_staged_records(
         if use_bert:
             reporter.status(_bert_status())
         ensure_raw_dirs()
-        if seen is None:
-            seen = load_seen()
+        if seen_urls_file:
+            seen_urls_path = Path(seen_urls_file)
+            if seen_urls_path.suffix.lower() != ".json":
+                seen_urls_path = seen_urls_path / "seen_urls.json"
+        else:
+            seen_urls_path = PROJECT_ROOT / "data" / "seen_urls.json"
         staged_records = _dedupe_output_records(
             load_staged_payloads("enriched", reporter=reporter, stats=stats)
             + load_staged_payloads("validated", reporter=reporter, stats=stats)
@@ -626,7 +632,7 @@ def stitch_staged_records(
         ]
         records = process_staged_seeds(
             remaining_seeds,
-            seen=seen,
+            seen_urls_path=seen_urls_path,
             use_bert=use_bert,
             reporter=reporter,
             stats=stats,
@@ -820,7 +826,7 @@ def run(
     output_path: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-    seen: set | None = None,
+    seen_urls_file: str | None = None,
     use_bert: bool = False,
     verbose: bool = False,
     reporter: CliReporter | None = None,
@@ -885,8 +891,13 @@ def run(
     ensure_raw_dirs()
     ensure_cache_dir()
 
-    if seen is None:
-        seen = load_seen()
+    if seen_urls_file:
+        seen_urls_path = Path(seen_urls_file)
+        if seen_urls_path.suffix.lower() != ".json":
+            seen_urls_path = seen_urls_path / "seen_urls.json"
+    else:
+        seen_urls_path = PROJECT_ROOT / "data" / "seen_urls.json"
+    seen = load_seen(seen_urls_path)
 
     if raw_seeds is None:
         raw_seeds = [

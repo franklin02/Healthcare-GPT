@@ -410,36 +410,34 @@ class TestStagedRecovery:
         mock_clear_directory,
     ):
         """stitch_staged_records should recover enriched records without processing seeds."""
-        if True:
-            tmp_path = mock_runner_dirs["tmp_path"]
-            enriched_dir = mock_runner_dirs["enriched"]
-            staged_file = enriched_dir / "record.json"
-            staged_file.write_text(
-                json.dumps(
-                    {
+        tmp_path = mock_runner_dirs["tmp_path"]
+        enriched_dir = mock_runner_dirs["enriched"]
+        staged_file = enriched_dir / "record.json"
+        staged_file.write_text(
+            json.dumps(
+                {
+                    "id": "rec1",
+                    "stage": "enriched",
+                    "url": "https://example.com/1",
+                    "record": {
                         "id": "rec1",
-                        "stage": "enriched",
-                        "url": "https://example.com/1",
-                        "record": {
-                            "id": "rec1",
-                            "title": "Recovered",
-                            "direct_link": "https://example.com/1",
-                            "date_published": "20230515123045",
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
+                        "title": "Recovered",
+                        "direct_link": "https://example.com/1",
+                        "date_published": "20230515123045",
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
 
-            if True:
-                recovered = runner.stitch_staged_records(
-                    output_path=str(tmp_path),
-                    reporter=Mock(),
-                )
+        recovered = runner.stitch_staged_records(
+            output_path=str(tmp_path),
+            reporter=Mock(),
+        )
 
-            output_file = tmp_path / "GDELT.json"
-            result = json.loads(output_file.read_text(encoding="utf-8"))
-            assert staged_file.exists()
+        output_file = tmp_path / "GDELT.json"
+        result = json.loads(output_file.read_text(encoding="utf-8"))
+        assert staged_file.exists()
 
         assert recovered == [
             {
@@ -465,75 +463,74 @@ class TestStagedRecovery:
         mock_clear_directory,
     ):
         """stitch_staged_records should replay staged seeds into usable output."""
-        if True:
-            tmp_path = mock_runner_dirs["tmp_path"]
-            seeds_dir = mock_runner_dirs["seeds"]
-            enriched_dir = mock_runner_dirs["enriched"]
-            seen_file = tmp_path / "seen_urls.json"
-            completed_seed = {
-                "url": "https://example.com/completed",
-                "source": "test",
-            }
-            remaining_seed = {
-                "url": "https://example.com/remaining",
-                "source": "test",
-            }
-            (seeds_dir / "completed.json").write_text(
-                json.dumps(
-                    {
-                        "id": "seed1",
-                        "stage": "seed",
-                        "url": completed_seed["url"],
-                        "seed": completed_seed,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (seeds_dir / "remaining.json").write_text(
-                json.dumps(
-                    {
-                        "id": "seed2",
-                        "stage": "seed",
-                        "url": remaining_seed["url"],
-                        "seed": remaining_seed,
-                    }
-                ),
-                encoding="utf-8",
-            )
-            (enriched_dir / "completed.json").write_text(
-                json.dumps(
-                    {
+        tmp_path = mock_runner_dirs["tmp_path"]
+        seeds_dir = mock_runner_dirs["seeds"]
+        validated_dir = mock_runner_dirs["validated"]
+        enriched_dir = mock_runner_dirs["enriched"]
+        seen_file = tmp_path / "seen_urls.json"
+        completed_seed = {
+            "url": "https://example.com/completed",
+            "source": "test",
+        }
+        remaining_seed = {
+            "url": "https://example.com/remaining",
+            "source": "test",
+        }
+        (seeds_dir / "completed.json").write_text(
+            json.dumps(
+                {
+                    "id": "seed1",
+                    "stage": "seed",
+                    "url": completed_seed["url"],
+                    "seed": completed_seed,
+                }
+            ),
+            encoding="utf-8",
+        )
+        (seeds_dir / "remaining.json").write_text(
+            json.dumps(
+                {
+                    "id": "seed2",
+                    "stage": "seed",
+                    "url": remaining_seed["url"],
+                    "seed": remaining_seed,
+                }
+            ),
+            encoding="utf-8",
+        )
+        (enriched_dir / "completed.json").write_text(
+            json.dumps(
+                {
+                    "id": "rec1",
+                    "stage": "enriched",
+                    "url": completed_seed["url"],
+                    "record": {
                         "id": "rec1",
-                        "stage": "enriched",
-                        "url": completed_seed["url"],
-                        "record": {
-                            "id": "rec1",
-                            "title": "Already enriched",
-                            "direct_link": completed_seed["url"],
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            reporter = Mock()
-            reporter.verbose = False
+                        "title": "Already enriched",
+                        "direct_link": completed_seed["url"],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        reporter = Mock()
+        reporter.verbose = False
 
-            if True:
-                mock_process_seed.return_value = _make_vuln(
-                    id_value=runner.stable_id(remaining_seed["url"]),
-                    direct_link=remaining_seed["url"],
-                    title="Recovered from seed",
-                )
-                recovered = runner.stitch_staged_records(
-                    output_path=str(tmp_path),
-                    stage="seeds",
-                    seen_urls_file=str(seen_file),
-                    reporter=reporter,
-                )
+        mock_process_seed.return_value = _make_vuln(
+            id_value=runner.stable_id(remaining_seed["url"]),
+            direct_link=remaining_seed["url"],
+            title="Recovered from seed",
+        )
+        recovered = runner.stitch_staged_records(
+            output_path=str(tmp_path),
+            stage="seeds",
+            seen_urls_file=str(seen_file),
+            reporter=reporter,
+        )
 
-            result = json.loads((tmp_path / "GDELT.json").read_text(encoding="utf-8"))
-            completed_seed_exists = (seeds_dir / "completed.json").exists()
-            remaining_seed_exists = (seeds_dir / "remaining.json").exists()
+        result = json.loads((tmp_path / "GDELT.json").read_text(encoding="utf-8"))
+        completed_seed_exists = (seeds_dir / "completed.json").exists()
+        remaining_seed_exists = (seeds_dir / "remaining.json").exists()
 
         assert [record["title"] for record in recovered] == [
             "Already enriched",
@@ -560,37 +557,36 @@ class TestStagedRecovery:
             seen_urls.add(seed["url"])
             raise KeyboardInterrupt
 
-        if True:
-            tmp_path = mock_runner_dirs["tmp_path"]
-            seeds_dir = mock_runner_dirs["seeds"]
-            seen_file = tmp_path / "seen_urls.json"
-            (seeds_dir / "in_flight.json").write_text(
-                json.dumps(
-                    {
-                        "id": "seed1",
-                        "stage": "seed",
-                        "url": in_flight_url,
-                        "seed": {"url": in_flight_url, "source": "test"},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            reporter = Mock()
-            reporter.verbose = False
-            stats = PipelineStats("GDELT seeds stitch")
+        tmp_path = mock_runner_dirs["tmp_path"]
+        seeds_dir = mock_runner_dirs["seeds"]
+        validated_dir = mock_runner_dirs["validated"]
+        seen_file = tmp_path / "seen_urls.json"
+        (seeds_dir / "in_flight.json").write_text(
+            json.dumps(
+                {
+                    "id": "seed1",
+                    "stage": "seed",
+                    "url": in_flight_url,
+                    "seed": {"url": in_flight_url, "source": "test"},
+                }
+            ),
+            encoding="utf-8",
+        )
+        reporter = Mock()
+        reporter.verbose = False
+        stats = PipelineStats("GDELT seeds stitch")
 
-            if True:
-                mock_process_seed.side_effect = interrupt_after_seen
-                recovered = runner.stitch_staged_records(
-                    output_path=str(tmp_path),
-                    stage="seeds",
-                    seen_urls_file=str(seen_file),
-                    reporter=reporter,
-                    stats=stats,
-                )
+        mock_process_seed.side_effect = interrupt_after_seen
+        recovered = runner.stitch_staged_records(
+            output_path=str(tmp_path),
+            stage="seeds",
+            seen_urls_file=str(seen_file),
+            reporter=reporter,
+            stats=stats,
+        )
 
-            saved_seen = json.loads(seen_file.read_text(encoding="utf-8"))
-            output = json.loads((tmp_path / "GDELT.json").read_text(encoding="utf-8"))
+        saved_seen = json.loads(seen_file.read_text(encoding="utf-8"))
+        output = json.loads((tmp_path / "GDELT.json").read_text(encoding="utf-8"))
 
         assert recovered == []
         assert output == {"sources": []}

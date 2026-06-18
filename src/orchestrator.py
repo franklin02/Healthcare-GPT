@@ -11,6 +11,7 @@ import argparse
 import datetime
 import math
 import sys
+import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -221,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
             "run on a consecutive port (e.g. 11434, 11435, etc.)"
         ),
     )
+    start = time.time()
 
     args = parser.parse_args(argv)
     reporter = CliReporter(verbose=args.verbose)
@@ -237,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_gdelt:
         import src.GDELT.runner as runner
 
+        gdelt_start = time.time()
         n_provided = (
             any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
             or args.num_files is not None
@@ -265,6 +268,10 @@ def main(argv: list[str] | None = None) -> int:
                 stats=gdelt_stats,
             )
         ]
+        LOGGER.info(
+            f"Seed collection complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
+        )
+        gdelt_start = time.time()
 
         seen = load_seen(args.seen_urls_file)
         threads = max(1, args.models) * max(1, args.threads_per_model)
@@ -306,6 +313,9 @@ def main(argv: list[str] | None = None) -> int:
             if out:
                 reporter.info(f"Debug noise (GDELT): {out}")
 
+        LOGGER.info(
+            f"GDELT processing complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
+        )
         summaries.append(gdelt_stats)
         if gdelt_stats.paused:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
@@ -316,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_html:
         import src.scrapers.scooper as scooper
 
+        html_start = time.time()
         html_noise = (
             NoiseCollector(DEBUG_DIR / "debug_noise_html.json") if args.debug else None
         )
@@ -350,10 +361,14 @@ def main(argv: list[str] | None = None) -> int:
             if out:
                 reporter.info(f"Debug noise (HTML): {out}")
         summaries.append(html_stats)
+        LOGGER.info(
+            f"HTML/Scooper processing complete in {(time.time() - html_start) / 60:.2f} minutes"
+        )
 
     if summaries:
         reporter.summary(summaries)
     LOGGER.info("Orchestrator run complete with summaries: %s", summaries)
+    LOGGER.info(f"Total execution time: {(time.time() - start) / 60:.2f} minutes")
     return 0
 
 

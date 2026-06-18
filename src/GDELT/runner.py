@@ -827,6 +827,7 @@ def run(
     raw_seeds: list[dict] | None = None,
     debug_noise: NoiseCollector | None = None,
     port: int | None = None,
+    instance_name: str | None = None,
 ) -> list[dict]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -847,6 +848,8 @@ def run(
         raw_seeds: Raw seed dictionaries to process
         debug_noise: Optional NoiseCollector for recording rejected articles.
         port: Where to run the ollama server
+        instance_name: Name of the reporter instance bar this run writes to
+            (e.g. "Instance 1"). Defaults to the shared "GDELT" bar.
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -896,6 +899,7 @@ def run(
                 end_date=end_date,
                 cache_dir=GDELT_CACHE_DIR,
                 reporter=reporter,
+                instance_name=instance_name,
             )
         ]
 
@@ -949,7 +953,7 @@ def run(
             else:
                 LOGGER.debug("Seed skipped url=%s", url)
             if not reporter.verbose:
-                reporter.instance("GDELT").set_progress(i, len(seeds))
+                reporter.instance(instance_name or "GDELT").set_progress(i, len(seeds))
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)

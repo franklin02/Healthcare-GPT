@@ -14,7 +14,6 @@ import sys
 import time
 import pandas as pd
 from pathlib import Path
-from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .cli_reporter import CliReporter, InstanceSpec, PipelineStats
@@ -282,10 +281,6 @@ def main(argv: list[str] | None = None) -> int:
         reporter.set_overall_total(len(phases))
         reporter.set_overall_step("Initializing")
 
-    # Multi-instance mode (>1 instance) routes per-thread output via bound bars;
-    # single-instance mode shares one bar, so no binding is needed there.
-    multi = instance_count > 1
-
     if not args.skip_gdelt:
         import src.GDELT.runner as runner
 
@@ -307,23 +302,18 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.info("Running GDELT pipeline with args: %s", args)
         if args.clean:
             run_clean()
-        # Seed collection runs in the main thread before the per-instance fan-out.
-        # In multi-instance mode no thread is bound yet, so bind it to the first
-        # instance's bar; otherwise backfill_cyber_seeds' reporter.instance("GDELT")
-        # can't resolve a bar and raises KeyError.
-        seed_binding = reporter.bind_instance("Instance 1") if multi else nullcontext()
-        with seed_binding:
-            raw_seeds = [
-                seed
-                for seed in backfill_cyber_seeds(
-                    num_files=args.num_files,
-                    start_date=args.start_date,
-                    end_date=args.end_date,
-                    cache_dir=GDELT_CACHE_DIR,
-                    reporter=reporter,
-                    stats=gdelt_stats,
-                )
-            ]
+        raw_seeds = [
+            seed
+            for seed in backfill_cyber_seeds(
+                num_files=args.num_files,
+                start_date=args.start_date,
+                end_date=args.end_date,
+                cache_dir=GDELT_CACHE_DIR,
+                reporter=reporter,
+                stats=gdelt_stats,
+                instance_name="Instance 1",
+            )
+        ]
         LOGGER.info(
             f"Seed collection complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
         )
@@ -334,43 +324,34 @@ def main(argv: list[str] | None = None) -> int:
 
         seen = load_seen(args.seen_urls_file)
         reporter.set_overall_step("GDELT")
-        # main's #202 execution model: args.models instances, each with
-        # args.threads_per_model worker threads, ports assigned per model group.
         threads = max(1, args.models) * max(1, args.threads_per_model)
         chunks = chunk_list(raw_seeds, threads)
+        port = args.starting_port
         if not chunks:
             chunks = [[]]
 
-        def _run_gdelt_chunk(
-            instance_name: str, seed_chunk: list[dict], instance_port: int
-        ) -> None:
-            # Bind the worker thread to its instance bar (multi mode) so the
-            # reporter calls inside runner.run land on that instance's row.
-            binding = reporter.bind_instance(instance_name) if multi else nullcontext()
-            with binding:
-                runner.run(
-                    num_files=args.num_files,
-                    limit=effective_limit,
-                    output_path=args.output_path,
-                    start_date=args.start_date,
-                    end_date=args.end_date,
-                    seen=seen,
-                    use_bert=args.use_bert,
-                    verbose=args.verbose,
-                    reporter=reporter,
-                    stats=gdelt_stats,
-                    raw_seeds=seed_chunk,
-                    debug_noise=gdelt_noise,
-                    port=instance_port,
-                )
-
         with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = []
-            port = args.starting_port
             n = 0
             for i, chunk in enumerate(chunks):
                 futures.append(
-                    executor.submit(_run_gdelt_chunk, f"Instance {i + 1}", chunk, port)
+                    executor.submit(
+                        runner.run,
+                        num_files=args.num_files,
+                        limit=effective_limit,
+                        output_path=args.output_path,
+                        start_date=args.start_date,
+                        end_date=args.end_date,
+                        seen=seen,
+                        use_bert=args.use_bert,
+                        verbose=args.verbose,
+                        reporter=reporter,
+                        stats=gdelt_stats,
+                        raw_seeds=chunk,
+                        debug_noise=gdelt_noise,
+                        port=port,
+                        instance_name=f"Instance {i + 1}",
+                    )
                 )
                 n += 1
                 if n == args.threads_per_model:

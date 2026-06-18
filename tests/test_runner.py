@@ -465,7 +465,6 @@ class TestStagedRecovery:
         """stitch_staged_records should replay staged seeds into usable output."""
         tmp_path = mock_runner_dirs["tmp_path"]
         seeds_dir = mock_runner_dirs["seeds"]
-        validated_dir = mock_runner_dirs["validated"]
         enriched_dir = mock_runner_dirs["enriched"]
         seen_file = tmp_path / "seen_urls.json"
         completed_seed = {
@@ -559,7 +558,6 @@ class TestStagedRecovery:
 
         tmp_path = mock_runner_dirs["tmp_path"]
         seeds_dir = mock_runner_dirs["seeds"]
-        validated_dir = mock_runner_dirs["validated"]
         seen_file = tmp_path / "seen_urls.json"
         (seeds_dir / "in_flight.json").write_text(
             json.dumps(

@@ -14,7 +14,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 
 from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger

@@ -22,18 +22,14 @@ def test_orchestrator_forwards_verbose_to_gdelt_runner():
 
 
 def test_orchestrator_forwards_verbose_to_html_scraper():
-    """Verbose flag should be forwarded to the HTML scraper."""
-    sites = [{"name": "TestSite"}]
+    """Verbose flag should be forwarded to run_scooper."""
     with (
         patch("src.orchestrator.ensure_model_available"),
-        patch("src.orchestrator.get_config_bool", side_effect=lambda _, d=False: d),
-        patch("src.orchestrator.get_config_int", side_effect=lambda _, d=None: d),
-        patch("src.orchestrator.get_config_value", side_effect=lambda _, d=None: d),
-        patch("src.scrapers.scooper.HTML_SITES", sites),
-        patch("src.scrapers.scooper.run_html_scraper") as mock_scraper,
+        patch("src.scrapers.scooper.setup_scooper"),
+        patch("src.scrapers.scooper.run_scooper") as mock_scraper,
         patch("src.cli_reporter.CliReporter.summary"),
     ):
-        mock_scraper.return_value = PipelineStats("TestSite")
+        mock_scraper.return_value = (PipelineStats("Scooper"), [], None, None)
         result = orchestrator.main(["--skip-gdelt", "--verbose"])
 
     assert result == 0
@@ -80,7 +76,7 @@ def test_orchestrator_skips_html_after_gdelt_pause():
         patch("src.orchestrator.get_config_value", side_effect=lambda _, d=None: d),
         patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
         patch("src.GDELT.runner.run", side_effect=pause_gdelt) as mock_run,
-        patch("src.scrapers.scooper.run_html_scraper") as mock_scraper,
+        patch("src.scrapers.scooper.run_scooper") as mock_scraper,
         patch("src.cli_reporter.CliReporter.summary") as mock_summary,
     ):
         result = orchestrator.main([])
@@ -91,27 +87,22 @@ def test_orchestrator_skips_html_after_gdelt_pause():
     mock_summary.assert_called_once()
 
 
-def test_orchestrator_skips_remaining_html_sites_after_html_pause():
-    """A paused HTML site should prevent later HTML sites from running."""
-    sites = [{"name": "SiteOne"}, {"name": "SiteTwo"}]
-    paused_stats = PipelineStats("SiteOne", paused=True)
-
+def test_orchestrator_handles_html_pause():
+    """A paused run_scooper result should summarize once and exit cleanly."""
+    paused_stats = PipelineStats("Scooper", paused=True)
     with (
         patch("src.orchestrator.ensure_model_available"),
-        patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
-        patch("src.GDELT.runner.run"),
-        patch("src.scrapers.scooper.HTML_SITES", sites),
+        patch("src.scrapers.scooper.setup_scooper"),
         patch(
-            "src.scrapers.scooper.run_html_scraper",
-            return_value=paused_stats,
+            "src.scrapers.scooper.run_scooper",
+            return_value=(paused_stats, [], None, None),
         ) as mock_scraper,
         patch("src.cli_reporter.CliReporter.summary") as mock_summary,
     ):
-        result = orchestrator.main([])
+        result = orchestrator.main(["--skip-gdelt"])
 
     assert result == 0
-    assert mock_scraper.call_count == 1
-    assert mock_scraper.call_args.kwargs["stats"].name == "SiteOne"
+    mock_scraper.assert_called_once()
     mock_summary.assert_called_once()
 
 
@@ -124,7 +115,7 @@ def test_orchestrator_logs_model_availability_failure_before_pipelines():
         ) as mock_model_check,
         patch("src.orchestrator.LOGGER.error") as mock_log_error,
         patch("src.GDELT.runner.run") as mock_run,
-        patch("src.scrapers.scooper.run_html_scraper") as mock_scraper,
+        patch("src.scrapers.scooper.run_scooper") as mock_scraper,
     ):
         result = orchestrator.main([])
 

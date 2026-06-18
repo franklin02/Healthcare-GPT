@@ -1,11 +1,21 @@
-import io
-from unittest.mock import patch
+"""Tests for the refactored HTML scraper in ``src/scrapers/scooper.py``.
 
+The suite focuses on the module's real surface — ``_unseen_df``, ``_setup_cvs``,
+``_update_csv``, ``run_scooper`` and ``_scrape_page`` — and never touches the
+network, the LLM, or Supabase: ``get_page``, ``ai_check_validation`` and
+``extract_fields`` are patched in every test that would otherwise reach them.
+"""
+
+import csv
+import datetime
+from unittest.mock import MagicMock, patch
+
+import pandas as pd
 import pytest
 
-from src.cli_reporter import CliReporter, PipelineStats
-from src.shared_utils import model_unavailable_error
 import src.scrapers.scooper as scooper
+
+VALID_SUBSECTOR = scooper.SUBSECTOR_FIELDS[0]
 
 
 @pytest.fixture(autouse=True)
@@ -13,450 +23,378 @@ def _disable_supabase(monkeypatch):
     monkeypatch.setattr(scooper, "SUPABASE_AVAILABLE", False)
 
 
-def test_run_html_scraper_counts_validated_and_rejected_articles():
-    """One valid and one rejected article should update stats and outputs."""
-    site_config = {
-        "name": "TestSite",
-        "url": "https://example.com",
-        "map": {
-            "starting_page": 1,
-            "cap": 1,
-        },
-    }
-    articles = [
-        {
-            "title": "Hospital breach",
-            "link": "https://example.com/valid",
-            "body": "Confirmed breach",
-            "date": "2026-01-01",
-        },
-        {
-            "title": "Policy news",
-            "link": "https://example.com/noise",
-            "body": "Not a disruption",
-            "date": "2026-01-02",
-        },
-    ]
+@pytest.fixture(autouse=True)
+def _isolated_csvs(monkeypatch, tmp_path):
+    """Point all three CSV paths at tmp files so reads/writes never touch the
+    real corpus. Individual tests seed these paths as needed."""
+    monkeypatch.setattr(scooper, "RAW_CSV_PATH", tmp_path / "raw.csv")
+    monkeypatch.setattr(scooper, "VULN_CSV_PATH", tmp_path / "vuln.csv")
+    monkeypatch.setattr(scooper, "NOISE_CSV_PATH", tmp_path / "noise.csv")
+
+
+# --------------------------------------------------------------------------- #
+# helpers
+# --------------------------------------------------------------------------- #
+def _raw_frame(rows):
+    """Build a raw-shaped DataFrame (datetime ``date`` column) for patching
+    ``_unseen_df``."""
+    df = pd.DataFrame(rows, columns=scooper.RAW_CSV_HEADER)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    return df
+
+
+def _write_raw(rows):
+    """Write a raw CSV at the (monkeypatched) raw path for ``_unseen_df`` tests."""
+    pd.DataFrame(rows, columns=scooper.RAW_CSV_HEADER).to_csv(
+        scooper.RAW_CSV_PATH, index=False
+    )
+
+
+def _resp(html: str):
+    """Fake ``get_page`` response exposing ``.content`` for BeautifulSoup."""
+    return MagicMock(content=html)
+
+
+# --------------------------------------------------------------------------- #
+# _unseen_df
+# --------------------------------------------------------------------------- #
+def test_unseen_df_returns_all_when_nothing_classified():
+    _write_raw(
+        [
+            {
+                "source_name": "CyberScoop",
+                "title": "A",
+                "link": "u1",
+                "body": "b1",
+                "date": "2026-01-01",
+            },
+            {
+                "source_name": "AHA",
+                "title": "B",
+                "link": "u2",
+                "body": "b2",
+                "date": "2026-01-02",
+            },
+        ]
+    )
+
+    out = scooper._unseen_df()
+
+    assert len(out) == 2
+    assert set(out["title"]) == {"A", "B"}
+
+
+def test_unseen_df_removes_rows_already_in_vuln_and_noise():
+    _write_raw(
+        [
+            {
+                "source_name": "CyberScoop",
+                "title": "A",
+                "link": "u1",
+                "body": "b1",
+                "date": "2026-01-01",
+            },
+            {
+                "source_name": "AHA",
+                "title": "B",
+                "link": "u2",
+                "body": "b2",
+                "date": "2026-01-02",
+            },
+            {
+                "source_name": "FedScoop",
+                "title": "C",
+                "link": "u3",
+                "body": "b3",
+                "date": "2026-01-03",
+            },
+        ]
+    )
+    # A is already a vuln, B is already noise — both should drop out.
+    pd.DataFrame([{"source_name": "CyberScoop", "title": "A"}]).to_csv(
+        scooper.VULN_CSV_PATH, index=False
+    )
+    pd.DataFrame([{"source_name": "AHA", "title": "B"}]).to_csv(
+        scooper.NOISE_CSV_PATH, index=False
+    )
+
+    out = scooper._unseen_df()
+
+    assert list(out["title"]) == ["C"]
+
+
+# --------------------------------------------------------------------------- #
+# _setup_cvs / _update_csv
+# --------------------------------------------------------------------------- #
+def test_setup_cvs_creates_all_three_with_headers():
+    scooper._setup_cvs()
+
+    for path, header in (
+        (scooper.RAW_CSV_PATH, scooper.RAW_CSV_HEADER),
+        (scooper.VULN_CSV_PATH, scooper.VULN_CSV_HEADER),
+        (scooper.NOISE_CSV_PATH, scooper.NOISE_CSV_HEADER),
+    ):
+        assert path.exists()
+        with path.open(newline="") as f:
+            assert next(csv.reader(f)) == header
+
+
+def test_update_csv_appends_rows_with_date_format():
+    scooper._setup_cvs()  # writes the raw header once
+    df = _raw_frame(
+        [
+            {
+                "source_name": "CyberScoop",
+                "title": "A",
+                "link": "u1",
+                "body": "b1",
+                "date": "2026-01-01",
+            },
+        ]
+    )
+
+    scooper._update_raw_csv(df)
+
+    out = pd.read_csv(scooper.RAW_CSV_PATH)
+    assert len(out) == 1  # header not duplicated
+    assert list(out.columns) == scooper.RAW_CSV_HEADER
+    assert out.iloc[0]["date"] == "2026-01-01"  # YYYY-MM-DD, no time
+
+
+def test_update_csv_empty_df_is_noop():
+    scooper._setup_cvs()
+    before = scooper.RAW_CSV_PATH.read_text()
+
+    scooper._update_raw_csv(pd.DataFrame(columns=scooper.RAW_CSV_HEADER))
+
+    assert scooper.RAW_CSV_PATH.read_text() == before
+
+
+# --------------------------------------------------------------------------- #
+# run_scooper
+# --------------------------------------------------------------------------- #
+def test_run_scooper_counts_validated_and_rejected():
+    """One threat + one noise article updates the counters and both frames."""
+    df = _raw_frame(
+        [
+            {
+                "source_name": "CyberScoop",
+                "title": "Breach",
+                "link": "u1",
+                "body": "confirmed breach",
+                "date": "2026-01-01",
+            },
+            {
+                "source_name": "AHA",
+                "title": "Policy",
+                "link": "u2",
+                "body": "not a disruption",
+                "date": "2026-01-02",
+            },
+        ]
+    )
 
     with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            side_effect=[(True, "cyber_attack"), (False, "No impact")],
+        patch.object(scooper, "_unseen_df", return_value=df),
+        patch.object(
+            scooper,
+            "ai_check_validation",
+            side_effect=[(True, VALID_SUBSECTOR), (False, "No impact")],
         ),
-        patch(
-            "src.scrapers.scooper.extract_fields",
+        patch.object(
+            scooper,
+            "extract_fields",
             return_value=({"exec_summary": "Breach confirmed"}, {}),
         ),
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
     ):
-        stats = scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+        stats, vuln_list, vuln_df, noise_df = scooper.run_scooper()
 
-    assert stats.discovered == 2
     assert stats.processed == 2
     assert stats.validated == 1
     assert stats.rejected == 1
-    assert stats.output_records == 1
-    mock_vuln_csv.assert_called_once()
-    mock_noise_csv.assert_called_once()
-    mock_json.assert_called_once()
+    assert len(vuln_list) == 1
+    assert len(vuln_df) == 1
+    assert len(noise_df) == 1
+    # subsector_data was wrapped in its dataclass, so serialization succeeds
+    # (a raw dict would raise AttributeError here).
+    assert vuln_list[0].to_dict()["subsector"] == VALID_SUBSECTOR
 
 
-def test_run_html_scraper_handles_missing_subsector_fields():
-    """Missing extraction fields should skip the article without stopping the run."""
-    site_config = {
-        "name": "TestSite",
-        "url": "https://example.com",
-        "map": {"starting_page": 1, "cap": 1},
-    }
-    articles = [
-        {
-            "title": "Hospital breach",
-            "link": "https://example.com/valid",
-            "body": "Confirmed breach",
-            "date": "2026-01-01",
-        }
-    ]
+def test_run_scooper_skips_unrecognized_subsector():
+    df = _raw_frame(
+        [
+            {
+                "source_name": "X",
+                "title": "T",
+                "link": "u",
+                "body": "b",
+                "date": "2026-01-01",
+            }
+        ]
+    )
 
     with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            return_value=(True, "cyber_attack"),
+        patch.object(scooper, "_unseen_df", return_value=df),
+        patch.object(
+            scooper, "ai_check_validation", return_value=(True, "not_a_real_subsector")
         ),
-        patch(
-            "src.scrapers.scooper.extract_fields",
-            side_effect=scooper.MissingSubsectorFieldsError("No fields found"),
-        ),
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv"),
-        patch("src.scrapers.scooper.prepend_json_sources"),
+        patch.object(scooper, "extract_fields") as mock_extract,
     ):
-        stats = scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+        stats, vuln_list, _, _ = scooper.run_scooper()
 
     assert stats.validated == 0
     assert stats.skipped == 1
-    assert stats.warnings == 1
-    assert stats.output_records == 0
-    mock_vuln_csv.assert_called_once()
-    assert mock_vuln_csv.call_args.args[1] == []
+    assert vuln_list == []
+    mock_extract.assert_not_called()
 
 
-def test_run_html_scraper_pause_flushes_buffered_outputs():
-    """Ctrl-C during HTML processing should flush accepted and rejected rows."""
-    site_config = {
-        "name": "TestSite",
-        "url": "https://example.com",
-        "map": {
-            "starting_page": 1,
-            "cap": 1,
-        },
-    }
-    articles = [
-        {
-            "title": "Hospital breach",
-            "link": "https://example.com/valid",
-            "body": "Confirmed breach",
-            "date": "2026-01-01",
-        },
-        {
-            "title": "Policy news",
-            "link": "https://example.com/noise",
-            "body": "Not a disruption",
-            "date": "2026-01-02",
-        },
-        {
-            "title": "Interrupted article",
-            "link": "https://example.com/interrupted",
-            "body": "Still processing",
-            "date": "2026-01-03",
-        },
-    ]
-
-    with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            side_effect=[
-                (True, "cyber_attack"),
-                (False, "No impact"),
-                KeyboardInterrupt(),
-            ],
-        ),
-        patch(
-            "src.scrapers.scooper.extract_fields",
-            return_value=({"exec_summary": "Breach confirmed"}, {}),
-        ),
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
-    ):
-        stats = scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
-
-    assert stats.paused is True
-    assert stats.discovered == 3
-    assert stats.processed == 3
-    assert stats.validated == 1
-    assert stats.rejected == 1
-    assert stats.output_records == 1
-    mock_vuln_csv.assert_called_once()
-    mock_noise_csv.assert_called_once()
-    mock_json.assert_called_once()
-    assert len(mock_vuln_csv.call_args.args[1]) == 1
-    assert len(mock_noise_csv.call_args.args[1]) == 1
-    assert len(mock_json.call_args.args[1]) == 1
-
-
-def test_run_html_scraper_pause_during_fetch_flushes_empty_outputs():
-    """Ctrl-C during page fetch should mark pause and still use output helpers."""
-    site_config = {
-        "name": "TestSite",
-        "url": "https://example.com",
-        "map": {
-            "starting_page": 1,
-            "cap": 1,
-        },
-    }
-
-    with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch(
-            "src.scrapers.scooper.fetch_html_page",
-            side_effect=KeyboardInterrupt(),
-        ),
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
-    ):
-        stats = scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
-
-    assert stats.paused is True
-    assert stats.output_records == 0
-    mock_vuln_csv.assert_called_once_with("TestSite", [])
-    mock_noise_csv.assert_called_once_with("TestSite", [])
-    mock_json.assert_called_once_with("TestSite", [])
-
-
-def test_run_html_scraper_allows_page_cap_override():
-    """A page cap of 2 should fetch page 1 and page 2."""
-    site_config = {
-        "name": "TestSite",
-        "url": "https://example.com/page-1",
-        "pagination_url": "https://example.com/page-{page}",
-        "map": {
-            "starting_page": 1,
-            "cap": 2,
-        },
-    }
-    article = {
-        "title": "Routine update",
-        "link": "https://example.com/article",
-        "body": "No disruption",
-        "date": "2026-01-01",
-    }
-
-    with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch(
-            "src.scrapers.scooper.fetch_html_page",
-            return_value=([article], False),
-        ) as mock_fetch,
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            return_value=(False, "No impact"),
-        ),
-        patch("src.scrapers.scooper.prepend_vuln_csv"),
-        patch("src.scrapers.scooper.prepend_noise_csv"),
-        patch("src.scrapers.scooper.prepend_json_sources"),
-        patch("src.scrapers.scooper.time.sleep"),
-    ):
-        scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
-
-    assert mock_fetch.call_count == 2
-    first_url = mock_fetch.call_args_list[0].args[1]
-    second_url = mock_fetch.call_args_list[1].args[1]
-    assert first_url == "https://example.com/page-1"
-    assert second_url == "https://example.com/page-2"
-
-
-def test_run_html_scraper_start_page_override_can_skip_run():
-    """An HTML_START_PAGE override past the cap should exit without fetching."""
-    site_config = {
-        "name": "TestSite",
-        "url": "https://example.com/page-1",
-        "map": {
-            "starting_page": 1,
-            "cap": 1,
-        },
-    }
-
-    with (
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch("src.scrapers.scooper.get_config_int", return_value=2),
-        patch("src.scrapers.scooper.fetch_html_page") as mock_fetch,
-        patch("src.scrapers.scooper.prepend_vuln_csv"),
-        patch("src.scrapers.scooper.prepend_noise_csv"),
-        patch("src.scrapers.scooper.prepend_json_sources"),
-    ):
-        scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
-
-    mock_fetch.assert_not_called()
-
-
-def test_run_html_scraper_logs_model_failure_before_setup_or_fetching():
-    """Model availability check should fail before any scraping."""
-    site_config = {
-        "name": "TestSite",
-        "url": "https://example.com",
-        "map": {
-            "starting_page": 1,
-            "cap": 1,
-        },
-    }
-
-    with (
-        patch(
-            "src.scrapers.scooper.ensure_model_available",
-            side_effect=model_unavailable_error("model unavailable"),
-        ) as mock_model_check,
-        patch("src.scrapers.scooper.LOGGER.error") as mock_log_error,
-        patch("src.scrapers.scooper.check_valid_file") as mock_check_file,
-        patch("src.scrapers.scooper.fetch_html_page") as mock_fetch,
-    ):
-        with pytest.raises(model_unavailable_error):
-            scooper.run_html_scraper(
-                site_config,
-                reporter=CliReporter(stream=io.StringIO()),
-                stats=PipelineStats("TestSite"),
-            )
-
-    mock_model_check.assert_called_once_with()
-    mock_log_error.assert_called_once_with(
-        "Model availability check failed: %s",
-        mock_model_check.side_effect,
+def test_run_scooper_skips_when_subsector_fields_missing():
+    df = _raw_frame(
+        [
+            {
+                "source_name": "X",
+                "title": "T",
+                "link": "u",
+                "body": "b",
+                "date": "2026-01-01",
+            }
+        ]
     )
-    mock_check_file.assert_not_called()
-    mock_fetch.assert_not_called()
-
-
-def test_run_html_scraper_sb_only_skips_local_writes():
-    """sb_only mode routes to Supabase and never touches the local corpus."""
-    site_config = {
-        "name": "TestSite",
-        "url": "https://example.com",
-        "map": {
-            "starting_page": 1,
-            "cap": 1,
-        },
-    }
-    articles = [
-        {
-            "title": "Hospital breach",
-            "link": "https://example.com/valid",
-            "body": "Confirmed breach",
-            "date": "2026-01-01",
-        },
-        {
-            "title": "Policy news",
-            "link": "https://example.com/noise",
-            "body": "Not a disruption",
-            "date": "2026-01-02",
-        },
-    ]
 
     with (
-        patch("src.scrapers.scooper.SUPABASE_AVAILABLE", True),
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file") as mock_check_file,
-        patch("src.scrapers.scooper.load_cite", return_value=[]),
-        patch("src.scrapers.scooper.is_known_db", return_value=False),
-        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            side_effect=[(True, "cyber_attack"), (False, "No impact")],
+        patch.object(scooper, "_unseen_df", return_value=df),
+        patch.object(
+            scooper, "ai_check_validation", return_value=(True, VALID_SUBSECTOR)
         ),
-        patch(
-            "src.scrapers.scooper.extract_fields",
-            return_value=({"exec_summary": "Breach confirmed"}, {}),
+        patch.object(
+            scooper,
+            "extract_fields",
+            side_effect=scooper.MissingSubsectorFieldsError("no fields"),
         ),
-        patch("src.scrapers.scooper.handle_vuln") as mock_handle_vuln,
-        patch("src.scrapers.scooper.insert_noise") as mock_insert_noise,
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
     ):
-        stats = scooper.run_html_scraper(
-            site_config,
-            sb_only=True,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
-        )
+        stats, vuln_list, _, _ = scooper.run_scooper()
 
-    # Validated -> Supabase, rejected -> Supabase noise
-    mock_handle_vuln.assert_called_once()
-    mock_insert_noise.assert_called_once()
-    # Local corpus is never seeded or written
-    mock_check_file.assert_not_called()
-    mock_vuln_csv.assert_not_called()
-    mock_noise_csv.assert_not_called()
-    mock_json.assert_not_called()
-    assert stats.validated == 1
-    assert stats.rejected == 1
-    assert stats.output_records == 1
+    assert stats.validated == 0
+    assert stats.skipped == 1
+    assert vuln_list == []
 
 
-def test_run_html_scraper_local_mode_skips_supabase():
-    """Local mode must not call Supabase helpers even when creds are available."""
-    site_config = {
-        "name": "TestSite",
-        "url": "https://example.com",
-        "map": {
-            "starting_page": 1,
-            "cap": 1,
-        },
-    }
-    articles = [
-        {
-            "title": "Hospital breach",
-            "link": "https://example.com/valid",
-            "body": "Confirmed breach",
-            "date": "2026-01-01",
-        },
-        {
-            "title": "Policy news",
-            "link": "https://example.com/noise",
-            "body": "Not a disruption",
-            "date": "2026-01-02",
-        },
-    ]
+def test_run_scooper_date_filter_keeps_in_range_and_undated():
+    """With date bounds, out-of-range rows drop but undated (NaT) rows ride along."""
+    df = _raw_frame(
+        [
+            {
+                "source_name": "X",
+                "title": "in",
+                "link": "u1",
+                "body": "b",
+                "date": "2026-06-01",
+            },
+            {
+                "source_name": "X",
+                "title": "old",
+                "link": "u2",
+                "body": "b",
+                "date": "2020-01-01",
+            },
+            {
+                "source_name": "X",
+                "title": "undated",
+                "link": "u3",
+                "body": "b",
+                "date": "",
+            },
+        ]
+    )
 
     with (
-        patch("src.scrapers.scooper.SUPABASE_AVAILABLE", True),
-        patch("src.scrapers.scooper.ensure_model_available"),
-        patch("src.scrapers.scooper.check_valid_file"),
-        patch("src.scrapers.scooper.fetch_html_page", return_value=(articles, True)),
-        patch(
-            "src.scrapers.scooper.ai_check_validation",
-            side_effect=[(True, "cyber_attack"), (False, "No impact")],
-        ),
-        patch(
-            "src.scrapers.scooper.extract_fields",
-            return_value=({"exec_summary": "Breach confirmed"}, {}),
-        ),
-        patch("src.scrapers.scooper.load_cite") as mock_load_cite,
-        patch("src.scrapers.scooper.handle_vuln") as mock_handle_vuln,
-        patch("src.scrapers.scooper.insert_noise") as mock_insert_noise,
-        patch("src.scrapers.scooper.prepend_vuln_csv") as mock_vuln_csv,
-        patch("src.scrapers.scooper.prepend_noise_csv") as mock_noise_csv,
-        patch("src.scrapers.scooper.prepend_json_sources") as mock_json,
+        patch.object(scooper, "_unseen_df", return_value=df),
+        patch.object(scooper, "ai_check_validation", return_value=(False, "noise")),
     ):
-        # sb_only defaults to False -> local path
-        scooper.run_html_scraper(
-            site_config,
-            reporter=CliReporter(stream=io.StringIO()),
-            stats=PipelineStats("TestSite"),
+        stats, _, _, noise_df = scooper.run_scooper(
+            start_date=datetime.date(2026, 12, 31),  # ceiling (newest kept)
+            end_date=datetime.date(2026, 1, 1),  # floor (oldest kept)
         )
 
-    # No Supabase reads or writes
-    mock_load_cite.assert_not_called()
-    mock_handle_vuln.assert_not_called()
-    mock_insert_noise.assert_not_called()
-    # Local writers are used instead
-    mock_vuln_csv.assert_called_once()
-    mock_noise_csv.assert_called_once()
-    mock_json.assert_called_once()
+    assert stats.processed == 2
+    assert stats.rejected == 2
+    assert set(noise_df["title"]) == {"in", "undated"}
+
+
+# --------------------------------------------------------------------------- #
+# _scrape_page
+# --------------------------------------------------------------------------- #
+SITE_CONFIG = {
+    "name": "TestSite",
+    "url": "https://example.com",
+    "map": {
+        "container": "li.item",
+        "title": None,
+        "link_selector": "a",
+        "body_selector": "div.body",
+        "date_selector": "time[datetime]",
+        "starting_page": 1,
+        "cap": 1,
+    },
+}
+LISTING_HTML = (
+    "<ul><li class='item'>"
+    "<a href='https://example.com/article-1'>Hospital breach</a>"
+    "</li></ul>"
+)
+ARTICLE_HTML = (
+    "<div class='body'>Full article body here</div>"
+    "<time datetime='2026-01-01'>Jan 1</time>"
+)
+
+
+def test_scrape_page_parses_article():
+    raw_df = pd.DataFrame(columns=scooper.RAW_CSV_HEADER)
+
+    with (
+        patch.object(
+            scooper, "get_page", side_effect=[_resp(LISTING_HTML), _resp(ARTICLE_HTML)]
+        ),
+        patch.object(scooper.time, "sleep"),
+    ):
+        articles_df, stop = scooper._scrape_page(
+            SITE_CONFIG, SITE_CONFIG["url"], raw_df=raw_df
+        )
+
+    assert stop is False
+    assert len(articles_df) == 1
+    row = articles_df.iloc[0]
+    assert row["source_name"] == "TestSite"
+    assert row["title"] == "Hospital breach"
+    assert row["link"] == "https://example.com/article-1"
+    assert "Full article body" in row["body"]
+    assert row["date"] == pd.Timestamp("2026-01-01")
+
+
+def test_scrape_page_stops_on_known_article():
+    # raw_df already contains this (source_name, title) -> stop, exclude it.
+    raw_df = pd.DataFrame(
+        [
+            {
+                "source_name": "TestSite",
+                "title": "Hospital breach",
+                "link": "x",
+                "body": "x",
+                "date": pd.NaT,
+            }
+        ],
+        columns=scooper.RAW_CSV_HEADER,
+    )
+
+    with (
+        patch.object(
+            scooper, "get_page", side_effect=[_resp(LISTING_HTML), _resp(ARTICLE_HTML)]
+        ),
+        patch.object(scooper.time, "sleep"),
+    ):
+        articles_df, stop = scooper._scrape_page(
+            SITE_CONFIG, SITE_CONFIG["url"], raw_df=raw_df
+        )
+
+    assert stop is True
+    assert len(articles_df) == 0

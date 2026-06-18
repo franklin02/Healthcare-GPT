@@ -13,6 +13,7 @@ LONG_BODY = (
     "validation path. It contains enough characters to clear the new minimum "
     "threshold and should still behave like a normal article excerpt for tests."
 )
+TEST_OLLAMA_PORT = 11434
 
 
 class TestGetBody:
@@ -564,9 +565,9 @@ class TestAiCheckValidation:
         }
         mock_requests_post.return_value = mock_response
 
-        helpers.ai_check_validation("Title", LONG_BODY)
+        helpers.ai_check_validation("Title", LONG_BODY, port=TEST_OLLAMA_PORT)
         call_args = mock_requests_post.call_args
-        assert call_args[0][0] == helpers.AI_URL
+        assert call_args[0][0] == f"http://localhost:{TEST_OLLAMA_PORT}/api/generate"
 
     def test_ai_check_validation_uses_correct_model(self, mock_requests_post):
         """Test that correct AI model is specified"""

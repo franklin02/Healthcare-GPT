@@ -102,7 +102,7 @@ def test_orchestrator_forwards_verbose_to_html_scraper(
     """Verbose flag should be forwarded to run_scooper."""
     # The main branch API now expects a tuple return value
     mock_run_scooper.return_value = (PipelineStats("Scooper"), [], None, None)
-    
+
     result = orchestrator.main(["--skip-gdelt", "--verbose"])
 
     assert result == 0

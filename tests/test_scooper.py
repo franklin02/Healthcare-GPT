@@ -1,6 +1,5 @@
 import csv
 import datetime
-import io
 from unittest.mock import MagicMock, patch
 
 import pandas as pd

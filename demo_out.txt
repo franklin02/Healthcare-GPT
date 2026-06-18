@@ -1,80 +1,0 @@
-Building instances (1)...
-Instance 1   0% |          |                            LLM Model loaded: demo-model:latest
-Instance 1   0% |          |                            Instances built (1)
-Instance 1   0% |          |
-Pipeline progress |          | 0/? [00:00][A
-Pipeline progress |          | 0/4 [00:00][A
-Pipeline progress |          | 0/4 [00:00], Initializing[A
-Pipeline progress |          | 0/4 [00:00], GDELT       [AGDELT   0% |          |     GDELT   0% |          |, startingGDELT   0% |          |, validating 1/12GDELT   0% |          |, 1/12           GDELT   8% |8         |, validating 2/12GDELT   8% |8         |, 2/12           GDELT  17% |#6        |, validating 3/12GDELT  17% |#6        |, 3/12           GDELT  25% |##5       |, validating 4/12GDELT  25% |##5       |, 4/12           GDELT  33% |###3      |, validating 5/12GDELT  33% |###3      |, 5/12           GDELT  42% |####1     |, validating 6/12GDELT  42% |####1     |, 6/12           GDELT  50% |#####     |, herding electronsGDELT  50% |#####     |, 7/12             GDELT  58% |#####8    |, validating 8/12GDELT  58% |#####8    |, 8/12           GDELT  67% |######6   |, validating 9/12GDELT  67% |######6   |, 9/12           GDELT  75% |#######5  |, validating 10/12GDELT  75% |#######5  |, 10/12           GDELT  83% |########3 |, validating 11/12GDELT  83% |########3 |, 11/12           GDELT  92% |#########1|, validating 12/12GDELT  92% |#########1|, 12/12           
-Pipeline progress |##5       | 1/4 [00:00], CyberScoop[ACyberScoop   0% |          |  CyberScoop   0% |          |, startingCyberScoop   0% |          |, making no mistakesCyberScoop   0% |          |, 1/8               CyberScoop  12% |#2        |, validating 2/8                                            
-                                                      [A[CyberScoop] validated a disruption on item 2
-CyberScoop  12% |#2        |, validating 2/8
-Pipeline progress |##5       | 1/4 [00:00], CyberScoop[ACyberScoop  12% |#2        |, 2/8           CyberScoop  25% |##5       |, validating 3/8CyberScoop  25% |##5       |, 3/8           CyberScoop  38% |###7      |, validating 4/8                                            
-                                                      [A[CyberScoop] validated a disruption on item 4
-CyberScoop  38% |###7      |, validating 4/8
-Pipeline progress |##5       | 1/4 [00:00], CyberScoop[ACyberScoop  38% |###7      |, 4/8           CyberScoop  50% |#####     |, validating 5/8CyberScoop  50% |#####     |, 5/8           CyberScoop  62% |######2   |, validating 6/8                                            
-                                                      [A[CyberScoop] validated a disruption on item 6
-CyberScoop  62% |######2   |, validating 6/8
-Pipeline progress |##5       | 1/4 [00:00], CyberScoop[ACyberScoop  62% |######2   |, 6/8           CyberScoop  75% |#######5  |, validating 7/8CyberScoop  75% |#######5  |, 7/8           CyberScoop  88% |########7 |, validating 8/8CyberScoop  88% |########7 |, 8/8           
-Pipeline progress |#####     | 2/4 [00:00], StateScoop[AStateScoop   0% |          |     StateScoop   0% |          |, startingStateScoop   0% |          |, validating 1/6StateScoop   0% |          |, 1/6           StateScoop  17% |#6        |, validating 2/6StateScoop  17% |#6        |, 2/6           StateScoop  33% |###3      |, validating 3/6StateScoop  33% |###3      |, 3/6           StateScoop  50% |#####     |, validating 4/6StateScoop  50% |#####     |, 4/6           StateScoop  67% |######6   |, validating 5/6                                            
-                                                      [A[StateScoop] validated a disruption on item 5
-StateScoop  67% |######6   |, validating 5/6
-Pipeline progress |#####     | 2/4 [00:00], StateScoop[AStateScoop  67% |######6   |, 5/6           StateScoop  83% |########3 |, validating 6/6StateScoop  83% |########3 |, 6/6           
-Pipeline progress |#######5  | 3/4 [00:00], FedScoop  [AFedScoop   0% |          |       FedScoop   0% |          |, startingFedScoop   0% |          |, validating 1/6FedScoop   0% |          |, 1/6           FedScoop  17% |#6        |, validating 2/6FedScoop  17% |#6        |, 2/6           FedScoop  33% |###3      |, validating 3/6                                          
-                                                    [A[FedScoop] validated a disruption on item 3
-FedScoop  33% |###3      |, validating 3/6
-Pipeline progress |#######5  | 3/4 [00:00], FedScoop[AFedScoop  33% |###3      |, 3/6           FedScoop  50% |#####     |, validating 4/6FedScoop  50% |#####     |, 4/6           FedScoop  67% |######6   |, validating 5/6FedScoop  67% |######6   |, 5/6           FedScoop  83% |########3 |, validating 6/6                                          
-                                                    [A[FedScoop] validated a disruption on item 6
-FedScoop  83% |########3 |, validating 6/6
-Pipeline progress |#######5  | 3/4 [00:00], FedScoop[AFedScoop  83% |########3 |, 6/6           FedScoop 100% |##########|, 6/6
-Pipeline progress |##########| 4/4 [00:00], FedScoop
-
-=== Run Summary ===
-GDELT:
-  Discovered:     12
-  Processed:      12
-  Validated:      0
-  Rejected:       10
-  Skipped:        2
-  Duplicates:     0
-  Rejection rate: 100%
-  Warnings:       4
-  Errors:         0
-  Output records: 0
-  Time elapsed:   0s
-CyberScoop:
-  Discovered:     8
-  Processed:      8
-  Validated:      3
-  Rejected:       5
-  Skipped:        0
-  Duplicates:     0
-  Rejection rate: 62%
-  Warnings:       2
-  Errors:         0
-  Output records: 3
-  Time elapsed:   0s
-StateScoop:
-  Discovered:     6
-  Processed:      6
-  Validated:      1
-  Rejected:       2
-  Skipped:        3
-  Duplicates:     0
-  Rejection rate: 83%
-  Warnings:       1
-  Errors:         0
-  Output records: 1
-  Time elapsed:   0s
-FedScoop:
-  Discovered:     6
-  Processed:      6
-  Validated:      2
-  Rejected:       4
-  Skipped:        0
-  Duplicates:     0
-  Rejection rate: 67%
-  Warnings:       0
-  Errors:         0
-  Output records: 2
-  Time elapsed:   0s

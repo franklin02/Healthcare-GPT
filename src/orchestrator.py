@@ -11,6 +11,7 @@ import argparse
 import datetime
 import math
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from pathlib import Path
@@ -240,6 +241,13 @@ def main(argv: list[str] | None = None) -> int:
             "run on a consecutive port (e.g. 11434, 11435, etc.)"
         ),
     )
+    parser.add_argument(
+        "--seeds_only",
+        action="store_true",
+        default=get_config_bool("SEEDS_ONLY", False),
+        help="Process only seed articles, skipping full scraping and processing. Also skips the scooper pipeline.",
+    )
+    start = time.time()
 
     args = parser.parse_args(argv)
     reporter = CliReporter(verbose=args.verbose)
@@ -256,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_gdelt:
         import src.GDELT.runner as runner
 
+        gdelt_start = time.time()
         n_provided = (
             any(opt in sys.argv[1:] for opt in ("-n", "--num-files"))
             or args.num_files is not None
@@ -284,6 +293,13 @@ def main(argv: list[str] | None = None) -> int:
                 stats=gdelt_stats,
             )
         ]
+        LOGGER.info(
+            f"Seed collection complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
+        )
+        gdelt_start = time.time()
+        if args.seeds_only:
+            LOGGER.info("Seeds-only mode enabled; skipping full GDELT processing")
+            exit(0)
 
         seen = load_seen(args.seen_urls_file)
         threads = max(1, args.models) * max(1, args.threads_per_model)
@@ -325,6 +341,9 @@ def main(argv: list[str] | None = None) -> int:
             if out:
                 reporter.info(f"Debug noise (GDELT): {out}")
 
+        LOGGER.info(
+            f"GDELT processing complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
+        )
         summaries.append(gdelt_stats)
         if gdelt_stats.paused:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
@@ -335,6 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.skip_html:
         import src.scrapers.scooper as scooper
 
+        html_start = time.time()
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
@@ -399,10 +419,15 @@ def main(argv: list[str] | None = None) -> int:
             reporter.summary(summaries)
             LOGGER.info("HTML scraper paused; skipping remaining pipelines")
             return 0
+        
+        LOGGER.info(
+            f"HTML/Scooper processing complete in {(time.time() - html_start) / 60:.2f} minutes"
+        )
 
     if summaries:
         reporter.summary(summaries)
     LOGGER.info("Orchestrator run complete with summaries: %s", summaries)
+    LOGGER.info(f"Total execution time: {(time.time() - start) / 60:.2f} minutes")
     return 0
 
 

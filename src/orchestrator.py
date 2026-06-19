@@ -55,7 +55,6 @@ def _split_date(
     Returns:
         Start-End window / Number of threads
     """
-    print("Edgar was here")
     if end > start:
         LOGGER.debug("date range given oldest-first; normalizing %s..%s", start, end)
         start = max(start, end)

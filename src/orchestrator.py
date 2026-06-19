@@ -69,18 +69,6 @@ def _parse_date(s: str | None) -> datetime.date | None:
     return None
 
 
-def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
-    """Return whether any CLI option was supplied, including --option=value."""
-    LOGGER.debug(
-        "Checking if any of options %s were provided in args: %s", options, raw_args
-    )
-    return any(
-        arg == option or arg.startswith(f"{option}=")
-        for arg in raw_args
-        for option in options
-    )
-
-
 def chunk_list(items, num_chunks):
     """
     Split a list of items into a specified number of chunks, as evenly as possible.

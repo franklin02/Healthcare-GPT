@@ -58,7 +58,7 @@ def _split_date(
     if end > start:
         LOGGER.debug("date range given oldest-first; normalizing %s..%s", start, end)
         start = max(start, end)
-        end =  min(start, end) 
+        end = min(start, end)
 
     num_days = (start - end).days + 1  # inclusive day count
 

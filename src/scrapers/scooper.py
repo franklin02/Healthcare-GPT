@@ -82,20 +82,20 @@ SUBSECTOR_FIELDS = list(SUBSECTOR_DATA_CLASSES.keys())
 
 
 HTML_SITES = [
-    # {
-    #     "name": "CyberScoop",
-    #     "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
-    #     "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
-    #     "map": {
-    #         "container": "li.search-results__item",
-    #         "title": None,
-    #         "link_selector": "a.post-item__title-link",
-    #         "body_selector": "div.single-article__content",
-    #         "date_selector": "time[datetime]",
-    #         "starting_page": 1,
-    #         "cap": 10,
-    #     },
-    # },
+    {
+        "name": "CyberScoop",
+        "url": "https://cyberscoop.com/?s=&topic=healthcare&content-type=",
+        "pagination_url": "https://cyberscoop.com/page/{page}/?s=&topic=healthcare&content-type=",
+        "map": {
+            "container": "li.search-results__item",
+            "title": None,
+            "link_selector": "a.post-item__title-link",
+            "body_selector": "div.single-article__content",
+            "date_selector": "time[datetime]",
+            "starting_page": 1,
+            "cap": 10,
+        },
+    },
     {
         "name": "StateScoop",
         "url": "https://statescoop.com/search/healthcare/page/1/",
@@ -110,20 +110,20 @@ HTML_SITES = [
             "cap": 7,
         },
     },
-    # {
-    #     "name": "FedScoop",
-    #     "url": "https://fedscoop.com/search/healthcare/",
-    #     "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
-    #     "map": {
-    #         "container": "article.post-item",
-    #         "title": None,
-    #         "link_selector": "a.post-item__title-link",
-    #         "body_selector": "div.single-article__content",
-    #         "date_selector": "time[datetime]",
-    #         "starting_page": 1,
-    #         "cap": 18,
-    #     },
-    # },
+    {
+        "name": "FedScoop",
+        "url": "https://fedscoop.com/search/healthcare/",
+        "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
+        "map": {
+            "container": "article.post-item",
+            "title": None,
+            "link_selector": "a.post-item__title-link",
+            "body_selector": "div.single-article__content",
+            "date_selector": "time[datetime]",
+            "starting_page": 1,
+            "cap": 18,
+        },
+    },
     {
         "name": "AHA",
         "url": "https://www.aha.org/news",
@@ -138,20 +138,20 @@ HTML_SITES = [
             "cap": 10,
         },
     },
-    # {
-    #     "name": "HealthIT_News",
-    #     "url": "https://www.techtarget.com/news/health-it",
-    #     "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
-    #     "map": {
-    #         "container": "div.topic-related-item-info",
-    #         "title": None,
-    #         "link_selector": "h3 a",
-    #         "body_selector": "article#content-columns",
-    #         "date_selector": "div.main-article-author-date span",
-    #         "starting_page": 1,
-    #         "cap": 9,
-    #     },
-    # },
+    {
+        "name": "HealthIT_News",
+        "url": "https://www.techtarget.com/news/health-it",
+        "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
+        "map": {
+            "container": "div.topic-related-item-info",
+            "title": None,
+            "link_selector": "h3 a",
+            "body_selector": "article#content-columns",
+            "date_selector": "div.main-article-author-date span",
+            "starting_page": 1,
+            "cap": 9,
+        },
+    },
 ]
 
 
@@ -570,16 +570,12 @@ def run_scooper(
     Runs the scooper using the raw and unclassified data. If `site_split` is True,
     it breaks off and makes a thread per unique site_name.
 
-    `port` is the Ollama port the LLM validation/extraction calls target, so
-    callers can pin one scooper instance per model endpoint.
-
     Returns:
         - PipelineStats
         - list of new vulns (used to make JSON)
         - vulnerabilities dataframe (used to write CSV vulnerabilities)
         - noise dataframes (used to write CSV noise)
     """
-
     # contains raw and unclassified data
     df = _unseen_df()
     stats = stats or PipelineStats("Scooper")

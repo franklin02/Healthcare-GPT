@@ -43,46 +43,36 @@ LOGGER = get_file_logger(__name__, LOG_FILE)
 def _split_date(
     start: datetime.date, end: datetime.date, k: int
 ) -> list[tuple[datetime.date, datetime.date]]:
-    """Split an inclusive date range into ``k`` contiguous windows.
-
-    Mirrors the orchestrator's ``--start-date`` / ``--end-date`` semantics:
-    ``start`` is the ceiling (newest) date and ``end`` is the floor (oldest),
-    so a valid range has ``start >= end``. Each returned ``(window_start,
-    window_end)`` tuple keeps that ``window_start >= window_end`` ordering and
-    can be handed straight to ``run_scooper``.
-
-    Windows are returned newest-first and partition the range with no gaps and
-    no overlap, so concatenating them reproduces ``[end, start]``. Days are
-    spread as evenly as possible; when ``k`` exceeds the number of days in the
-    range it is capped so no empty window is produced.
+    """
+    Splits the date into K parts, where K is the number of threads
+    NOTE: only used when both dates are passed into scooper
 
     Args:
-        start: Ceiling (newest) date of the range.
-        end: Floor (oldest) date of the range.
-        k: Desired number of windows (e.g. the worker/thread count).
+        start:
+        end:
+        k: Number of threads
 
     Returns:
-        Newest-first list of ``(window_start, window_end)`` date tuples.
+        Start-End window / Number of threads
     """
     if end > start:
         raise ValueError("dates are backwards")
 
     num_days = (start - end).days + 1  # inclusive day count
 
-    # Never make more windows than there are days, or any would come back empty.
     k = max(1, min(k, num_days))
     base, extra = divmod(num_days, k)
 
     windows: list[tuple[datetime.date, datetime.date]] = []
-    cursor = end  # oldest day; walk upward toward ``start``
+    cursor = end
     for i in range(k):
-        size = base + (1 if i < extra else 0)  # front-load the remainder days
+        size = base + (1 if i < extra else 0)
         window_end = cursor
         window_start = cursor + datetime.timedelta(days=size - 1)
         windows.append((window_start, window_end))
         cursor = window_start + datetime.timedelta(days=1)
 
-    windows.reverse()  # newest-first, matching the input orientation
+    windows.reverse()
     return windows
 
 
@@ -400,22 +390,20 @@ def main(argv: list[str] | None = None) -> int:
                 _parse_date(args.start_date), _parse_date(args.end_date), threads
             )
 
-            # One scooper instance per date window, mirroring the GDELT fan-out:
-            # move up an LLM port once threads_per_model windows have been packed
-            # onto the current model instance.
+            # One scooper instance per date window
             port = args.starting_port
             results = []
             with ThreadPoolExecutor(max_workers=len(dates)) as executor:
                 futures = []
                 n = 0
-                for start, end in dates:
+                for win_start, win_end in dates:
                     futures.append(
                         executor.submit(
                             scooper.run_scooper,
                             use_bert=args.use_bert,
                             verbose=args.verbose,
-                            start_date=start,
-                            end_date=end,
+                            start_date=win_start,
+                            end_date=win_end,
                             reporter=reporter,
                             stats=PipelineStats("HTML"),  # per-window; merged below
                             sb_only=args.sb_only,

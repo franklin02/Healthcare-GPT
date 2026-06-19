@@ -56,9 +56,9 @@ def _split_date(
         Start-End window / Number of threads
     """
     if end > start:
-        raise ValueError(
-            "dates are backwards. Start(newest): {start} and end(oldest): {end}"
-        )
+        LOGGER.debug("date range given oldest-first; normalizing %s..%s", start, end)
+        start = max(start, end)
+        end =  min(start, end) 
 
     num_days = (start - end).days + 1  # inclusive day count
 
@@ -387,11 +387,11 @@ def main(argv: list[str] | None = None) -> int:
         noise_dfs: list[pd.DataFrame] = []
 
         # K split — one scooper instance per date window, run in parallel.
-        if args.start_date is not None and args.end_date is not None:
+        start_date = _parse_date(args.start_date)
+        end_date = _parse_date(args.end_date)
+        if start_date is not None and end_date is not None:
             dates: list[tuple[datetime.date, datetime.date]] = _split_date(
-                _parse_date(args.end_date),
-                _parse_date(args.start_date),
-                threads,  # swapped dates here
+                end_date, start_date, threads
             )
 
             # One scooper instance per date window

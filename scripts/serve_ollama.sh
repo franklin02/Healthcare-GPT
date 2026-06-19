@@ -74,6 +74,7 @@ for (( i = 0; i < MODELS; i++ )); do
     CUDA_VISIBLE_DEVICES="${gpu}" \
     OLLAMA_HOST="127.0.0.1:${port}" \
     OLLAMA_NUM_PARALLEL="${THREADS_PER_MODEL}" \
+    OLLAMA_KEEP_ALIVE="-1" \
         ollama serve &
     pids+=("$!")
 done

@@ -396,7 +396,7 @@ def _scrape_page(
             raw_date = date_el.get("datetime", "") if date_el else ""
             date = pd.to_datetime(raw_date, errors="coerce")
             if pd.notna(date):
-                date = date.normalize()
+                date = date.normalize() # TODO: this writes time as well, find a way to remove the time before writing
 
             time.sleep(0.25)
         except Exception as e:
@@ -490,7 +490,7 @@ def _raw_data(
             return new_df
 
         if articles.empty:
-            LOGGER.warning(
+            LOGGER.info(
                 f"No articles found on page {current_page}; stopping pagination"
             )
             # reporter.warn(
@@ -580,15 +580,15 @@ def run_scooper(
     df = _unseen_df()
     stats = stats or PipelineStats("Scooper")
 
-    nat_df = df[df["date"].isna()]  # all rows that are Not a Time
+    # nat_df = df[df["date"].isna()]  # all rows that are Not a Time
     if start_date is not None:
         df = df[df["date"] <= pd.Timestamp(start_date)]
     if end_date is not None:
         df = df[df["date"] >= pd.Timestamp(end_date)]
 
     # nat_df should always be empty, but in case the scrapper gets an article without a date
-    if start_date is not None or end_date is not None:
-        df = pd.concat([df, nat_df], ignore_index=True)
+    # if start_date is not None or end_date is not None:
+    #     df = pd.concat([df, nat_df], ignore_index=True)
 
     # Single pass over every unseen row.
     if not site_split:

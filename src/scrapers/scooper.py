@@ -396,7 +396,7 @@ def _scrape_page(
             raw_date = date_el.get("datetime", "") if date_el else ""
             date = pd.to_datetime(raw_date, errors="coerce")
             if pd.notna(date):
-                date = date.normalize() # TODO: this writes time as well, find a way to remove the time before writing
+                date = date.normalize()  # TODO: this writes time as well, find a way to remove the time before writing
 
             time.sleep(0.25)
         except Exception as e:

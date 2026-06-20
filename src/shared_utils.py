@@ -1058,7 +1058,138 @@ class MissingSubsectorFieldsError(ValueError):
     """Raised when a subsector has no configured extraction fields."""
 
 
-def extract_fields(subsector, title, body, port) -> tuple[dict, dict]:
+def _get_subsector_fields_or_raise(subsector: str) -> list[str]:
+    """Return configured fields for a subsector or raise a recoverable error."""
+    try:
+        subsector_fields = SUBSECTOR_FIELDS[subsector]
+    except KeyError as exc:
+        message = f"No fields found for subsector {subsector!r}"
+        LOGGER.error(message)
+        raise MissingSubsectorFieldsError(message) from exc
+
+    if not subsector_fields:
+        message = f"No fields found for subsector {subsector!r}"
+        LOGGER.error(message)
+        raise MissingSubsectorFieldsError(message)
+
+    return subsector_fields
+
+
+def build_extraction_prompt(subsector, title, body) -> str:
+    """Build the field extraction prompt for a validated article."""
+    _get_subsector_fields_or_raise(subsector)
+
+    template_dict = get_extraction_template(subsector)
+    template_json = json.dumps(template_dict, indent=2)
+    LOGGER.debug("extract_fields subsector=%s template=%s", subsector, template_json)
+
+    return f"""
+        You are a Healthcare Data Extractor. Extract specific metadata from a confirmed healthcare disruption article. Be conservative -- when in doubt, return null.
+
+        STRICT RULES:
+        1. Only extract values that are EXPLICITLY stated in the article text. Do NOT infer, guess, summarize, or use any general / outside knowledge.
+        2. If a field is not directly mentioned in the text, set its value to null. "Mentioned" means the article makes a direct factual statement about that exact field.
+        3. Return EXACTLY the requested keys -- no extra fields, no renamed fields, no nested objects.
+        4. Numeric fields: return raw numbers, not strings. Strip currency symbols and unit suffixes (e.g. "$5 million" -> 5000000, "12 days" -> 12). If the number is approximate or a range, use null.
+        5. Date fields: use ISO format YYYY-MM-DD only if the article gives an explicit date. If only a month/year or vague phrasing ("later this year") is given, use null.
+        6. Boolean fields: return true for an explicit affirmative statement, false for an explicit negative statement, and null when the field is unmentioned or uncertain. Do not infer booleans from context.
+        7. List fields: return a JSON array of strings, each lifted directly from the article. If nothing is stated, use null (not an empty array).
+        8. Output VALID JSON only -- no markdown fences, no commentary, no trailing text.
+
+        FIELD-SPECIFIC GUIDANCE (sector fields, applied to ALL subsectors):
+        - "exec_summary": a 1-2 sentence factual summary of the disruption, naming the entity and the impact. Lift facts only from the article. Empty string allowed if the article is too vague to summarize.
+        - "geography_scope": The full name of the US state, city, or county. "US" if no specific state is specified, "US Territory" for US territories, "Outside US" for non-US events, or null if not explicit.
+        - "start_date" / "end_date": ISO YYYY-MM-DD; null if not explicit.
+        - "resilience_or_mitigation_observed": a specific mitigation, workaround, response, or resilience action only when it is explicitly stated in the article text. Null if no such action is explicitly stated.
+
+        ARTICLE TITLE: {title}
+        ARTICLE BODY: {body}
+
+        EXTRACTION TEMPLATE (replace the type placeholders with the extracted value, or null for any field not explicitly stated in the article text):
+        {template_json}
+
+        JSON RESPONSE:
+    """
+
+
+def request_extraction_completion(prompt, port):
+    """Request an extraction completion from the local Ollama server."""
+    url = f"http://localhost:{port}/api/generate"
+    resp = requests.post(
+        url,
+        json={
+            "model": AI_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.0, "num_ctx": 4096},
+        },
+        timeout=30,
+    )
+    return resp.json().get("response", "{}")
+
+
+def _enforce_mitigation_article_support(sector_data: dict, title, body) -> None:
+    """Null unsupported mitigation text that does not appear in the article."""
+    mitigation = sector_data.get("resilience_or_mitigation_observed")
+    if not mitigation:
+        sector_data["resilience_or_mitigation_observed"] = None
+        return
+
+    if not isinstance(mitigation, str):
+        sector_data["resilience_or_mitigation_observed"] = None
+        return
+
+    article_text = f"{title}\n{body}"
+    if mitigation not in article_text:
+        LOGGER.debug(
+            "Unsupported mitigation text removed title=%s mitigation=%s",
+            title,
+            mitigation,
+        )
+        sector_data["resilience_or_mitigation_observed"] = None
+
+
+def parse_extraction_response(
+    raw_response, subsector, title, body
+) -> tuple[dict, dict]:
+    """Parse raw LLM extraction JSON into sector and subsector dictionaries."""
+    subsector_fields = _get_subsector_fields_or_raise(subsector)
+
+    LOGGER.debug(
+        "Extraction LLM raw response subsector=%s title=%s raw_response=%s",
+        subsector,
+        title,
+        raw_response,
+    )
+    raw = json.loads(raw_response)
+    LOGGER.debug(
+        "extract_fields parsed keys=%s sector_data keys=%s",
+        list(raw.keys()),
+        LLM_SECTOR_FIELDS,
+    )
+
+    sector_data = {k: raw.get(k) for k in LLM_SECTOR_FIELDS}
+    _enforce_mitigation_article_support(sector_data, title, body)
+    subsector_data = {k: raw.get(k) for k in subsector_fields}
+    LOGGER.debug(
+        "extract_fields sector_data=%s subsector_data=%s",
+        sector_data,
+        subsector_data,
+    )
+
+    expected_keys = set(LLM_SECTOR_FIELDS) | set(subsector_fields)
+    unexpected = set(raw.keys()) - expected_keys
+    if unexpected:
+        LOGGER.warning(
+            "extract_fields unexpected keys from LLM not in template subsector=%s keys=%s",
+            subsector,
+            unexpected,
+        )
+    return sector_data, subsector_data
+
+
+def extract_fields(subsector, title, body, port=11434) -> tuple[dict, dict]:
     """Extract universal and subsector fields for a validated article.
 
     This function is called after an article classifies as a true vulnerability.
@@ -1084,97 +1215,12 @@ def extract_fields(subsector, title, body, port) -> tuple[dict, dict]:
         That keeps extraction flexible, but it is not ideal as a long-term
         structured-data contract.
     """
-    try:
-        subsector_fields = SUBSECTOR_FIELDS[subsector]
-    except KeyError as exc:
-        message = f"No fields found for subsector {subsector!r}"
-        LOGGER.error(message)
-        raise MissingSubsectorFieldsError(message) from exc
-
-    if not subsector_fields:
-        message = f"No fields found for subsector {subsector!r}"
-        LOGGER.error(message)
-        raise MissingSubsectorFieldsError(message)
-
-    # generate typed json template for the LLM
-    template_dict = get_extraction_template(subsector)
-    template_json = json.dumps(template_dict, indent=2)
-    LOGGER.debug("extract_fields subsector=%s template=%s", subsector, template_json)
-
-    prompt = f"""
-        You are a Healthcare Data Extractor. Extract specific metadata from a confirmed healthcare disruption article. Be conservative — when in doubt, return null.
-
-        STRICT RULES:
-        1. Only extract values that are EXPLICITLY stated in the article text. Do NOT infer, guess, summarize, or use any general / outside knowledge.
-        2. If a field is not directly mentioned in the text, set its value to null. "Mentioned" means the article makes a direct factual statement about that exact field.
-        3. Return EXACTLY the requested keys — no extra fields, no renamed fields, no nested objects.
-        4. Numeric fields: return raw numbers, not strings. Strip currency symbols and unit suffixes (e.g. "$5 million" -> 5000000, "12 days" -> 12). If the number is approximate or a range, use null.
-        5. Date fields: use ISO format YYYY-MM-DD only if the article gives an explicit date. If only a month/year or vague phrasing ("later this year") is given, use null.
-        6. Boolean fields: return true for an explicit affirmative statement, false for an explicit negative statement, and null when the field is unmentioned or uncertain. Do not infer booleans from context.
-        7. List fields: return a JSON array of strings, each lifted directly from the article. If nothing is stated, use null (not an empty array).
-        8. Output VALID JSON only — no markdown fences, no commentary, no trailing text.
-
-        FIELD-SPECIFIC GUIDANCE (sector fields, applied to ALL subsectors):
-        - "exec_summary": a 1-2 sentence factual summary of the disruption, naming the entity and the impact. Lift facts only from the article. Empty string allowed if the article is too vague to summarize.
-        - "geography_scope": The full name of the US state, city, or county. "US" if no specific state is specified, "US Territory" for US territories, out "Outside US" for non-US events, or null if not explicit.
-        - "start_date" / "end_date": ISO YYYY-MM-DD; null if not explicit.
-        - "resilience_or_mitigation_observed": any specific mitigation, workaround, or response action stated in the article (e.g. "diverted ambulances to nearby hospital", "restored systems within 48 hours"). Null if none stated.
-        <</SYS>>
-
-        ARTICLE TITLE: {title}
-        ARTICLE BODY: {body}
-
-        EXTRACTION TEMPLATE (replace the type placeholders with the extracted value, or null for any field not explicitly stated in the article text):
-        {template_json}
-
-        JSON RESPONSE:
-    """
+    subsector_fields = _get_subsector_fields_or_raise(subsector)
 
     try:
-        url = f"http://localhost:{port}/api/generate"
-        resp = requests.post(
-            url,
-            json={
-                "model": AI_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "format": "json",
-                "options": {"temperature": 0.0, "num_ctx": 4096},
-            },
-            timeout=30,
-        )
-
-        raw_response = resp.json().get("response", "{}")
-        LOGGER.debug(
-            "Extraction LLM raw response subsector=%s title=%s raw_response=%s",
-            subsector,
-            title,
-            raw_response,
-        )
-        raw = json.loads(raw_response)
-        LOGGER.debug(
-            "extract_fields parsed keys=%s sector_data keys=%s",
-            list(raw.keys()),
-            LLM_SECTOR_FIELDS,
-        )
-
-        sector_data = {k: raw.get(k) for k in LLM_SECTOR_FIELDS}
-        subsector_data = {k: raw.get(k) for k in subsector_fields}
-        LOGGER.debug(
-            "extract_fields sector_data=%s subsector_data=%s",
-            sector_data,
-            subsector_data,
-        )
-        # check for unexpected keys from other subsectors
-        expected_keys = set(LLM_SECTOR_FIELDS) | set(subsector_fields)
-        unexpected = set(raw.keys()) - expected_keys
-        if unexpected:
-            LOGGER.warning(
-                "extract_fields unexpected keys from LLM not in template subsector=%s keys=%s",
-                subsector,
-                unexpected,
-            )
-        return sector_data, subsector_data
+        prompt = build_extraction_prompt(subsector, title, body)
+        raw_response = request_extraction_completion(prompt, port)
+        return parse_extraction_response(raw_response, subsector, title, body)
 
     except Exception as e:
         LOGGER.warning("Error extracting fields for title %s: %s", title, e)

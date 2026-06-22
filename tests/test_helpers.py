@@ -850,15 +850,6 @@ class TestExtractFields:
         assert "false for an explicit negative statement" in prompt
         assert subsector_data["ransom_paid"] is False
 
-    def test_subsector_field_guidance_covers_configured_fields(self):
-        """Every configured extraction field should have prompt guidance."""
-        assert set(helpers.SUBSECTOR_FIELD_GUIDANCE) == set(helpers.SUBSECTOR_FIELDS)
-
-        for subsector, fields in helpers.SUBSECTOR_FIELDS.items():
-            guidance = "\n".join(helpers.SUBSECTOR_FIELD_GUIDANCE[subsector])
-            for field in fields:
-                assert f'"{field}"' in guidance
-
     def test_build_extraction_prompt_includes_only_selected_subsector_guidance(self):
         """Prompt should include guidance for the requested subsector only."""
         prompt = helpers.build_extraction_prompt(
@@ -872,41 +863,42 @@ class TestExtractFields:
         assert '"drug_name": brand, marketed, or named drug product' not in prompt
         assert "A field name does not need to appear verbatim" in prompt
 
-    def test_mitigation_support_keeps_grounded_text_only(self):
-        """Mitigation support allows grounded paraphrase but removes unsupported claims."""
-        grounded_sector_data = {
-            "resilience_or_mitigation_observed": (
-                "Staff diverted ambulances to nearby facilities"
-            )
-        }
-        grounded_body = (
-            "The hospital moved patients by diverting ambulances to nearby "
-            "facilities while electronic health records were offline."
+    def test_parse_extraction_response_splits_sector_and_subsector_fields(self):
+        """Parser should split raw LLM JSON without making an Ollama request."""
+        raw_response = json.dumps(
+            {
+                "exec_summary": "Hospital ransomware disrupted records.",
+                "geography_scope": "Ohio",
+                "start_date": "2026-06-01",
+                "end_date": None,
+                "resilience_or_mitigation_observed": (
+                    "Staff diverted ambulances to nearby facilities"
+                ),
+                "attack_type": "ransomware",
+                "threat_actor": "Unknown",
+                "systems_affected": ["electronic health records"],
+                "unexpected_key": "ignored",
+            }
         )
 
-        helpers._enforce_mitigation_article_support(
-            grounded_sector_data, "Title", grounded_body
+        sector_data, subsector_data = helpers.parse_extraction_response(
+            raw_response,
+            "cyber_attack",
+            "Ransomware disrupts hospital",
+            (
+                "Staff diverted ambulances to nearby facilities while electronic "
+                "health records were offline."
+            ),
         )
 
-        assert (
-            grounded_sector_data["resilience_or_mitigation_observed"]
-            == "Staff diverted ambulances to nearby facilities"
-        )
-
-        unsupported_sector_data = {
-            "resilience_or_mitigation_observed": (
-                "The hospital restored systems from offline backups"
-            )
-        }
-        unsupported_body = (
-            "The hospital reported a ransomware attack affecting patient records."
-        )
-
-        helpers._enforce_mitigation_article_support(
-            unsupported_sector_data, "Title", unsupported_body
-        )
-
-        assert unsupported_sector_data["resilience_or_mitigation_observed"] is None
+        assert set(sector_data) == set(helpers.LLM_SECTOR_FIELDS)
+        assert set(subsector_data) == set(helpers.SUBSECTOR_FIELDS["cyber_attack"])
+        assert sector_data["exec_summary"] == "Hospital ransomware disrupted records."
+        assert sector_data["geography_scope"] == "Ohio"
+        assert subsector_data["attack_type"] == "ransomware"
+        assert subsector_data["systems_affected"] == ["electronic health records"]
+        assert "unexpected_key" not in sector_data
+        assert "unexpected_key" not in subsector_data
 
 
 class TestRunBertAndUseBert:

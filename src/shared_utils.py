@@ -298,6 +298,69 @@ SUBSECTOR_FIELDS = {
     ],
 }
 
+SUBSECTOR_FIELD_GUIDANCE = {
+    "drug_shortage": [
+        '- "drug_name": brand, marketed, or named drug product stated as being in shortage; null if not stated.',
+        '- "generic_name": non-brand drug name, generic name, chemical name, or active ingredient name stated for the drug. If the article says one drug name is sold under another brand name, put the sold-under name in "generic_name" and the brand name in "drug_name"; null if not stated.',
+        '- "manufacturer": company stated as making, producing, halting production of, recalling, or supplying the drug; null if not stated.',
+        '- "dosage_form": stated formulation, strength, route, or presentation of the drug product; null if not stated.',
+        '- "shortage_reason": stated cause or reason for the shortage; null if not stated.',
+        '- "estimated_resolution_date": date when the article says supply is expected to recover, resume, resolve, or return; null if not stated.',
+        '- "affected_regions": list of article-stated places, regions, states, territories, or markets affected by the shortage; null if not stated.',
+        '- "domestic_vs_foreign_dependency": whether the article states supply depends on domestic sources, foreign sources, or both; null if not stated.',
+    ],
+    "medical_device_shortage": [
+        '- "device_name": named medical device, product, model, or system stated as being in shortage, recall, or supply disruption; null if not stated.',
+        '- "device_category": stated clinical or product category for the device; null if not stated.',
+        '- "manufacturer": company stated as making, producing, recalling, or supplying the device; null if not stated.',
+        '- "manufacturer_country": country where the article says the product or device is manufactured or made; null if not stated.',
+        '- "shortage_reason": stated cause or reason for the device shortage, recall, or supply disruption; null if not stated.',
+        '- "fda_recall_number": formal recall identifier stated by the article or regulator; null if not stated.',
+        '- "recall_class": formal recall classification stated by the article or regulator; null if not stated.',
+        '- "affected_specialties": list of article-stated clinical specialties, departments, or care areas affected by the device issue; null if not stated.',
+        '- "alternatives_available": true only when the article explicitly states alternatives are available, false only when it explicitly states they are not, and null if not stated.',
+        '- "estimated_resolution_date": date when the article says corrected devices, supply, shipments, or availability are expected to resume or resolve; null if not stated.',
+        '- "domestic_vs_foreign_dependency": whether the article states supply depends on domestic sources, foreign sources, or both; null if not stated.',
+    ],
+    "cyber_attack": [
+        '- "attack_type": stated kind of cyber incident, such as the article-stated attack, breach, intrusion, outage, or unauthorized-access type; null if not stated.',
+        '- "threat_actor": named or described actor, group, or party the article states carried out, claimed, caused, or was attributed to the incident; null if not stated.',
+        '- "individuals_affected": raw number of people, patients, members, employees, individuals, or records the article says were affected or exposed; null if not stated.',
+        '- "data_types_exposed": list of article-stated data categories exposed, accessed, stolen, compromised, or included in affected data; null if not stated.',
+        '- "systems_affected": list of article-stated technology, operational, clinical, payment, imaging, billing, network, or administrative systems affected; null if not stated.',
+        '- "ransom_demanded_usd": raw dollar amount the article says was demanded, requested, or sought as ransom; null if not stated.',
+        '- "ransom_paid": true only when the article explicitly states a ransom was paid, false only when it explicitly states a ransom was not paid, and null if not stated.',
+        '- "downtime_days": raw number of days systems or services were offline, unavailable, down, or disrupted; null if not stated.',
+        '- "services_disrupted": list of article-stated care, business, payment, pharmacy, claims, scheduling, laboratory, imaging, emergency, or operational services disrupted; null if not stated.',
+        '- "law_enforcement_involved": true only when the article explicitly states law enforcement was notified, contacted, involved, or investigating, false only when it explicitly states no involvement, and null if not stated.',
+        '- "hhs_breach_portal_listed": true only when the article explicitly states the breach was listed, posted, or reported on the HHS breach portal, false only when it explicitly states it was not, and null if not stated.',
+    ],
+    "natural_disaster": [
+        '- "disaster_type": stated type of natural or physical disaster causing the healthcare impact; use the disaster kind, not its proper name; null if not stated.',
+        '- "disaster_name": formal name of the disaster or event stated in the article; null if not stated.',
+        '- "fema_declaration_id": formal disaster declaration identifier stated in the article; null if not stated.',
+        '- "category_magnitude": stated category, magnitude, scale, intensity, classification, or severity level of the disaster; null if not stated.',
+        '- "affected_facilities_count": raw number of healthcare facilities the article says were affected; null if not stated.',
+        '- "evacuation_ordered": true only when the article explicitly states an evacuation was ordered, false only when it explicitly states none was ordered, and null if not stated.',
+        '- "field_hospitals": raw number of field hospitals, temporary care sites, or alternate care facilities stated in the article; null if not stated.',
+        '- "beds_offline": raw number of beds the article says were offline, unavailable, closed, or removed from service; null if not stated.',
+        '- "facility_status": article-stated operational status of affected healthcare facilities; null if not stated.',
+        '- "estimated_damage_usd": raw dollar amount of damage to healthcare facilities or operations stated in the article; null if not stated.',
+        '- "infrastructure_damage": list of article-stated physical, utility, building, equipment, or infrastructure damage affecting healthcare operations; null if not stated.',
+        '- "services_disrupted": list of article-stated healthcare, clinical, pharmacy, emergency, transport, or operational services disrupted; null if not stated.',
+    ],
+    "other": [
+        '- "event_type": stated type of non-drug, non-device, non-cyber, non-disaster healthcare disruption; null if not stated.',
+        '- "event_description": article-stated factual description of the disruptive event; null if not stated.',
+        '- "severity": article-stated severity, impact level, emergency status, or seriousness of the event; null if not stated.',
+        '- "departments_affected": list of article-stated departments, units, specialties, or care areas affected; null if not stated.',
+        '- "staff_type_affected": article-stated staff role, workforce group, or personnel type affected; null if not stated.',
+        '- "beds_offline": raw number of beds the article says were offline, unavailable, closed, or removed from service; null if not stated.',
+        '- "services_disrupted": list of article-stated healthcare, clinical, administrative, transport, or operational services disrupted; null if not stated.',
+        '- "regulatory_response": article-stated response, order, investigation, notice, or action by a regulator or public authority; null if not stated.',
+    ],
+}
+
 
 def get_page(url):
     """
@@ -1081,6 +1144,7 @@ def build_extraction_prompt(subsector, title, body) -> str:
 
     template_dict = get_extraction_template(subsector)
     template_json = json.dumps(template_dict, indent=2)
+    subsector_guidance = "\n        ".join(SUBSECTOR_FIELD_GUIDANCE.get(subsector, []))
     LOGGER.debug("extract_fields subsector=%s template=%s", subsector, template_json)
 
     return f"""
@@ -1094,13 +1158,18 @@ def build_extraction_prompt(subsector, title, body) -> str:
         5. Date fields: use ISO format YYYY-MM-DD only if the article gives an explicit date. If only a month/year or vague phrasing ("later this year") is given, use null.
         6. Boolean fields: return true for an explicit affirmative statement, false for an explicit negative statement, and null when the field is unmentioned or uncertain. Do not infer booleans from context.
         7. List fields: return a JSON array of strings, each lifted directly from the article. If nothing is stated, use null (not an empty array).
-        8. Output VALID JSON only -- no markdown fences, no commentary, no trailing text.
+        8. A field name does not need to appear verbatim. Populate a field when the article directly states the same fact using equivalent wording.
+        9. The same article sentence may support more than one field when it directly states both facts. Do not use one fact for another field unless the article directly supports that field too.
+        10. Output VALID JSON only -- no markdown fences, no commentary, no trailing text.
 
         FIELD-SPECIFIC GUIDANCE (sector fields, applied to ALL subsectors):
         - "exec_summary": a 1-2 sentence factual summary of the disruption, naming the entity and the impact. Lift facts only from the article. Empty string allowed if the article is too vague to summarize.
         - "geography_scope": The full name of the US state, city, or county. "US" if no specific state is specified, "US Territory" for US territories, "Outside US" for non-US events, or null if not explicit.
         - "start_date" / "end_date": ISO YYYY-MM-DD; null if not explicit.
-        - "resilience_or_mitigation_observed": a specific mitigation, workaround, response, or resilience action only when it is explicitly stated in the article text. Null if no such action is explicitly stated.
+        - "resilience_or_mitigation_observed": Concise article-grounded statement of stated actions or measures that reduced impact, maintained continuity, supported recovery, or improved resilience; null if none is stated.
+
+        FIELD-SPECIFIC GUIDANCE ({subsector} fields):
+        {subsector_guidance}
 
         ARTICLE TITLE: {title}
         ARTICLE BODY: {body}
@@ -1141,13 +1210,23 @@ def _enforce_mitigation_article_support(sector_data: dict, title, body) -> None:
         return
 
     article_text = f"{title}\n{body}"
-    if mitigation not in article_text:
-        LOGGER.debug(
-            "Unsupported mitigation text removed title=%s mitigation=%s",
-            title,
-            mitigation,
-        )
-        sector_data["resilience_or_mitigation_observed"] = None
+    if mitigation in article_text:
+        return
+
+    mitigation_terms = set(re.findall(r"[A-Za-z][A-Za-z-]{3,}", mitigation.lower()))
+    article_terms = set(re.findall(r"[A-Za-z][A-Za-z-]{3,}", article_text.lower()))
+    shared_terms = mitigation_terms & article_terms
+    if len(shared_terms) >= 3 and len(shared_terms) >= max(
+        1, len(mitigation_terms) // 2
+    ):
+        return
+
+    LOGGER.debug(
+        "Unsupported mitigation text removed title=%s mitigation=%s",
+        title,
+        mitigation,
+    )
+    sector_data["resilience_or_mitigation_observed"] = None
 
 
 def parse_extraction_response(

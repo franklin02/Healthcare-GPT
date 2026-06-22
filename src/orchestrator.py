@@ -41,19 +41,41 @@ LOGGER = get_file_logger(__name__, LOG_FILE)
 
 
 def _split_date(
-    start: datetime.date, end: datetime.date
+    start: datetime.date, end: datetime.date, k: int
 ) -> list[tuple[datetime.date, datetime.date]]:
     """
-    Dummy function to split date into K parts. This needs to be rewritten later.
-    Team hasnt discussed the best/desired way to split dates. Not documenting on purpose
+    Splits the date into K parts, where K is the number of threads
+    NOTE: only used when both dates are passed into scooper
+
+    Args:
+        start:
+        end:
+        k: Number of threads
+
+    Returns:
+        Start-End window / Number of threads
     """
     if end > start:
-        raise ValueError("dates are backwards")
+        LOGGER.debug("date range given oldest-first; normalizing %s..%s", start, end)
+        start = max(start, end)
+        end = min(start, end)
 
-    half = (end - start) // 2
-    mid = start + half
+    num_days = (start - end).days + 1  # inclusive day count
 
-    return [(start, mid), (mid - datetime.timedelta(days=1), end)]
+    k = max(1, min(k, num_days))
+    base, extra = divmod(num_days, k)
+
+    windows: list[tuple[datetime.date, datetime.date]] = []
+    cursor = end
+    for i in range(k):
+        size = base + (1 if i < extra else 0)
+        window_end = cursor
+        window_start = cursor + datetime.timedelta(days=size - 1)
+        windows.append((window_start, window_end))
+        cursor = window_start + datetime.timedelta(days=1)
+
+    windows.reverse()
+    return windows
 
 
 def _parse_date(s: str | None) -> datetime.date | None:
@@ -249,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
             print(exc, file=sys.stderr)
             return 1
 
+    threads = max(1, args.models) * max(1, args.threads_per_model)
+
     if not args.skip_gdelt:
         import src.GDELT.runner as runner
 
@@ -290,7 +314,6 @@ def main(argv: list[str] | None = None) -> int:
             exit(0)
 
         seen = load_seen(args.seen_urls_file)
-        threads = max(1, args.models) * max(1, args.threads_per_model)
         chunks = chunk_list(raw_seeds, threads)
         port = args.starting_port
         if not chunks:
@@ -352,29 +375,39 @@ def main(argv: list[str] | None = None) -> int:
         noise_dfs: list[pd.DataFrame] = []
 
         # K split — one scooper instance per date window, run in parallel.
-        if args.start_date is not None and args.end_date is not None:
+        start_date = _parse_date(args.start_date)
+        end_date = _parse_date(args.end_date)
+        if start_date is not None and end_date is not None:
             dates: list[tuple[datetime.date, datetime.date]] = _split_date(
-                _parse_date(args.start_date), _parse_date(args.end_date)
+                end_date, start_date, threads
             )
 
-            def _run_window(
-                window: tuple[datetime.date, datetime.date],
-            ) -> tuple[PipelineStats, list, pd.DataFrame, pd.DataFrame]:
-                start, end = window
-                return scooper.run_scooper(
-                    use_bert=args.use_bert,
-                    verbose=args.verbose,
-                    start_date=start,
-                    end_date=end,
-                    reporter=reporter,
-                    stats=PipelineStats(
-                        "HTML"
-                    ),  # each thread gets its own instance (for now?)
-                    sb_only=args.sb_only,
-                )
-
+            # One scooper instance per date window
+            port = args.starting_port
+            results = []
             with ThreadPoolExecutor(max_workers=len(dates)) as executor:
-                results = list(executor.map(_run_window, dates))
+                futures = []
+                n = 0
+                for win_start, win_end in dates:
+                    futures.append(
+                        executor.submit(
+                            scooper.run_scooper,
+                            use_bert=args.use_bert,
+                            verbose=args.verbose,
+                            start_date=win_start,
+                            end_date=win_end,
+                            reporter=reporter,
+                            stats=PipelineStats("HTML"),  # per-window; merged below
+                            sb_only=args.sb_only,
+                            port=port,
+                        )
+                    )
+                    n += 1
+                    if n == args.threads_per_model:
+                        port += 1
+                        n = 0
+                for future in as_completed(futures):
+                    results.append(future.result())
 
             vuln_lists: list = []
             for window_stats, w_vuln_list, v_df, n_df in results:
@@ -390,8 +423,8 @@ def main(argv: list[str] | None = None) -> int:
             html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
                 use_bert=args.use_bert,
                 verbose=args.verbose,
-                start_date=_parse_date(args.start_date),
-                end_date=_parse_date(args.end_date),
+                start_date=_parse_date(args.end_date),  # swapped here
+                end_date=_parse_date(args.start_date),  # swapped here
                 reporter=reporter,
                 stats=html_stats,
                 sb_only=args.sb_only,

@@ -26,7 +26,10 @@ analysis and retrieval.
    - Confirmed records are mapped to subsectors such as `cyber_attack`,
      `drug_shortage`, `medical_device_shortage`, `natural_disaster`, or
      `other`.
-   - Subsector-specific fields are extracted into JSON.
+   - Subsector-specific fields are extracted into JSON using field-specific
+     prompt guidance. Extraction is conservative: fields stay `null` unless
+     the article explicitly states the supporting fact, and extraction request
+     failures return null-filled field dictionaries.
 
 5. **Persistence**
    - `src/GDELT/runner.py` saves intermediate seed, validated, and enriched

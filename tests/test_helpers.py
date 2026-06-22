@@ -850,6 +850,64 @@ class TestExtractFields:
         assert "false for an explicit negative statement" in prompt
         assert subsector_data["ransom_paid"] is False
 
+    def test_subsector_field_guidance_covers_configured_fields(self):
+        """Every configured extraction field should have prompt guidance."""
+        assert set(helpers.SUBSECTOR_FIELD_GUIDANCE) == set(helpers.SUBSECTOR_FIELDS)
+
+        for subsector, fields in helpers.SUBSECTOR_FIELDS.items():
+            guidance = "\n".join(helpers.SUBSECTOR_FIELD_GUIDANCE[subsector])
+            for field in fields:
+                assert f'"{field}"' in guidance
+
+    def test_build_extraction_prompt_includes_only_selected_subsector_guidance(self):
+        """Prompt should include guidance for the requested subsector only."""
+        prompt = helpers.build_extraction_prompt(
+            "cyber_attack",
+            "Ransomware disrupts hospital",
+            "Hospital systems were offline for three days.",
+        )
+
+        assert "FIELD-SPECIFIC GUIDANCE (cyber_attack fields)" in prompt
+        assert '"attack_type": stated kind of cyber incident' in prompt
+        assert '"drug_name": brand, marketed, or named drug product' not in prompt
+        assert "A field name does not need to appear verbatim" in prompt
+
+    def test_mitigation_support_keeps_grounded_text_only(self):
+        """Mitigation support allows grounded paraphrase but removes unsupported claims."""
+        grounded_sector_data = {
+            "resilience_or_mitigation_observed": (
+                "Staff diverted ambulances to nearby facilities"
+            )
+        }
+        grounded_body = (
+            "The hospital moved patients by diverting ambulances to nearby "
+            "facilities while electronic health records were offline."
+        )
+
+        helpers._enforce_mitigation_article_support(
+            grounded_sector_data, "Title", grounded_body
+        )
+
+        assert (
+            grounded_sector_data["resilience_or_mitigation_observed"]
+            == "Staff diverted ambulances to nearby facilities"
+        )
+
+        unsupported_sector_data = {
+            "resilience_or_mitigation_observed": (
+                "The hospital restored systems from offline backups"
+            )
+        }
+        unsupported_body = (
+            "The hospital reported a ransomware attack affecting patient records."
+        )
+
+        helpers._enforce_mitigation_article_support(
+            unsupported_sector_data, "Title", unsupported_body
+        )
+
+        assert unsupported_sector_data["resilience_or_mitigation_observed"] is None
+
 
 class TestRunBertAndUseBert:
     """Test suite for _run_bert and ai_check_validation(use_bert=True)."""

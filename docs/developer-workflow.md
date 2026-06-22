@@ -100,7 +100,10 @@ print(subsector)
 
 Expected result: `sector_data` contains only shared extraction fields, and
 `subsector_data` contains only `cyber_attack` fields. Missing values should be
-`None`/`null`, not boilerplate examples.
+`None`/`null`, not boilerplate examples. Extraction uses subsector-specific
+field guidance and only fills values directly supported by the article text; if
+the local LLM request fails or times out, the fallback result is null-filled
+field dictionaries.
 
 GitHub Actions runs pytest, Ruff lint, and Ruff formatting checks on pull
 requests to `main`. The same docs build also runs on pull requests. Pushes to

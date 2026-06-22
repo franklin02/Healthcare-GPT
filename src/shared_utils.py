@@ -1067,8 +1067,8 @@ def get_extraction_template(subsector: str) -> dict:
     each field to a stringified type hint (e.g., "string", "boolean", "integer",
     "list of strings") to constrain the LLM output and prevent type hallucination.
 
-    Args:
-        subsector (str): The classification name of the healthcare subsector.
+    Parameters:
+        subsector: The classification name of the healthcare subsector.
 
     Returns:
         dict: A mapping of required field names to their expected primitive types.
@@ -1122,7 +1122,18 @@ class MissingSubsectorFieldsError(ValueError):
 
 
 def _get_subsector_fields_or_raise(subsector: str) -> list[str]:
-    """Return configured fields for a subsector or raise a recoverable error."""
+    """Return configured fields for a subsector or raise a recoverable error.
+
+    Parameters:
+        subsector: The classification name of the healthcare subsector.
+
+    Returns:
+        The configured field names for the requested subsector.
+
+    Raises:
+        MissingSubsectorFieldsError: If the subsector is unknown or has no
+            configured extraction fields.
+    """
     try:
         subsector_fields = SUBSECTOR_FIELDS[subsector]
     except KeyError as exc:
@@ -1139,7 +1150,20 @@ def _get_subsector_fields_or_raise(subsector: str) -> list[str]:
 
 
 def build_extraction_prompt(subsector, title, body) -> str:
-    """Build the field extraction prompt for a validated article."""
+    """Build the field extraction prompt for a validated article.
+
+    Parameters:
+        subsector: Subsector returned by ``ai_check_validation``.
+        title: Title of the current article.
+        body: Full body text or excerpt to include in the extraction prompt.
+
+    Returns:
+        A prompt instructing the LLM to return typed, subsector-scoped JSON.
+
+    Raises:
+        MissingSubsectorFieldsError: If the subsector is unknown or has no
+            configured extraction fields.
+    """
     _get_subsector_fields_or_raise(subsector)
 
     template_dict = get_extraction_template(subsector)
@@ -1182,7 +1206,16 @@ def build_extraction_prompt(subsector, title, body) -> str:
 
 
 def request_extraction_completion(prompt, port):
-    """Request an extraction completion from the local Ollama server."""
+    """Request an extraction completion from the local Ollama server.
+
+    Parameters:
+        prompt: Extraction prompt to send to the LLM.
+        port: Port number for the local Ollama ``/api/generate`` endpoint.
+
+    Returns:
+        The raw JSON response string returned by the model, or ``"{}"`` when
+        Ollama returns no ``response`` field.
+    """
     url = f"http://localhost:{port}/api/generate"
     resp = requests.post(
         url,
@@ -1198,41 +1231,26 @@ def request_extraction_completion(prompt, port):
     return resp.json().get("response", "{}")
 
 
-def _enforce_mitigation_article_support(sector_data: dict, title, body) -> None:
-    """Null unsupported mitigation text that does not appear in the article."""
-    mitigation = sector_data.get("resilience_or_mitigation_observed")
-    if not mitigation:
-        sector_data["resilience_or_mitigation_observed"] = None
-        return
-
-    if not isinstance(mitigation, str):
-        sector_data["resilience_or_mitigation_observed"] = None
-        return
-
-    article_text = f"{title}\n{body}"
-    if mitigation in article_text:
-        return
-
-    mitigation_terms = set(re.findall(r"[A-Za-z][A-Za-z-]{3,}", mitigation.lower()))
-    article_terms = set(re.findall(r"[A-Za-z][A-Za-z-]{3,}", article_text.lower()))
-    shared_terms = mitigation_terms & article_terms
-    if len(shared_terms) >= 3 and len(shared_terms) >= max(
-        1, len(mitigation_terms) // 2
-    ):
-        return
-
-    LOGGER.debug(
-        "Unsupported mitigation text removed title=%s mitigation=%s",
-        title,
-        mitigation,
-    )
-    sector_data["resilience_or_mitigation_observed"] = None
-
-
 def parse_extraction_response(
     raw_response, subsector, title, body
 ) -> tuple[dict, dict]:
-    """Parse raw LLM extraction JSON into sector and subsector dictionaries."""
+    """Parse raw LLM extraction JSON into sector and subsector dictionaries.
+
+    Parameters:
+        raw_response: Raw JSON string returned by the LLM.
+        subsector: Subsector returned by ``ai_check_validation``.
+        title: Title of the current article.
+        body: Full body text or excerpt used for extraction.
+
+    Returns:
+        A tuple containing universal sector fields first and subsector-specific
+        fields second.
+
+    Raises:
+        MissingSubsectorFieldsError: If the subsector is unknown or has no
+            configured extraction fields.
+        json.JSONDecodeError: If ``raw_response`` is not valid JSON.
+    """
     subsector_fields = _get_subsector_fields_or_raise(subsector)
 
     LOGGER.debug(
@@ -1268,6 +1286,47 @@ def parse_extraction_response(
     return sector_data, subsector_data
 
 
+def _enforce_mitigation_article_support(sector_data: dict, title, body) -> None:
+    """Null unsupported mitigation text that is not grounded in the article.
+
+    This guard keeps the LLM from saving plausible but unsupported mitigation
+    claims. Exact article text is accepted, and close article-grounded
+    paraphrases are allowed when enough meaningful terms overlap.
+
+    Parameters:
+        sector_data: Mutable dictionary containing universal extraction fields.
+        title: Title of the current article.
+        body: Full body text or excerpt used for extraction.
+    """
+    mitigation = sector_data.get("resilience_or_mitigation_observed")
+    if not mitigation:
+        sector_data["resilience_or_mitigation_observed"] = None
+        return
+
+    if not isinstance(mitigation, str):
+        sector_data["resilience_or_mitigation_observed"] = None
+        return
+
+    article_text = f"{title}\n{body}"
+    if mitigation in article_text:
+        return
+
+    mitigation_terms = set(re.findall(r"[A-Za-z][A-Za-z-]{3,}", mitigation.lower()))
+    article_terms = set(re.findall(r"[A-Za-z][A-Za-z-]{3,}", article_text.lower()))
+    shared_terms = mitigation_terms & article_terms
+    if len(shared_terms) >= 3 and len(shared_terms) >= max(
+        1, len(mitigation_terms) // 2
+    ):
+        return
+
+    LOGGER.debug(
+        "Unsupported mitigation text removed title=%s mitigation=%s",
+        title,
+        mitigation,
+    )
+    sector_data["resilience_or_mitigation_observed"] = None
+
+
 def extract_fields(subsector, title, body, port=11434) -> tuple[dict, dict]:
     """Extract universal and subsector fields for a validated article.
 
@@ -1275,11 +1334,11 @@ def extract_fields(subsector, title, body, port=11434) -> tuple[dict, dict]:
     It sends the article title and body to Ollama to populate the universal
     sector fields and the fields specific to the selected subsector.
 
-    Args:
+    Parameters:
         subsector: Subsector returned by ``ai_check_validation``.
         title: Title of the current article.
         body: Full body text of the current article.
-        port: The port on which the ollama server is running.
+        port: Port number for the local Ollama ``/api/generate`` endpoint.
 
     Returns:
         A tuple with the universal ``LLM_SECTOR_FIELDS`` values first and the

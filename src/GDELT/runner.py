@@ -828,7 +828,7 @@ def run(
     raw_seeds: list[dict] | None = None,
     debug_noise: NoiseCollector | None = None,
     port: int | None = None,
-) -> list[dict]:
+) -> tuple[PipelineStats, list[dict]]:
     """
     Main function to run the GDELT pipeline end-to-end.
 
@@ -995,7 +995,7 @@ def run(
     if local_reporter:
         reporter.summary(stats)
 
-    return records
+    return stats, records
 
 
 if __name__ == "__main__":
@@ -1112,7 +1112,7 @@ if __name__ == "__main__":
 
     seen = load_seen()
     noise = NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
-    run(
+    _stats, _records = run(
         num_files=args.num_files,
         limit=effective_limit,
         output_path=args.output_path,

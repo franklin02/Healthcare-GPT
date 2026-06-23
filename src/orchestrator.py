@@ -345,14 +345,6 @@ def main(argv: list[str] | None = None) -> int:
     reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
 
-    if not (args.skip_gdelt and args.skip_html):
-        try:
-            ensure_model_available()
-        except model_unavailable_error as exc:
-            LOGGER.error("Model availability check failed: %s", exc)
-            print(exc, file=sys.stderr)
-            return 1
-
     threads = max(1, args.models) * max(1, args.threads_per_model)
 
     if not args.skip_gdelt:
@@ -398,6 +390,13 @@ def main(argv: list[str] | None = None) -> int:
         port = args.starting_port
         if not chunks:
             chunks = [[]]
+
+        try:
+            ensure_model_available()
+        except model_unavailable_error as exc:
+            LOGGER.error("Model availability check failed: %s", exc)
+            print(exc, file=sys.stderr)
+            return 1
 
         with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = []
@@ -465,6 +464,14 @@ def main(argv: list[str] | None = None) -> int:
             # One scooper instance per date window
             port = args.starting_port
             results = []
+
+            try:
+                ensure_model_available()
+            except model_unavailable_error as exc:
+                LOGGER.error("Model availability check failed: %s", exc)
+                print(exc, file=sys.stderr)
+                return 1
+
             with ThreadPoolExecutor(max_workers=len(dates)) as executor:
                 futures = []
                 n = 0

@@ -466,7 +466,6 @@ class TestStagedRecovery:
         tmp_path = mock_runner_dirs["tmp_path"]
         seeds_dir = mock_runner_dirs["seeds"]
         enriched_dir = mock_runner_dirs["enriched"]
-        seen_file = tmp_path / "seen_urls.json"
         completed_seed = {
             "url": "https://example.com/completed",
             "source": "test",
@@ -523,7 +522,7 @@ class TestStagedRecovery:
         recovered = runner.stitch_staged_records(
             output_path=str(tmp_path),
             stage="seeds",
-            seen_urls_file=str(seen_file),
+            seen=set(),
             reporter=reporter,
         )
 
@@ -558,7 +557,6 @@ class TestStagedRecovery:
 
         tmp_path = mock_runner_dirs["tmp_path"]
         seeds_dir = mock_runner_dirs["seeds"]
-        seen_file = tmp_path / "seen_urls.json"
         (seeds_dir / "in_flight.json").write_text(
             json.dumps(
                 {
@@ -573,23 +571,22 @@ class TestStagedRecovery:
         reporter = Mock()
         reporter.verbose = False
         stats = PipelineStats("GDELT seeds stitch")
+        seen = set()
 
         mock_process_seed.side_effect = interrupt_after_seen
         recovered = runner.stitch_staged_records(
             output_path=str(tmp_path),
             stage="seeds",
-            seen_urls_file=str(seen_file),
+            seen=seen,
             reporter=reporter,
             stats=stats,
         )
 
-        saved_seen = json.loads(seen_file.read_text(encoding="utf-8"))
         output = json.loads((tmp_path / "GDELT.json").read_text(encoding="utf-8"))
 
         assert recovered == []
         assert output == {"sources": []}
-        assert saved_seen == []
-        assert in_flight_url not in saved_seen
+        assert in_flight_url not in seen
         assert stats.paused is True
 
 
@@ -953,7 +950,7 @@ class TestRun:
             "drug_shortage",
         ]
 
-    def test_run_with_custom_seen_urls_file(
+    def test_run_with_caller_supplied_seen_set(
         self,
         mock_backfill_cyber_seeds,
         mock_ensure_raw_dirs,
@@ -963,20 +960,19 @@ class TestRun:
         mock_process_seed,
         mock_save_seen,
     ):
-        """run should load/save seen URLs from custom file."""
-        mock_load_seen.return_value = set()
+        """run should use a caller-supplied seen set and skip load_seen."""
+        caller_seen = {"https://example.com/already-seen"}
         mock_backfill_cyber_seeds.return_value = []
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            seen_file = Path(tmpdir) / "custom_seen.json"
             runner.run(
                 num_files=1,
                 limit=1,
-                seen_urls_file=str(seen_file),
+                seen=caller_seen,
             )
 
-        # load_seen should be called with the custom file
-        mock_load_seen.assert_called()
+        # load_seen should NOT be called when a seen set is provided
+        mock_load_seen.assert_not_called()
         mock_save_seen.assert_called()
 
     def test_run_merges_existing_dict_output(
@@ -1134,31 +1130,45 @@ class TestRun:
             assert "sources" in result
             assert len(result["sources"]) == 1
 
-    def test_run_with_directory_path_as_seen_urls_file(
+    def test_run_with_prepopulated_seen_set_skips_urls(
         self,
         mock_backfill_cyber_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_save_seen,
+        mock_process_seed,
     ):
-        """run should handle directory path for seen_urls_file."""
+        """run should skip URLs that are already in the provided seen set."""
+        seen_url = "https://example.com/seen"
+        new_url = "https://example.com/new"
+        caller_seen = {seen_url}
+        
+        mock_backfill_cyber_seeds.return_value = [
+            {"url": seen_url, "source": "test"},
+            {"url": new_url, "source": "test"}
+        ]
+        
+        def fake_process_seed(seed, seen, *args, **kwargs):
+            if seed["url"] in seen:
+                return None
+            seen.add(seed["url"])
+            return _make_vuln(id_value="new_id", direct_link=seed["url"], source_name="test", title="New")
+
+        mock_process_seed.side_effect = fake_process_seed
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            seen_dir = Path(tmpdir)
+            result = runner.run(
+                num_files=1,
+                limit=2,
+                seen=caller_seen,
+                output_path=tmpdir,
+            )
 
-            if True:
-                mock_load = mock_load_seen
-                mock_load.return_value = set()
-                mock_backfill_cyber_seeds.return_value = []
-
-                runner.run(
-                    num_files=1,
-                    limit=1,
-                    seen_urls_file=str(seen_dir),
-                )
-
-                mock_load.assert_called()
-                call_path = mock_load.call_args[0][0]
-                assert call_path == seen_dir / "seen_urls.json"
+        # It should process both seeds (calling the function), but the mock simulates skipping the seen one
+        assert mock_process_seed.call_count == 2
+        # Verify the returned records only include the new URL
+        assert len(result) == 1
+        assert result[0].direct_link == new_url
 
     def test_run_default_output_is_compact(
         self,

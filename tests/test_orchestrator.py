@@ -87,6 +87,8 @@ def test_orchestrator_forwards_verbose_to_gdelt_runner(
     mock_cli_summary,
 ):
     """Verbose flag should be forwarded to the GDELT runner."""
+    mock_runner_run.return_value = (PipelineStats("GDELT"), [])
+
     result = orchestrator.main(["--skip-html", "--verbose"])
 
     assert result == 0
@@ -128,6 +130,8 @@ def test_orchestrator_detects_equals_style_gdelt_options(
     mock_cli_summary,
 ):
     """--num-files=5 should count as an explicit GDELT option."""
+    mock_runner_run.return_value = (PipelineStats("GDELT"), [])
+
     result = orchestrator.main(["--skip-html", "--num-files=5"])
 
     assert result == 0
@@ -148,8 +152,9 @@ def test_orchestrator_skips_html_after_gdelt_pause(
     """A paused GDELT run should stop later orchestrator stages cleanly."""
 
     def pause_gdelt(*args, **kwargs):
-        kwargs["stats"].paused = True
-        return []
+        stats = kwargs["stats"]
+        stats.paused = True
+        return stats, []
 
     mock_runner_run.side_effect = pause_gdelt
 
@@ -210,3 +215,38 @@ def test_orchestrator_skips_model_check_when_all_model_pipelines_are_skipped(
 
     assert result == 0
     mock_ensure_model_available.assert_not_called()
+
+
+def test_orchestrator_gdelt_multi_worker_stats_merge_correctly(
+    mock_ensure_model_available,
+    mock_backfill_cyber_seeds,
+    mock_runner_run,
+    mock_cli_summary,
+):
+    """Each GDELT worker should get its own PipelineStats; merged totals must be consistent."""
+
+    def fake_run(*args, **kwargs):
+        stats = kwargs["stats"]
+        seeds = kwargs.get("raw_seeds", [])
+        stats.discovered = len(seeds)
+        stats.processed = len(seeds)
+        stats.validated = len(seeds)
+        return stats, []
+
+    seeds = [{"url": f"https://example.com/{i}", "source": "test"} for i in range(4)]
+
+    mock_backfill_cyber_seeds.return_value = seeds
+    mock_runner_run.side_effect = fake_run
+
+    result = orchestrator.main(
+        ["--skip-html", "--models", "2", "--threads-per-model", "1"]
+    )
+
+    assert result == 0
+    mock_cli_summary.assert_called_once()
+    summaries = mock_cli_summary.call_args[0][0]
+    gdelt_stats = summaries[0]
+    assert gdelt_stats.discovered >= gdelt_stats.processed
+    assert gdelt_stats.discovered == 4
+    assert gdelt_stats.processed == 4
+    assert gdelt_stats.validated == 4

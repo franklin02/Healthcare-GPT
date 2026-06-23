@@ -1,16 +1,13 @@
 import io
 import logging
 import os
-import threading
 
-import pytest
 
 import src.cli_reporter as cli_reporter
 from src.cli_reporter import (
     OVERALL_BAR_FORMAT,
     CliReporter,
     CliReporterLoggingHandler,
-    InstanceSpec,
     PipelineStats,
     get_active_reporter,
     set_active_reporter,
@@ -81,38 +78,12 @@ def test_same_task_lookup_does_not_reset_progress():
         assert again._bar.n == 3
 
 
-def test_multiple_instances_and_overall_advance_independently():
-    """In multi mode each instance bar plus the overall bar count separately."""
+def test_overall_bar_sits_below_the_task_bar():
+    """The two bars form a contiguous stack: task bar at 0, overall at 1."""
     with CliReporter(file=io.StringIO(), disable=False) as reporter:
-        reporter.build_instances(
-            [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
-        )
-        one = reporter.register_instance("Instance 1", total=10)
-        two = reporter.register_instance("Instance 2", total=5)
-        reporter.set_overall_total(2)
-
-        one.advance(3)
-        two.advance(1)
-        reporter.advance_overall(1)
-
-        assert one is not two
-        assert one._bar.n == 3
-        assert two._bar.n == 1
-        assert reporter.overall()._bar.n == 1
-
-
-def test_multi_mode_overall_bar_sits_below_instance_bars():
-    """Bars form a contiguous stack with no gap rows (gaps corrupt tqdm draws)."""
-    with CliReporter(file=io.StringIO(), disable=False) as reporter:
-        reporter.build_instances(
-            [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
-        )
-
-        # tqdm stores position N as pos == -N. Contiguous: instances 0-1,
-        # overall 2 — every row is a real bar so the stack renders cleanly.
-        assert abs(reporter.instance("Instance 1")._bar.pos) == 0
-        assert abs(reporter.instance("Instance 2")._bar.pos) == 1
-        assert abs(reporter.overall()._bar.pos) == 2
+        # tqdm stores position N as pos == -N. Contiguous rows render cleanly.
+        assert abs(reporter.register_instance("GDELT")._bar.pos) == 0
+        assert abs(reporter.overall()._bar.pos) == 1
 
 
 def test_bars_share_one_width_relative_to_terminal():
@@ -137,64 +108,6 @@ def test_bar_width_clamps_to_absolute_cap_on_wide_terminals(monkeypatch):
 
         assert "{bar:28}" in task._bar.bar_format
         assert "{bar:28}" in reporter.overall()._bar.bar_format
-
-
-def test_instances_route_concurrent_workers_to_their_own_bars():
-    """Workers addressing bars by name advance their own bar, never each other's."""
-    with CliReporter(file=io.StringIO(), disable=False) as reporter:
-        reporter.build_instances(
-            [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
-        )
-
-        def work(instance_name: str, count: int) -> None:
-            bar = reporter.register_instance(instance_name, total=count)
-            for _ in range(count):
-                bar.advance(1)
-
-        threads = [
-            threading.Thread(target=work, args=("Instance 1", 3)),
-            threading.Thread(target=work, args=("Instance 2", 5)),
-        ]
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join()
-
-        assert reporter.instance("Instance 1")._bar.n == 3
-        assert reporter.instance("Instance 2")._bar.n == 5
-
-
-def test_multi_mode_unknown_name_raises_keyerror():
-    """Undeclared names fail loudly in multi mode instead of stacking bars."""
-    with CliReporter(file=io.StringIO(), disable=False) as reporter:
-        reporter.build_instances(
-            [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
-        )
-
-        with pytest.raises(KeyError):
-            reporter.instance("GDELT")
-        with pytest.raises(KeyError):
-            reporter.instance("Instance 99")
-
-
-def test_build_instances_registers_every_spec_and_overall(monkeypatch):
-    """build_instances creates one bar per spec plus the stickied overall bar."""
-    writes = []
-    monkeypatch.setattr(
-        "src.cli_reporter.tqdm.write", lambda msg, file=None: writes.append(msg)
-    )
-    with CliReporter(file=io.StringIO()) as reporter:
-        reporter.build_instances(
-            [InstanceSpec("GDELT"), InstanceSpec("CyberScoop")],
-            model_label="llama3.2:latest",
-        )
-
-        assert reporter.instance("GDELT") is not None
-        assert reporter.instance("CyberScoop") is not None
-        assert reporter.overall() is not None
-    # Startup lines scroll above the bars.
-    assert any("Building instances (2)" in w for w in writes)
-    assert any("LLM Model loaded: llama3.2:latest" in w for w in writes)
 
 
 def test_verbose_bar_annotates_model_endpoint():

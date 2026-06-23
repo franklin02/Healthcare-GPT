@@ -1,12 +1,10 @@
-"""tqdm-backed CLI reporter for the (future multi-instance) pipeline.
+"""tqdm-backed CLI reporter for the pipeline.
 
-An *instance* is one pipeline worker (issue #181). Today the pipeline runs a
-single instance, so the sticky area at the bottom of the screen holds just two
-bars: a shared *task bar* that is re-pointed at whatever unit of work is
-currently running (the GDELT pipeline, then each HTML scraper site) and an
-overall "Pipeline progress" bar with elapsed time. When more than one instance
-is declared via :meth:`CliReporter.build_instances` (demo script, #181), each
-instance instead gets its own persistent bar stacked above the overall bar.
+The sticky area at the bottom of the screen holds two bars: a shared *task bar*
+that is re-pointed at whatever unit of work is currently running (the GDELT
+pipeline, then each HTML scraper site) and an overall "Pipeline progress" bar
+with elapsed time. (Per-instance bars — one persistent bar per concurrent worker
+— are a later chunk; see issue #181.)
 
 All human output (``info``/``detail``/``warn``/``error`` and records routed
 from :mod:`logging`) is written through :func:`tqdm.write`, so it scrolls in
@@ -153,16 +151,6 @@ class PipelineStats:
         return rejected_or_skipped / outcomes
 
 
-@dataclass
-class InstanceSpec:
-    """Declaration of one instance bar to build at startup."""
-
-    name: str
-    total: int | None = None
-    model: str | None = None
-    endpoint: str | None = None
-
-
 def _is_tty(file: TextIO) -> bool:
     isatty = getattr(file, "isatty", None)
     try:
@@ -294,13 +282,10 @@ class InstanceBar:
 class CliReporter:
     """tqdm-backed reporter owning the sticky bars at the bottom of the screen.
 
-    Single-instance mode (the default, and the only mode the real pipeline
-    uses until #181): one shared task bar plus the overall bar. Multi-instance
-    mode (``build_instances`` with two or more specs): one persistent bar per
-    instance, overall bar below them. ``register_instance``/``instance`` map a
-    name to a bar in both modes: single mode reuses the one shared bar for any
-    name; multi mode addresses a fixed bar by its instance name, so each
-    concurrent worker passes the instance it is running as.
+    Two stacked bars: one shared task bar that every unit of work reuses in turn
+    (``register_instance``/``instance`` re-task it to the current unit), and the
+    overall pipeline-progress bar below it. (Per-instance bars for concurrent
+    workers are a later chunk — see #181.)
     """
 
     def __init__(
@@ -329,10 +314,7 @@ class CliReporter:
         self._overall_bar_format = OVERALL_BAR_FORMAT.replace(
             "{bar}", f"{{bar:{bar_width}}}"
         )
-        self._multi = False
         self._task: InstanceBar | None = None
-        self._instances: dict[str, InstanceBar] = {}
-        self._order: list[str] = []
         self._overall: InstanceBar | None = None
         self._cursor_hidden = False
         # One reentrant lock guards the bar registry and serializes terminal
@@ -366,58 +348,6 @@ class CliReporter:
             pass
         self._cursor_hidden = False
 
-    def build_instances(
-        self, specs: list[InstanceSpec], *, model_label: str | None = None
-    ) -> None:
-        """Declare the instances for this run and create the overall bar.
-
-        Renders the startup sequence the issue describes: a "Building
-        instances" line, the loaded model, an "Instances built" line, then the
-        stickied overall bar. One spec keeps single-instance mode (shared task
-        bar); two or more switch to multi-instance mode with one persistent
-        bar per spec. The overall bar's total is set separately via
-        ``set_overall_total`` (units of work, not instances).
-        """
-        self.info(f"Building instances ({len(specs)})...")
-        with self._lock:
-            self._hide_cursor()
-            if len(specs) > 1:
-                self._multi = True
-                for spec in specs:
-                    bar = InstanceBar(
-                        spec.name,
-                        position=_BARS_TOP + len(self._order),
-                        total=spec.total,
-                        model=spec.model,
-                        endpoint=spec.endpoint,
-                        file=self._file,
-                        disable=self._disable,
-                        verbose=self.verbose,
-                        bar_format=self._instance_bar_format,
-                        use_ascii=self._use_ascii,
-                    )
-                    self._instances[spec.name] = bar
-                    self._order.append(spec.name)
-            elif specs:
-                spec = specs[0]
-                self._task = InstanceBar(
-                    spec.name,
-                    position=_BARS_TOP,
-                    total=spec.total,
-                    model=spec.model,
-                    endpoint=spec.endpoint,
-                    file=self._file,
-                    disable=self._disable,
-                    verbose=self.verbose,
-                    bar_format=self._instance_bar_format,
-                    use_ascii=self._use_ascii,
-                    shared=True,
-                )
-        if model_label:
-            self.info(f"LLM Model loaded: {model_label}")
-        self.info(f"Instances built ({len(specs)})")
-        self._ensure_overall()
-
     def register_instance(
         self,
         name: str,
@@ -426,13 +356,9 @@ class CliReporter:
         model: str | None = None,
         endpoint: str | None = None,
     ) -> InstanceBar:
-        """Return the bar that tracks the unit of work called ``name``, updating
-        its metadata.
-
-        Single mode: the one shared task bar, re-pointed at ``name`` if it was on
-        a different task (so an unknown name re-tasks the shared bar rather than
-        failing). Multi mode: the instance bar named ``name``; any other name
-        raises ``KeyError`` because the instances are fixed at build time.
+        """Return the shared task bar, re-pointed at the unit of work ``name``
+        and updated with any metadata. Any name is accepted — the one bar is
+        reused for each unit in turn.
         """
         return self._resolve_bar(name, total=total, model=model, endpoint=endpoint)
 
@@ -448,46 +374,33 @@ class CliReporter:
         model: str | None = None,
         endpoint: str | None = None,
     ) -> InstanceBar:
-        """Map a unit-of-work name to the bar it should draw on.
+        """Return the one shared task bar, re-tasked to ``name``.
 
-        Two layouts, decided at build time:
-        - Single mode: one shared "task" bar that every unit reuses in turn. The
-          first caller lazily creates it; later callers re-task it to their name.
-        - Multi mode: one fixed bar per instance. Callers address a bar by its
-          instance name (e.g. "Instance 2"); concurrent workers each pass their
-          own name, so their output lands on their own row.
+        Every unit of work reuses this single bar in turn. The first caller
+        lazily creates it; later callers re-task it to their name (or just
+        update its metadata if it's already on that unit).
         """
         with self._lock:
-            if not self._multi:
-                bar = self._task
-                if bar is None:
-                    # Lazily create the shared bar on first use.
-                    self._hide_cursor()
-                    bar = InstanceBar(
-                        name,
-                        position=_BARS_TOP,
-                        total=total,
-                        model=model,
-                        endpoint=endpoint,
-                        file=self._file,
-                        disable=self._disable,
-                        verbose=self.verbose,
-                        bar_format=self._instance_bar_format,
-                        use_ascii=self._use_ascii,
-                        shared=True,
-                    )
-                    self._task = bar
-                    return bar
-                # Re-point the shared bar at this unit if it moved on (below).
-            else:
-                if name not in self._instances:
-                    raise KeyError(
-                        f"unknown instance {name!r}; declare it via build_instances()"
-                    )
-                bar = self._instances[name]
-                self._update_bar(bar, total=total, model=model, endpoint=endpoint)
+            bar = self._task
+            if bar is None:
+                # Lazily create the shared bar on first use.
+                self._hide_cursor()
+                bar = InstanceBar(
+                    name,
+                    position=_BARS_TOP,
+                    total=total,
+                    model=model,
+                    endpoint=endpoint,
+                    file=self._file,
+                    disable=self._disable,
+                    verbose=self.verbose,
+                    bar_format=self._instance_bar_format,
+                    use_ascii=self._use_ascii,
+                    shared=True,
+                )
+                self._task = bar
                 return bar
-            # Single mode only: re-task the shared bar when the unit changes.
+            # Re-task the shared bar when the unit changes.
             if bar.task != name:
                 bar.start_task(name, total=total, model=model, endpoint=endpoint)
             else:
@@ -513,11 +426,10 @@ class CliReporter:
         with self._lock:
             if self._overall is None:
                 self._hide_cursor()
-                bar_rows = len(self._order) if self._multi else 1
-                # Bottom-most line, contiguous with the instance/task bars above.
+                # One row below the shared task bar, contiguous with it.
                 self._overall = InstanceBar(
                     "Pipeline progress",
-                    position=_BARS_TOP + bar_rows,
+                    position=_BARS_TOP + 1,
                     total=total,
                     file=self._file,
                     disable=self._disable,
@@ -598,14 +510,10 @@ class CliReporter:
         bars; new bars would start a fresh sticky area.
         """
         with self._lock:
-            for name in self._order:
-                self._safe_close(self._instances.get(name))
             self._safe_close(self._task)
             # Close the overall bar last so the cursor ends below the whole stack
             # and the next write (the summary) lands on a clean line.
             self._safe_close(self._overall)
-            self._instances.clear()
-            self._order.clear()
             self._task = None
             self._overall = None
             self._show_cursor()

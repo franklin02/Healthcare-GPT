@@ -299,11 +299,9 @@ def test_run_scooper_skips_when_subsector_fields_missing(
     assert vuln_list == []
 
 
-def test_run_scooper_date_filter_keeps_in_range_and_undated(
-    mock_unseen_df,
-    mock_ai_check_validation,
-):
-    """With date bounds, out-of-range rows drop but undated (NaT) rows ride along."""
+def test_run_scooper_date_filter_keeps_in_range_drops_out_of_range_and_undated():
+    """With date bounds, only rows within [end_date, start_date] are processed.
+    Out-of-range rows and undated (NaT) rows are filtered out before processing."""
     df = _raw_frame(
         [
             {
@@ -338,9 +336,11 @@ def test_run_scooper_date_filter_keeps_in_range_and_undated(
         end_date=datetime.date(2026, 1, 1),  # floor (oldest kept)
     )
 
-    assert stats.processed == 2
-    assert stats.rejected == 2
-    assert set(noise_df["title"]) == {"in", "undated"}
+    # "old" and "undated" are dropped by the date filter before processing;
+    # only "in" (2026-06-01) falls within [end_date, start_date] and is processed.
+    assert stats.processed == 1
+    assert stats.rejected == 1
+    assert set(noise_df["title"]) == {"in"}
 
 
 # --------------------------------------------------------------------------- #

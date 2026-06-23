@@ -1,6 +1,6 @@
 import io
 import logging
-import os
+import threading
 
 
 import src.cli_reporter as cli_reporter
@@ -15,11 +15,11 @@ from src.cli_reporter import (
 )
 
 
-# ---- instance / overall bars ------------------------------------------
+# ---- phase / overall bars ---------------------------------------------
 
 
 def test_instance_bar_tracks_progress_and_step():
-    """An instance bar records absolute progress and a free-form step label."""
+    """A bar records progress and a free-form step label (tqdm postfix)."""
     with CliReporter(file=io.StringIO(), disable=False) as reporter:
         bar = reporter.register_instance("GDELT", total=4)
         bar.advance(1)
@@ -27,7 +27,7 @@ def test_instance_bar_tracks_progress_and_step():
 
         assert bar._bar.n == 1
         assert bar._bar.total == 4
-        assert bar._step == "validating 1/4"
+        assert bar._bar.postfix == "validating 1/4"
 
 
 def test_instance_lookup_is_idempotent_by_name():
@@ -51,7 +51,7 @@ def test_reset_rezeros_bar_for_a_new_phase():
 
 
 def test_single_mode_shares_one_task_bar_across_units():
-    """Sequential units re-point the one shared task bar instead of stacking."""
+    """Sequential units re-point the one shared phase bar instead of stacking."""
     with CliReporter(file=io.StringIO(), disable=False) as reporter:
         gdelt = reporter.register_instance("GDELT", total=4)
         gdelt.advance(2)
@@ -63,7 +63,6 @@ def test_single_mode_shares_one_task_bar_across_units():
         assert site._bar.n == 0
         assert site._bar.total is None
         assert site._bar.desc == "CyberScoop"
-        assert site._step == ""
 
 
 def test_same_task_lookup_does_not_reset_progress():
@@ -79,46 +78,11 @@ def test_same_task_lookup_does_not_reset_progress():
 
 
 def test_overall_bar_sits_below_the_task_bar():
-    """The two bars form a contiguous stack: task bar at 0, overall at 1."""
+    """The two bars form a contiguous stack: phase bar at 0, overall at 1."""
     with CliReporter(file=io.StringIO(), disable=False) as reporter:
         # tqdm stores position N as pos == -N. Contiguous rows render cleanly.
         assert abs(reporter.register_instance("GDELT")._bar.pos) == 0
         assert abs(reporter.overall()._bar.pos) == 1
-
-
-def test_bars_share_one_width_relative_to_terminal():
-    """Both bars get the same width, ~1/4 of the terminal (80 cols off-tty -> 20)."""
-    with CliReporter(file=io.StringIO(), disable=False) as reporter:
-        task = reporter.register_instance("GDELT", total=4)
-
-        assert "{bar:20}" in task._bar.bar_format
-        assert "{bar:20}" in reporter.overall()._bar.bar_format
-
-
-def test_bar_width_clamps_to_absolute_cap_on_wide_terminals(monkeypatch):
-    """A wide terminal must not make bars swallow the line: capped at 28."""
-    monkeypatch.setattr(cli_reporter, "_is_tty", lambda _file: True)
-    monkeypatch.setattr(
-        cli_reporter.shutil,
-        "get_terminal_size",
-        lambda _default=None: os.terminal_size((200, 50)),
-    )
-    with CliReporter(file=io.StringIO(), disable=False) as reporter:
-        task = reporter.register_instance("GDELT", total=4)
-
-        assert "{bar:28}" in task._bar.bar_format
-        assert "{bar:28}" in reporter.overall()._bar.bar_format
-
-
-def test_verbose_bar_annotates_model_endpoint():
-    """Verbose mode ties an instance to its model endpoint in the bar label."""
-    with CliReporter(file=io.StringIO(), disable=False, verbose=True) as reporter:
-        bar = reporter.register_instance(
-            "GDELT", model="llama3.2:latest", endpoint="http://localhost:11434"
-        )
-
-        assert "llama3.2:latest" in bar._bar.desc
-        assert "http://localhost:11434" in bar._bar.desc
 
 
 def test_bars_auto_disable_on_non_tty():
@@ -128,6 +92,58 @@ def test_bars_auto_disable_on_non_tty():
 
     assert bar._bar.disable is True
     reporter.close()
+
+
+# ---- smooth overall coupling ------------------------------------------
+
+
+def test_advance_drives_phase_bar_and_overall_fraction():
+    """Per-item advance moves the phase bar by 1 and the overall bar by 1/units."""
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        reporter.set_overall_total(2)  # two phases
+        reporter.start_phase("GDELT", total=4)
+
+        reporter.advance(1)
+        reporter.advance(1)
+
+        assert reporter._task._bar.n == 2
+        # Two of four items processed -> half of one phase unit on the overall bar.
+        assert reporter.overall()._bar.n == 0.5
+
+
+def test_concurrent_advances_sum_on_both_bars():
+    """N worker threads each advancing sum correctly (tqdm update is lock-guarded)."""
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        reporter.set_overall_total(1)  # single phase
+        reporter.start_phase("GDELT", total=100)
+
+        def work():
+            for _ in range(25):
+                reporter.advance(1)
+
+        workers = [threading.Thread(target=work) for _ in range(4)]
+        for t in workers:
+            t.start()
+        for t in workers:
+            t.join()
+
+        assert reporter._task._bar.n == 100
+        # 100 items across one phase unit -> the overall bar reaches exactly 1.0.
+        assert round(reporter.overall()._bar.n, 6) == 1.0
+
+
+def test_start_phase_does_not_double_count_collection_progress():
+    """Direct phase-bar progress (seed collection) never touches the overall bar."""
+    with CliReporter(file=io.StringIO(), disable=False) as reporter:
+        reporter.set_overall_total(2)
+        # Collection drives the phase bar directly, not via advance().
+        reporter.instance("GDELT").set_progress(3, 3)
+        assert reporter.overall()._bar.n == 0
+
+        # Processing then re-zeros the phase bar and couples to the overall bar.
+        reporter.start_phase("GDELT", total=2)
+        reporter.advance(2)
+        assert reporter.overall()._bar.n == 1.0
 
 
 # ---- log routing (above the bars) -------------------------------------
@@ -405,7 +421,8 @@ def test_summary_prints_time_elapsed():
 
     reporter.summary(PipelineStats("GDELT", elapsed_seconds=83))
 
-    assert _summary_row(stream.getvalue(), "Time elapsed").endswith("1m 23s")
+    # tqdm.format_interval renders 83s as MM:SS.
+    assert _summary_row(stream.getvalue(), "Time elapsed").endswith("01:23")
 
 
 def test_merge_sums_elapsed_seconds():

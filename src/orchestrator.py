@@ -326,6 +326,14 @@ def main(argv: list[str] | None = None) -> int:
         if not chunks:
             chunks = [[]]
 
+        # Size the phase bar to the seeds that will actually process (each worker
+        # applies effective_limit to its own chunk). Per-seed advances from the
+        # workers then drive both the phase bar and, smoothly, the overall bar.
+        gdelt_units = sum(
+            min(len(c), effective_limit) if effective_limit else len(c) for c in chunks
+        )
+        reporter.start_phase("GDELT", total=gdelt_units)
+
         with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = []
             n = 0
@@ -363,7 +371,6 @@ def main(argv: list[str] | None = None) -> int:
             f"GDELT processing complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
         )
         summaries.append(gdelt_stats)
-        reporter.advance_overall(1)
         if gdelt_stats.paused:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
             reporter.summary(summaries)
@@ -390,6 +397,8 @@ def main(argv: list[str] | None = None) -> int:
             dates: list[tuple[datetime.date, datetime.date]] = _split_date(
                 end_date, start_date, threads
             )
+            # One phase unit per date window; advanced as each window completes.
+            reporter.start_phase("HTML", total=len(dates))
 
             # One scooper instance per date window
             port = args.starting_port
@@ -417,6 +426,7 @@ def main(argv: list[str] | None = None) -> int:
                         n = 0
                 for future in as_completed(futures):
                     results.append(future.result())
+                    reporter.advance(1)
 
             vuln_lists: list = []
             for window_stats, w_vuln_list, v_df, n_df in results:
@@ -428,7 +438,10 @@ def main(argv: list[str] | None = None) -> int:
             scooper.save_results(vuln_lists, vuln_dfs, noise_dfs, sb_only=args.sb_only)
         # Default: one thread per site. run_scooper fans out internally and
         # returns frames merged across sites (disjoint); we persist them here.
+        # Per-site HTML progress lives inside scooper (deferred to #229); treat
+        # the whole phase as one unit for now.
         else:
+            reporter.start_phase("HTML", total=1)
             html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
                 use_bert=args.use_bert,
                 verbose=args.verbose,
@@ -440,11 +453,11 @@ def main(argv: list[str] | None = None) -> int:
                 site_split=True,
             )
             scooper.save_results(vuln_list, [v_df], [n_df], sb_only=args.sb_only)
+            reporter.advance(1)
 
         # TODO: thread per cite implemented here
 
         summaries.append(html_stats)
-        reporter.advance_overall(1)
         if html_stats.paused:
             reporter.info("HTML scraper paused; skipping remaining pipelines.")
             reporter.summary(summaries)

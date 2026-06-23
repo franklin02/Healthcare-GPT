@@ -140,7 +140,7 @@ def test_orchestrator_skips_model_check_when_all_model_pipelines_are_skipped():
 
 
 def test_orchestrator_tracks_overall_progress_by_phase():
-    """The overall bar counts one unit of work per pipeline phase that runs."""
+    """The overall bar is sized to the phase count and each phase starts a phase bar."""
     with (
         patch("src.orchestrator.ensure_model_available"),
         patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
@@ -152,8 +152,7 @@ def test_orchestrator_tracks_overall_progress_by_phase():
         ),
         patch("src.scrapers.scooper.save_results"),
         patch("src.cli_reporter.CliReporter.set_overall_total") as mock_total,
-        patch("src.cli_reporter.CliReporter.set_overall_step") as mock_step,
-        patch("src.cli_reporter.CliReporter.advance_overall") as mock_advance,
+        patch("src.cli_reporter.CliReporter.start_phase") as mock_start_phase,
         patch("src.cli_reporter.CliReporter.summary"),
     ):
         result = orchestrator.main([])
@@ -161,6 +160,6 @@ def test_orchestrator_tracks_overall_progress_by_phase():
     assert result == 0
     # GDELT + HTML both run, so the overall bar has two phase units.
     mock_total.assert_called_once_with(2)
-    steps = [call.args[0] for call in mock_step.call_args_list]
-    assert steps == ["Initializing", "GDELT", "HTML"]
-    assert mock_advance.call_count == 2
+    # Each phase re-zeros the phase bar via start_phase, in order.
+    phases = [call.args[0] for call in mock_start_phase.call_args_list]
+    assert phases == ["GDELT", "HTML"]

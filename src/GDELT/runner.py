@@ -457,6 +457,7 @@ def process_staged_seeds(
     records = []
     stats.discovered = len(seeds)
     reporter.info(f"Processing {len(seeds)} staged GDELT seeds")
+    reporter.start_phase("GDELT", total=len(seeds))
 
     for i, seed in enumerate(seeds, start=1):
         stats.processed += 1
@@ -484,7 +485,7 @@ def process_staged_seeds(
                 records.append(rec)
                 completed_current = True
             if not reporter.verbose:
-                reporter.instance("GDELT").set_progress(i, len(seeds))
+                reporter.advance(1)
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)
@@ -953,7 +954,7 @@ def run(
             else:
                 LOGGER.debug("Seed skipped url=%s", url)
             if not reporter.verbose:
-                reporter.instance(instance_name or "GDELT").set_progress(i, len(seeds))
+                reporter.advance(1)
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)

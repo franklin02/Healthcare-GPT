@@ -1,24 +1,24 @@
 """tqdm-backed CLI reporter for the pipeline.
 
-The sticky area at the bottom of the screen holds two bars: a shared *task bar*
-that is re-pointed at whatever unit of work is currently running (the GDELT
-pipeline, then each HTML scraper site) and an overall "Pipeline progress" bar
-with elapsed time. (Per-instance bars — one persistent bar per concurrent worker
-— are a later chunk; see issue #181.)
+The sticky area at the bottom of the screen holds two bars: a *phase bar* that is
+re-pointed at whatever phase is currently running (GDELT, then HTML) and an
+overall "Pipeline progress" bar that climbs smoothly across the whole run. (Per-
+instance bars — one persistent bar per concurrent worker — are a later chunk; see
+issue #229.)
 
-All human output (``info``/``detail``/``warn``/``error`` and records routed
-from :mod:`logging`) is written through :func:`tqdm.write`, so it scrolls in
-the area *above* the bars instead of smashing them.
-
-tqdm is imported and customized in this one module; the rest of the codebase
-talks only to :class:`CliReporter` / :class:`InstanceBar`.
+This module is a thin layer over tqdm: :class:`InstanceBar` is a small adapter
+that forwards to a native ``tqdm`` (``update``/``reset``/``set_postfix_str``/…),
+and :class:`CliReporter` owns the two bars plus the log-routing and run-summary
+concerns that tqdm has no opinion about. All human output
+(``info``/``detail``/``warn``/``error`` and records routed from :mod:`logging`) is
+written through :func:`tqdm.write`, so it scrolls in the area *above* the bars
+instead of smashing them.
 """
 
 from __future__ import annotations
 
 import logging
 import random
-import shutil
 import sys
 import threading
 from dataclasses import dataclass
@@ -27,18 +27,12 @@ from typing import TextIO
 from tqdm import tqdm
 
 # Both bars share one shape so the sticky area reads consistently: name, percent,
-# bar, then the free-form current step. The overall bar adds elapsed time before
-# the step. ``{step}`` is OUR placeholder (substituted per update in InstanceBar),
-# not tqdm's ``{postfix}`` — tqdm forces a ", " before postfix, which reads as
-# jank. ``{bar}`` is replaced with a sized ``{bar:N}`` per reporter (CliReporter).
-INSTANCE_BAR_FORMAT = "{desc} {percentage:3.0f}% |{bar}| {step}"
-OVERALL_BAR_FORMAT = "{desc} {percentage:3.0f}% |{bar}| [{elapsed}] {step}"
-_STEP_FIELD = "{step}"
+# bar, then the free-form current step (tqdm's native ``{postfix}``, set via
+# ``set_postfix_str``). The overall bar adds elapsed time before the step. The bar
+# auto-sizes to the terminal via ``dynamic_ncols`` — no manual width math.
+PHASE_BAR_FORMAT = "{desc} {percentage:3.0f}%|{bar}| {postfix}"
+OVERALL_BAR_FORMAT = "{desc} {percentage:3.0f}%|{bar}| [{elapsed}] {postfix}"
 _MIN_INTERVAL = 0.1
-
-# Both bars use one glyph width, clamped to a floor/ceiling so a wide terminal
-# can't make them swallow the line (and the whole line still fits). Tunable.
-_BAR_WIDTH_MIN, _BAR_WIDTH_MAX = 10, 28
 
 # The sticky area is a *contiguous* stack of tqdm bars starting at position 0.
 # We deliberately do NOT insert blank rows for breathing room: empty position
@@ -98,18 +92,6 @@ def whim(default: str) -> str:
     return default
 
 
-def _format_elapsed(seconds: float) -> str:
-    """Render a duration as ``2h 3m 4s`` / ``3m 4s`` / ``4s``."""
-    secs = int(seconds)
-    hours, rem = divmod(secs, 3600)
-    minutes, sec = divmod(rem, 60)
-    if hours:
-        return f"{hours}h {minutes}m {sec}s"
-    if minutes:
-        return f"{minutes}m {sec}s"
-    return f"{sec}s"
-
-
 @dataclass
 class PipelineStats:
     """Counters reported after pipeline runs."""
@@ -159,104 +141,29 @@ def _is_tty(file: TextIO) -> bool:
         return False
 
 
-def _supports_unicode(file: TextIO) -> bool:
-    encoding = getattr(file, "encoding", None)
-    if encoding is None:
-        return True
-    return "utf" in encoding.lower()
-
-
 class InstanceBar:
-    """One tqdm progress bar owned by an instance (or shared task slot).
+    """Thin adapter over a single native ``tqdm`` bar.
 
-    A *shared* bar (single-instance mode) shows the current task name as its
-    description and is re-pointed at each unit of work via :meth:`start_task`.
-    A non-shared bar keeps the instance name as its description and shows the
-    current task as a ``task: step`` prefix on the step text instead.
+    Every method forwards directly to tqdm; the class exists only to give the
+    rest of the codebase a small, stable vocabulary (``advance``/``set_progress``/
+    ``set_step``/…) over tqdm's native calls.
     """
 
-    def __init__(
-        self,
-        name: str,
-        position: int,
-        *,
-        total: int | None = None,
-        model: str | None = None,
-        endpoint: str | None = None,
-        file: TextIO | None = None,
-        disable: bool = False,
-        verbose: bool = False,
-        bar_format: str = INSTANCE_BAR_FORMAT,
-        use_ascii: bool = False,
-        shared: bool = False,
-    ) -> None:
-        self.name = name
-        self.model = model
-        self.endpoint = endpoint
-        self.task: str | None = name if shared else None
-        self._shared = shared
-        self._verbose = verbose
-        self._base_format = bar_format
-        self._step = ""
-        self._bar = tqdm(
-            total=total,
-            position=position,
-            leave=True,
-            desc=self._compose_desc(),
-            bar_format=self._render_bar_format(),
-            file=file,
-            disable=disable,
-            dynamic_ncols=True,
-            mininterval=_MIN_INTERVAL,
-            ascii=use_ascii,
-        )
+    def __init__(self, bar: tqdm) -> None:
+        self._bar = bar
 
-    def _render_bar_format(self) -> str:
-        # Substitute our literal ``{step}`` ourselves so tqdm never sees it (and
-        # never prepends the ", " it forces before ``{postfix}``). Escape any
-        # braces in the step text so tqdm's later ``.format`` leaves it alone.
-        safe = self._step.replace("{", "{{").replace("}", "}}")
-        return self._base_format.replace(_STEP_FIELD, safe)
+    @property
+    def total(self) -> int | float | None:
+        return self._bar.total
 
-    def _compose_desc(self) -> str:
-        base = (self.task or self.name) if self._shared else self.name
-        # Verbose mode annotates which instance is tied to which model endpoint.
-        if self._verbose and self.model:
-            endpoint_label = f" @ {self.endpoint}" if self.endpoint else ""
-            return f"{base} [{self.model}{endpoint_label}]"
-        return base
+    @property
+    def n(self) -> int | float:
+        return self._bar.n
 
-    def start_task(
-        self,
-        task: str,
-        *,
-        total: int | None = None,
-        model: str | None = None,
-        endpoint: str | None = None,
-    ) -> None:
-        """Re-point the bar at a new unit of work (re-zeroed, fresh labels)."""
-        self.task = task
-        if model is not None:
-            self.model = model
-        if endpoint is not None:
-            self.endpoint = endpoint
-        self._bar.set_description_str(self._compose_desc(), refresh=False)
-        self._step = ""
-        self._bar.bar_format = self._render_bar_format()
-        # Assign total directly: tqdm's reset(total=None) keeps the old total,
-        # but a fresh task must start indeterminate unless told otherwise.
-        self._bar.total = total
-        self._bar.reset()
+    def set_description(self, desc: str) -> None:
+        self._bar.set_description_str(str(desc), refresh=False)
 
-    def set_total(self, total: int | None) -> None:
-        self._bar.total = total
-        self._bar.refresh()
-
-    def reset(self, total: int | None = None) -> None:
-        """Re-zero the bar for a new phase (e.g. file scan -> seed processing)."""
-        self._bar.reset(total=total)
-
-    def advance(self, n: int = 1) -> None:
+    def advance(self, n: int | float = 1) -> None:
         self._bar.update(n)
 
     def set_progress(self, current: int, total: int | None = None) -> None:
@@ -266,26 +173,37 @@ class InstanceBar:
         self._bar.n = current
         self._bar.refresh()
 
-    def set_step(self, step: str) -> None:
-        """Set the free-form "current step" shown after the bar."""
-        label = str(step)
-        if not self._shared and self.task:
-            label = f"{self.task}: {label}"
-        self._step = label
-        self._bar.bar_format = self._render_bar_format()
+    def set_total(self, total: int | None) -> None:
+        self._bar.total = total
         self._bar.refresh()
+
+    def reset(self, total: int | None = None) -> None:
+        """Re-zero the bar for a new phase (e.g. file scan -> seed processing).
+
+        Assign ``total`` directly first: tqdm's ``reset(total=None)`` *keeps* the
+        old total, but a re-pointed bar must start indeterminate unless told a new
+        one. Setting it before ``reset()`` makes ``None`` mean "indeterminate".
+        """
+        self._bar.total = total
+        self._bar.reset()
+
+    def set_step(self, step: str) -> None:
+        """Set the free-form "current step" shown after the bar (tqdm postfix)."""
+        self._bar.set_postfix_str(str(step))
 
     def close(self) -> None:
         self._bar.close()
 
 
 class CliReporter:
-    """tqdm-backed reporter owning the sticky bars at the bottom of the screen.
+    """tqdm-backed reporter owning the two sticky bars at the bottom of the screen.
 
-    Two stacked bars: one shared task bar that every unit of work reuses in turn
-    (``register_instance``/``instance`` re-task it to the current unit), and the
-    overall pipeline-progress bar below it. (Per-instance bars for concurrent
-    workers are a later chunk — see #181.)
+    A re-pointable *phase bar* (``instance``/``start_phase`` re-task it to the
+    current phase) and an overall "Pipeline progress" bar below it. Per-item
+    processing calls :meth:`advance`, which moves the phase bar and nudges the
+    overall bar by ``1 / phase_units`` so the overall bar climbs smoothly instead
+    of jumping a whole phase at a time. (Per-instance bars for concurrent workers
+    are a later chunk — see #229.)
     """
 
     def __init__(
@@ -303,20 +221,12 @@ class CliReporter:
         # Bars only animate on a real terminal; pipes/CI/StringIO get clean text
         # output (logs + summary still print via tqdm.write).
         self._disable = (not _is_tty(self._file)) if disable is None else disable
-        self._use_ascii = not _supports_unicode(self._file)
-        # One capped bar width for both bars so they line up and the whole line
-        # fits (fixed fallback off-terminal keeps output stable).
-        cols = shutil.get_terminal_size((80, 20)).columns if _is_tty(self._file) else 80
-        bar_width = min(_BAR_WIDTH_MAX, max(_BAR_WIDTH_MIN, cols // 4))
-        self._instance_bar_format = INSTANCE_BAR_FORMAT.replace(
-            "{bar}", f"{{bar:{bar_width}}}"
-        )
-        self._overall_bar_format = OVERALL_BAR_FORMAT.replace(
-            "{bar}", f"{{bar:{bar_width}}}"
-        )
         self._task: InstanceBar | None = None
+        self._task_name: str | None = None
         self._overall: InstanceBar | None = None
-        self._cursor_hidden = False
+        # Units in the current phase, so per-item advances can nudge the overall
+        # bar by the right fraction. None until a phase total is established.
+        self._phase_units: float | None = None
         # One reentrant lock guards the bar registry and serializes terminal
         # draws across threads (tqdm.write log scrolling vs. bar refreshes).
         # Reentrant because reporter methods hold it while calling bar ops that
@@ -325,117 +235,85 @@ class CliReporter:
         tqdm.set_lock(self._lock)
         set_active_reporter(self)
 
-    # ---- instance + overall bar management ----------------------------
+    # ---- phase + overall bar management -------------------------------
 
-    def _hide_cursor(self) -> None:
-        """Hide the terminal cursor so it doesn't park as a block on a bar row."""
-        if self._disable or self._cursor_hidden:
-            return
-        try:
-            self._file.write("\x1b[?25l")
-            self._file.flush()
-        except Exception:
-            pass
-        self._cursor_hidden = True
-
-    def _show_cursor(self) -> None:
-        if not self._cursor_hidden:
-            return
-        try:
-            self._file.write("\x1b[?25h")
-            self._file.flush()
-        except Exception:
-            pass
-        self._cursor_hidden = False
-
-    def register_instance(
-        self,
-        name: str,
-        *,
-        total: int | None = None,
-        model: str | None = None,
-        endpoint: str | None = None,
+    def _new_bar(
+        self, name: str, position: int, bar_format: str, total=None
     ) -> InstanceBar:
-        """Return the shared task bar, re-pointed at the unit of work ``name``
-        and updated with any metadata. Any name is accepted — the one bar is
-        reused for each unit in turn.
-        """
-        return self._resolve_bar(name, total=total, model=model, endpoint=endpoint)
+        return InstanceBar(
+            tqdm(
+                total=total,
+                position=position,
+                leave=True,
+                desc=name,
+                bar_format=bar_format,
+                file=self._file,
+                disable=self._disable,
+                dynamic_ncols=True,
+                mininterval=_MIN_INTERVAL,
+            )
+        )
+
+    def _ensure_phase_bar(self, name: str, total: int | None = None) -> InstanceBar:
+        """Return the shared phase bar, re-pointed at ``name`` when it changes."""
+        with self._lock:
+            if self._task is None:
+                self._task = self._new_bar(
+                    name, _BARS_TOP, PHASE_BAR_FORMAT, total=total
+                )
+                self._task_name = name
+            elif name != self._task_name:
+                self._task_name = name
+                self._task.set_description(name)
+                self._task.reset(total=total)
+            elif total is not None:
+                self._task.set_total(total)
+            return self._task
+
+    def register_instance(self, name: str, *, total: int | None = None) -> InstanceBar:
+        """Return the phase bar, re-pointed at the phase ``name`` (sized to ``total``)."""
+        return self._ensure_phase_bar(name, total=total)
 
     def instance(self, name: str) -> InstanceBar:
         """Shorthand for :meth:`register_instance` without metadata updates."""
-        return self._resolve_bar(name)
+        return self._ensure_phase_bar(name)
 
-    def _resolve_bar(
-        self,
-        name: str,
-        *,
-        total: int | None = None,
-        model: str | None = None,
-        endpoint: str | None = None,
-    ) -> InstanceBar:
-        """Return the one shared task bar, re-tasked to ``name``.
-
-        Every unit of work reuses this single bar in turn. The first caller
-        lazily creates it; later callers re-task it to their name (or just
-        update its metadata if it's already on that unit).
+    def start_phase(self, name: str, total: int | None = None) -> InstanceBar:
+        """Begin a phase: re-zero the phase bar to ``total`` and record its unit
+        count for the smooth overall-bar coupling.
         """
         with self._lock:
-            bar = self._task
-            if bar is None:
-                # Lazily create the shared bar on first use.
-                self._hide_cursor()
-                bar = InstanceBar(
-                    name,
-                    position=_BARS_TOP,
-                    total=total,
-                    model=model,
-                    endpoint=endpoint,
-                    file=self._file,
-                    disable=self._disable,
-                    verbose=self.verbose,
-                    bar_format=self._instance_bar_format,
-                    use_ascii=self._use_ascii,
-                    shared=True,
-                )
-                self._task = bar
-                return bar
-            # Re-task the shared bar when the unit changes.
-            if bar.task != name:
-                bar.start_task(name, total=total, model=model, endpoint=endpoint)
-            else:
-                self._update_bar(bar, total=total, model=model, endpoint=endpoint)
+            bar = self._ensure_phase_bar(name)
+            bar.reset(total=total)
+            self._phase_units = float(total) if total and total > 0 else None
+            if self._overall is not None:
+                self._overall.set_step(name)
             return bar
 
-    @staticmethod
-    def _update_bar(
-        bar: InstanceBar,
-        *,
-        total: int | None,
-        model: str | None,
-        endpoint: str | None,
-    ) -> None:
-        if total is not None:
-            bar.set_total(total)
-        if model is not None:
-            bar.model = model
-        if endpoint is not None:
-            bar.endpoint = endpoint
+    def advance(self, n: int = 1) -> None:
+        """Advance the phase bar by ``n`` items and nudge the overall bar by the
+        matching fraction of one phase unit. Thread-safe: tqdm ``update`` is
+        guarded by the shared lock, so concurrent worker advances sum correctly.
+        """
+        with self._lock:
+            if self._task is not None:
+                self._task.advance(n)
+            if self._overall is not None and self._phase_units:
+                bar = self._overall._bar
+                delta = n / self._phase_units
+                # Clamp so accumulated float fractions never overshoot the total
+                # (tqdm warns and clamps when frac > 1); cap at the last bit.
+                if bar.total is not None and bar.n + delta > bar.total:
+                    delta = bar.total - bar.n
+                if delta > 0:
+                    bar.update(delta)
 
     def _ensure_overall(self, total: int | None = None) -> InstanceBar:
         with self._lock:
             if self._overall is None:
-                self._hide_cursor()
-                # One row below the shared task bar, contiguous with it.
-                self._overall = InstanceBar(
-                    "Pipeline progress",
-                    position=_BARS_TOP + 1,
-                    total=total,
-                    file=self._file,
-                    disable=self._disable,
-                    verbose=False,
-                    bar_format=self._overall_bar_format,
-                    use_ascii=self._use_ascii,
+                # One row below the phase bar, contiguous with it.
+                self._overall = self._new_bar(
+                    "Pipeline progress", _BARS_TOP + 1, OVERALL_BAR_FORMAT, total=total
                 )
             elif total is not None:
                 self._overall.set_total(total)
@@ -515,8 +393,8 @@ class CliReporter:
             # and the next write (the summary) lands on a clean line.
             self._safe_close(self._overall)
             self._task = None
+            self._task_name = None
             self._overall = None
-            self._show_cursor()
 
     def summary(self, stats: PipelineStats | list[PipelineStats]) -> None:
         """Print the run summary as one table (metrics as rows, runs as columns).
@@ -554,7 +432,7 @@ class CliReporter:
                 ("Output records", [str(s.output_records) for s in stats_list]),
                 (
                     "Time elapsed",
-                    [_format_elapsed(s.elapsed_seconds) for s in stats_list],
+                    [tqdm.format_interval(int(s.elapsed_seconds)) for s in stats_list],
                 ),
             ]
         )

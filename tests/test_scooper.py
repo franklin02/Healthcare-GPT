@@ -299,6 +299,33 @@ def test_run_scooper_skips_when_subsector_fields_missing(
     assert vuln_list == []
 
 
+# --------------------------------------------------------------------------- #
+# _scrape_page
+# --------------------------------------------------------------------------- #
+SITE_CONFIG = {
+    "name": "TestSite",
+    "url": "https://example.com",
+    "map": {
+        "container": "li.item",
+        "title": None,
+        "link_selector": "a",
+        "body_selector": "div.body",
+        "date_selector": "time[datetime]",
+        "starting_page": 1,
+        "cap": 1,
+    },
+}
+LISTING_HTML = (
+    "<ul><li class='item'>"
+    "<a href='https://example.com/article-1'>Hospital breach</a>"
+    "</li></ul>"
+)
+ARTICLE_HTML = (
+    "<div class='body'>Full article body here</div>"
+    "<time datetime='2026-01-01'>Jan 1</time>"
+)
+
+
 def test_scrape_page_parses_article(mock_get_page, mock_time_sleep):
     raw_df = pd.DataFrame(columns=scooper.RAW_CSV_HEADER)
 

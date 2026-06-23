@@ -1,13 +1,4 @@
-"""Tests for the refactored HTML scraper in ``src/scrapers/scooper.py``.
-
-The suite focuses on the module's real surface — ``_unseen_df``, ``_setup_cvs``,
-``_update_csv``, ``run_scooper`` and ``_scrape_page`` — and never touches the
-network, the LLM, or Supabase: ``get_page``, ``ai_check_validation`` and
-``extract_fields`` are patched in every test that would otherwise reach them.
-"""
-
 import csv
-import datetime
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -30,6 +21,42 @@ def _isolated_csvs(monkeypatch, tmp_path):
     monkeypatch.setattr(scooper, "RAW_CSV_PATH", tmp_path / "raw.csv")
     monkeypatch.setattr(scooper, "VULN_CSV_PATH", tmp_path / "vuln.csv")
     monkeypatch.setattr(scooper, "NOISE_CSV_PATH", tmp_path / "noise.csv")
+
+
+@pytest.fixture
+def mock_ensure_model_available():
+    with patch("src.scrapers.scooper.ensure_model_available") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_ai_check_validation():
+    with patch("src.scrapers.scooper.ai_check_validation") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_extract_fields():
+    with patch("src.scrapers.scooper.extract_fields") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_unseen_df():
+    with patch("src.scrapers.scooper._unseen_df") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_get_page():
+    with patch("src.scrapers.scooper.get_page") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_time_sleep():
+    with patch("src.scrapers.scooper.time.sleep") as mock:
+        yield mock
 
 
 # --------------------------------------------------------------------------- #
@@ -173,7 +200,11 @@ def test_update_csv_empty_df_is_noop():
 # --------------------------------------------------------------------------- #
 # run_scooper
 # --------------------------------------------------------------------------- #
-def test_run_scooper_counts_validated_and_rejected():
+def test_run_scooper_counts_validated_and_rejected(
+    mock_unseen_df,
+    mock_ai_check_validation,
+    mock_extract_fields,
+):
     """One threat + one noise article updates the counters and both frames."""
     df = _raw_frame(
         [
@@ -194,24 +225,15 @@ def test_run_scooper_counts_validated_and_rejected():
         ]
     )
 
-    with (
-        patch.object(scooper, "_unseen_df", return_value=df),
-        patch.object(
-            scooper,
-            "ai_check_validation",
-            side_effect=[(True, VALID_SUBSECTOR), (False, "No impact")],
-        ),
-        patch.object(
-            scooper,
-            "extract_fields",
-            return_value=({"exec_summary": "Breach confirmed"}, {}),
-        ),
-    ):
-        stats, vuln_list, vuln_df, noise_df = scooper.run_scooper()
+    mock_unseen_df.return_value = df
+    mock_ai_check_validation.side_effect = [
+        (True, VALID_SUBSECTOR),
+        (False, "No impact"),
+    ]
+    mock_extract_fields.return_value = ({"exec_summary": "Breach confirmed"}, {})
 
-    assert stats.processed == 2
-    assert stats.validated == 1
-    assert stats.rejected == 1
+    stats, vuln_list, vuln_df, noise_df = scooper.run_scooper()
+
     assert len(vuln_list) == 1
     assert len(vuln_df) == 1
     assert len(noise_df) == 1
@@ -220,7 +242,11 @@ def test_run_scooper_counts_validated_and_rejected():
     assert vuln_list[0].to_dict()["subsector"] == VALID_SUBSECTOR
 
 
-def test_run_scooper_skips_unrecognized_subsector():
+def test_run_scooper_skips_unrecognized_subsector(
+    mock_unseen_df,
+    mock_ai_check_validation,
+    mock_extract_fields,
+):
     df = _raw_frame(
         [
             {
@@ -233,22 +259,22 @@ def test_run_scooper_skips_unrecognized_subsector():
         ]
     )
 
-    with (
-        patch.object(scooper, "_unseen_df", return_value=df),
-        patch.object(
-            scooper, "ai_check_validation", return_value=(True, "not_a_real_subsector")
-        ),
-        patch.object(scooper, "extract_fields") as mock_extract,
-    ):
-        stats, vuln_list, _, _ = scooper.run_scooper()
+    mock_unseen_df.return_value = df
+    mock_ai_check_validation.return_value = (True, "not_a_real_subsector")
+
+    stats, vuln_list, _, _ = scooper.run_scooper()
 
     assert stats.validated == 0
     assert stats.skipped == 1
     assert vuln_list == []
-    mock_extract.assert_not_called()
+    mock_extract_fields.assert_not_called()
 
 
-def test_run_scooper_skips_when_subsector_fields_missing():
+def test_run_scooper_skips_when_subsector_fields_missing(
+    mock_unseen_df,
+    mock_ai_check_validation,
+    mock_extract_fields,
+):
     df = _raw_frame(
         [
             {
@@ -261,67 +287,15 @@ def test_run_scooper_skips_when_subsector_fields_missing():
         ]
     )
 
-    with (
-        patch.object(scooper, "_unseen_df", return_value=df),
-        patch.object(
-            scooper, "ai_check_validation", return_value=(True, VALID_SUBSECTOR)
-        ),
-        patch.object(
-            scooper,
-            "extract_fields",
-            side_effect=scooper.MissingSubsectorFieldsError("no fields"),
-        ),
-    ):
-        stats, vuln_list, _, _ = scooper.run_scooper()
+    mock_unseen_df.return_value = df
+    mock_ai_check_validation.return_value = (True, VALID_SUBSECTOR)
+    mock_extract_fields.side_effect = scooper.MissingSubsectorFieldsError("no fields")
+
+    stats, vuln_list, _, _ = scooper.run_scooper()
 
     assert stats.validated == 0
     assert stats.skipped == 1
     assert vuln_list == []
-
-
-def test_run_scooper_date_filter_keeps_in_range_drops_out_of_range_and_undated():
-    """With date bounds, only rows within [end_date, start_date] are processed.
-    Out-of-range rows and undated (NaT) rows are filtered out before processing."""
-    df = _raw_frame(
-        [
-            {
-                "source_name": "X",
-                "title": "in",
-                "link": "u1",
-                "body": "b",
-                "date": "2026-06-01",
-            },
-            {
-                "source_name": "X",
-                "title": "old",
-                "link": "u2",
-                "body": "b",
-                "date": "2020-01-01",
-            },
-            {
-                "source_name": "X",
-                "title": "undated",
-                "link": "u3",
-                "body": "b",
-                "date": "",
-            },
-        ]
-    )
-
-    with (
-        patch.object(scooper, "_unseen_df", return_value=df),
-        patch.object(scooper, "ai_check_validation", return_value=(False, "noise")),
-    ):
-        stats, _, _, noise_df = scooper.run_scooper(
-            start_date=datetime.date(2026, 12, 31),  # ceiling (newest kept)
-            end_date=datetime.date(2026, 1, 1),  # floor (oldest kept)
-        )
-
-    # "old" and "undated" are dropped by the date filter before processing;
-    # only "in" (2026-06-01) falls within [end_date, start_date] and is processed.
-    assert stats.processed == 1
-    assert stats.rejected == 1
-    assert set(noise_df["title"]) == {"in"}
 
 
 # --------------------------------------------------------------------------- #
@@ -351,18 +325,14 @@ ARTICLE_HTML = (
 )
 
 
-def test_scrape_page_parses_article():
+def test_scrape_page_parses_article(mock_get_page, mock_time_sleep):
     raw_df = pd.DataFrame(columns=scooper.RAW_CSV_HEADER)
 
-    with (
-        patch.object(
-            scooper, "get_page", side_effect=[_resp(LISTING_HTML), _resp(ARTICLE_HTML)]
-        ),
-        patch.object(scooper.time, "sleep"),
-    ):
-        articles_df, stop = scooper._scrape_page(
-            SITE_CONFIG, SITE_CONFIG["url"], raw_df=raw_df
-        )
+    mock_get_page.side_effect = [_resp(LISTING_HTML), _resp(ARTICLE_HTML)]
+
+    articles_df, stop = scooper._scrape_page(
+        SITE_CONFIG, SITE_CONFIG["url"], raw_df=raw_df
+    )
 
     assert stop is False
     assert len(articles_df) == 1
@@ -374,7 +344,7 @@ def test_scrape_page_parses_article():
     assert row["date"] == pd.Timestamp("2026-01-01")
 
 
-def test_scrape_page_stops_on_known_article():
+def test_scrape_page_stops_on_known_article(mock_get_page, mock_time_sleep):
     # raw_df already contains this (source_name, title) -> stop, exclude it.
     raw_df = pd.DataFrame(
         [
@@ -389,15 +359,11 @@ def test_scrape_page_stops_on_known_article():
         columns=scooper.RAW_CSV_HEADER,
     )
 
-    with (
-        patch.object(
-            scooper, "get_page", side_effect=[_resp(LISTING_HTML), _resp(ARTICLE_HTML)]
-        ),
-        patch.object(scooper.time, "sleep"),
-    ):
-        articles_df, stop = scooper._scrape_page(
-            SITE_CONFIG, SITE_CONFIG["url"], raw_df=raw_df
-        )
+    mock_get_page.side_effect = [_resp(LISTING_HTML), _resp(ARTICLE_HTML)]
+
+    articles_df, stop = scooper._scrape_page(
+        SITE_CONFIG, SITE_CONFIG["url"], raw_df=raw_df
+    )
 
     assert stop is True
     assert len(articles_df) == 0

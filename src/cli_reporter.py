@@ -23,8 +23,6 @@ import random
 import shutil
 import sys
 import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TextIO
 
@@ -299,8 +297,10 @@ class CliReporter:
     Single-instance mode (the default, and the only mode the real pipeline
     uses until #181): one shared task bar plus the overall bar. Multi-instance
     mode (``build_instances`` with two or more specs): one persistent bar per
-    instance, overall bar below them. ``register_instance``/``instance`` route
-    to the right bar in both modes, so runner/scooper call sites are identical.
+    instance, overall bar below them. ``register_instance``/``instance`` map a
+    name to a bar in both modes: single mode reuses the one shared bar for any
+    name; multi mode addresses a fixed bar by its instance name, so each
+    concurrent worker passes the instance it is running as.
     """
 
     def __init__(
@@ -341,7 +341,6 @@ class CliReporter:
         # re-acquire it through tqdm.
         self._lock = threading.RLock()
         tqdm.set_lock(self._lock)
-        self._local = threading.local()
         set_active_reporter(self)
 
     # ---- instance + overall bar management ----------------------------
@@ -419,27 +418,6 @@ class CliReporter:
         self.info(f"Instances built ({len(specs)})")
         self._ensure_overall()
 
-    @contextmanager
-    def bind_instance(self, name: str) -> Iterator[InstanceBar]:
-        """Route this thread's ``register_instance``/``instance`` calls to ``name``.
-
-        Multi-instance mode only: a worker thread binds itself to its declared
-        instance so unit code (runner/scooper) lands on that instance's bar
-        without knowing which instance it runs in.
-        """
-        with self._lock:
-            if not self._multi or name not in self._instances:
-                raise KeyError(
-                    f"unknown instance {name!r}; declare it via build_instances() first"
-                )
-            bar = self._instances[name]
-        previous = getattr(self._local, "instance", None)
-        self._local.instance = name
-        try:
-            yield bar
-        finally:
-            self._local.instance = previous
-
     def register_instance(
         self,
         name: str,
@@ -448,13 +426,13 @@ class CliReporter:
         model: str | None = None,
         endpoint: str | None = None,
     ) -> InstanceBar:
-        """Return the bar that should track the unit of work called ``name``.
+        """Return the bar that tracks the unit of work called ``name``, updating
+        its metadata.
 
-        Single mode: the shared task bar, re-pointed at ``name`` if it was on a
-        different task (note: an unknown name therefore re-tasks the shared bar
-        rather than failing). Multi mode: the bar of the thread's bound
-        instance, or the instance named ``name`` itself; any other name raises
-        ``KeyError``.
+        Single mode: the one shared task bar, re-pointed at ``name`` if it was on
+        a different task (so an unknown name re-tasks the shared bar rather than
+        failing). Multi mode: the instance bar named ``name``; any other name
+        raises ``KeyError`` because the instances are fixed at build time.
         """
         return self._resolve_bar(name, total=total, model=model, endpoint=endpoint)
 
@@ -470,10 +448,20 @@ class CliReporter:
         model: str | None = None,
         endpoint: str | None = None,
     ) -> InstanceBar:
+        """Map a unit-of-work name to the bar it should draw on.
+
+        Two layouts, decided at build time:
+        - Single mode: one shared "task" bar that every unit reuses in turn. The
+          first caller lazily creates it; later callers re-task it to their name.
+        - Multi mode: one fixed bar per instance. Callers address a bar by its
+          instance name (e.g. "Instance 2"); concurrent workers each pass their
+          own name, so their output lands on their own row.
+        """
         with self._lock:
             if not self._multi:
                 bar = self._task
                 if bar is None:
+                    # Lazily create the shared bar on first use.
                     self._hide_cursor()
                     bar = InstanceBar(
                         name,
@@ -490,20 +478,16 @@ class CliReporter:
                     )
                     self._task = bar
                     return bar
+                # Re-point the shared bar at this unit if it moved on (below).
             else:
-                bound = getattr(self._local, "instance", None)
-                if bound is not None:
-                    bar = self._instances[bound]
-                elif name in self._instances:
-                    # Addressed by instance name directly: no task re-pointing.
-                    bar = self._instances[name]
-                    self._update_bar(bar, total=total, model=model, endpoint=endpoint)
-                    return bar
-                else:
+                if name not in self._instances:
                     raise KeyError(
-                        f"unknown instance {name!r}; declare it via "
-                        "build_instances() or bind the thread with bind_instance()"
+                        f"unknown instance {name!r}; declare it via build_instances()"
                     )
+                bar = self._instances[name]
+                self._update_bar(bar, total=total, model=model, endpoint=endpoint)
+                return bar
+            # Single mode only: re-task the shared bar when the unit changes.
             if bar.task != name:
                 bar.start_task(name, total=total, model=model, endpoint=endpoint)
             else:
@@ -667,6 +651,8 @@ class CliReporter:
             ]
         )
 
+        # Size the table: the label column fits the widest metric name, and each
+        # run's column fits the wider of its header (run name) and its values.
         label_width = max(len(label) for label, _ in rows)
         col_widths = [
             max(len(item.name), max(len(row[1][i]) for row in rows))

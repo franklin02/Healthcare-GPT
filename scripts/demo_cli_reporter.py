@@ -32,12 +32,16 @@ def fake_unit(
     items: int,
     delay: float,
     stats: PipelineStats,
+    bar_name: str | None = None,
 ) -> None:
-    """Run one fake unit of work against whatever bar resolves for it."""
+    """Run one fake unit of work, drawing on the bar named ``bar_name``.
+
+    Single mode passes no ``bar_name``, so work lands on the shared task bar
+    (re-tasked to ``unit``). Multi mode passes the worker's own instance name
+    (e.g. "Instance 2") so each thread updates its own row.
+    """
     started = time.monotonic()
-    # Model/endpoint metadata is inherited from the InstanceSpec declared at
-    # build time, so each instance keeps its own endpoint annotation.
-    bar = reporter.register_instance(unit, total=items)
+    bar = reporter.register_instance(bar_name or unit, total=items)
     bar.set_step("starting")
     for i in range(1, items + 1):
         bar.set_step(whim(f"validating {i}/{items}"))
@@ -75,7 +79,7 @@ def run_single(reporter: CliReporter, delay: float) -> list[PipelineStats]:
 def run_multi(
     reporter: CliReporter, instances: int, delay: float
 ) -> list[PipelineStats]:
-    """Round-robin the units across one bound worker thread per instance."""
+    """Round-robin the units across one worker thread per instance bar."""
     assignments: list[list[tuple[str, int]]] = [[] for _ in range(instances)]
     for index, unit in enumerate(UNITS):
         assignments[index % instances].append(unit)
@@ -84,10 +88,17 @@ def run_multi(
     reporter.set_overall_step(f"running {instances} instances")
 
     def worker(instance_name: str, units: list[tuple[str, int]]) -> None:
-        with reporter.bind_instance(instance_name):
-            for unit, items in units:
-                fake_unit(reporter, unit, items, delay, stats_by_unit[unit])
-                reporter.advance_overall(1)
+        # Each worker draws on its own instance bar, addressed by name.
+        for unit, items in units:
+            fake_unit(
+                reporter,
+                unit,
+                items,
+                delay,
+                stats_by_unit[unit],
+                bar_name=instance_name,
+            )
+            reporter.advance_overall(1)
 
     threads = [
         threading.Thread(target=worker, args=(f"Instance {i + 1}", assignments[i]))

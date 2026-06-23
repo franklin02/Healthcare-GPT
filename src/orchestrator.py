@@ -256,14 +256,22 @@ def main(argv: list[str] | None = None) -> int:
 
     run_gdelt = not args.skip_gdelt
     run_html = not args.skip_html
-    # GDELT fans out across args.models model instances, each with
-    # args.threads_per_model worker threads; HTML still runs a single flow, so it
-    # only needs one instance bar. One instance bar per GDELT worker thread.
-    models_to_run = max(1, args.models) * max(1, args.threads_per_model)
-    instance_count = models_to_run if run_gdelt else 1
-    # One overall-bar unit per pipeline phase that will actually run.
+
+    # Plan the reporter's bar layout up front, before any work starts.
+    #
+    # Instance bars: GDELT fans out into (models * threads_per_model) worker
+    # threads that run concurrently, and each worker gets its own sticky bar.
+    # This count mirrors `threads` in the GDELT loop below. HTML runs as one
+    # flow, so an HTML-only run needs a single bar.
+    gdelt_workers = max(1, args.models) * max(1, args.threads_per_model)
+    instance_count = gdelt_workers if run_gdelt else 1
+
+    # Overall bar: one unit of progress per pipeline phase that will actually
+    # run. Each phase calls reporter.advance_overall(1) when it completes, so
+    # len(phases) is the overall bar's total.
     phases = (["GDELT"] if run_gdelt else []) + (["HTML"] if run_html else [])
 
+    # Build the bars (and require the LLM) only when something will run.
     if phases:
         try:
             ensure_model_available()

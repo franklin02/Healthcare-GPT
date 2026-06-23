@@ -139,35 +139,17 @@ def test_bar_width_clamps_to_absolute_cap_on_wide_terminals(monkeypatch):
         assert "{bar:28}" in reporter.overall()._bar.bar_format
 
 
-def test_bound_instance_prefixes_task_in_step_label():
-    """A bound thread's unit lands on its instance bar with a task: step postfix."""
-    with CliReporter(file=io.StringIO(), disable=False) as reporter:
-        reporter.build_instances(
-            [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
-        )
-
-        with reporter.bind_instance("Instance 2") as bound:
-            bar = reporter.register_instance("GDELT", total=5)
-            bar.set_step("processing 1/5")
-
-            assert bar is bound
-            assert bar.task == "GDELT"
-            assert bar._bar.desc == "Instance 2"
-            assert bar._step == "GDELT: processing 1/5"
-
-
-def test_bind_instance_routes_threads_to_their_own_bars():
-    """Two bound worker threads advance their own bars, never each other's."""
+def test_instances_route_concurrent_workers_to_their_own_bars():
+    """Workers addressing bars by name advance their own bar, never each other's."""
     with CliReporter(file=io.StringIO(), disable=False) as reporter:
         reporter.build_instances(
             [InstanceSpec("Instance 1"), InstanceSpec("Instance 2")]
         )
 
         def work(instance_name: str, count: int) -> None:
-            with reporter.bind_instance(instance_name):
-                bar = reporter.register_instance("GDELT", total=count)
-                for _ in range(count):
-                    bar.advance(1)
+            bar = reporter.register_instance(instance_name, total=count)
+            for _ in range(count):
+                bar.advance(1)
 
         threads = [
             threading.Thread(target=work, args=("Instance 1", 3)),
@@ -192,8 +174,7 @@ def test_multi_mode_unknown_name_raises_keyerror():
         with pytest.raises(KeyError):
             reporter.instance("GDELT")
         with pytest.raises(KeyError):
-            with reporter.bind_instance("Instance 99"):
-                pass
+            reporter.instance("Instance 99")
 
 
 def test_build_instances_registers_every_spec_and_overall(monkeypatch):

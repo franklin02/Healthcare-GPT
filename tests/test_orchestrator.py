@@ -4,8 +4,14 @@ import pytest
 
 from src.cli_reporter import PipelineStats
 from src.shared_utils import model_unavailable_error
+import src.shared_utils as shared_utils
 from src import orchestrator
 
+def test_example(monkeypatch):
+    monkeypatch.setattr(shared_utils, "_CONFIG", {
+        "SKIP_HTML": "false",
+        "MODELS": "2",
+    })
 
 def test_orchestrator_forwards_verbose_to_gdelt_runner():
     """Verbose flag should be forwarded to the GDELT runner."""

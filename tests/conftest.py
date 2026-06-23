@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import patch
+import src.shared_utils as shared_utils
 
 
 @pytest.fixture(autouse=True)
@@ -62,11 +63,7 @@ def mock_runner_dirs(tmp_path):
             "enriched": enriched_dir,
         }
 
-import pytest
-import src.shared_utils as shared_utils
-
 @pytest.fixture(autouse=True)
-
 def isolate_config(monkeypatch):
     monkeypatch.setattr(shared_utils, "_CONFIG", {})
 

@@ -12,7 +12,7 @@ def test_orchestrator_forwards_verbose_to_gdelt_runner():
     with (
         patch("src.orchestrator.ensure_model_available"),
         patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
-        patch("src.GDELT.runner.run") as mock_run,
+        patch("src.GDELT.runner.run", return_value=(PipelineStats("GDELT"), [])) as mock_run,
         patch("src.cli_reporter.CliReporter.summary"),
     ):
         result = orchestrator.main(["--skip-html", "--verbose"])
@@ -52,7 +52,7 @@ def test_orchestrator_detects_equals_style_gdelt_options():
     with (
         patch("src.orchestrator.ensure_model_available"),
         patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
-        patch("src.GDELT.runner.run") as mock_run,
+        patch("src.GDELT.runner.run", return_value=(PipelineStats("GDELT"), [])) as mock_run,
         patch("src.cli_reporter.CliReporter.summary"),
     ):
         result = orchestrator.main(["--skip-html", "--num-files=5"])
@@ -66,8 +66,9 @@ def test_orchestrator_skips_html_after_gdelt_pause():
     """A paused GDELT run should stop later orchestrator stages cleanly."""
 
     def pause_gdelt(*args, **kwargs):
-        kwargs["stats"].paused = True
-        return []
+        stats = kwargs["stats"]
+        stats.paused = True
+        return stats, []
 
     with (
         patch("src.orchestrator.ensure_model_available"),
@@ -137,3 +138,36 @@ def test_orchestrator_skips_model_check_when_all_model_pipelines_are_skipped():
 
     assert result == 0
     mock_model_check.assert_not_called()
+
+
+def test_orchestrator_gdelt_multi_worker_stats_merge_correctly():
+    """Each GDELT worker should get its own PipelineStats; merged totals must be consistent."""
+
+    def fake_run(*args, **kwargs):
+        stats = kwargs["stats"]
+        seeds = kwargs.get("raw_seeds", [])
+        stats.discovered = len(seeds)
+        stats.processed = len(seeds)
+        stats.validated = len(seeds)
+        return stats, []
+
+    seeds = [{"url": f"https://example.com/{i}", "source": "test"} for i in range(4)]
+
+    with (
+        patch("src.orchestrator.ensure_model_available"),
+        patch("src.orchestrator.backfill_cyber_seeds", return_value=seeds),
+        patch("src.GDELT.runner.run", side_effect=fake_run),
+        patch("src.cli_reporter.CliReporter.summary") as mock_summary,
+    ):
+        result = orchestrator.main(
+            ["--skip-html", "--models", "2", "--threads-per-model", "1"]
+        )
+
+    assert result == 0
+    mock_summary.assert_called_once()
+    summaries = mock_summary.call_args[0][0]
+    gdelt_stats = summaries[0]
+    assert gdelt_stats.discovered >= gdelt_stats.processed
+    assert gdelt_stats.discovered == 4
+    assert gdelt_stats.processed == 4
+    assert gdelt_stats.validated == 4

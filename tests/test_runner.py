@@ -839,7 +839,7 @@ class TestRun:
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = runner.run(
+            _stats, result = runner.run(
                 num_files=1,
                 limit=1,
                 output_path=tmpdir,
@@ -1271,7 +1271,7 @@ class TestRun:
                 patch("src.GDELT.runner.clear_directory") as mock_clear,
             ):
                 seen = set()
-                result = runner.run(
+                _stats, result = runner.run(
                     num_files=1,
                     limit=2,
                     output_path=tmpdir,
@@ -1310,7 +1310,7 @@ class TestRun:
                 patch("src.GDELT.runner.clear_directory") as mock_clear,
             ):
                 seen = set()
-                result = runner.run(
+                _stats, result = runner.run(
                     num_files=1,
                     limit=1,
                     output_path=tmpdir,

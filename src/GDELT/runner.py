@@ -828,8 +828,7 @@ def run(
     raw_seeds: list[dict] | None = None,
     debug_noise: NoiseCollector | None = None,
     port: int | None = None,
-    instance_name: str | None = None,
-) -> list[dict]:
+) -> tuple[PipelineStats, list[dict]]:
     """
     Main function to run the GDELT pipeline end-to-end.
 
@@ -849,8 +848,6 @@ def run(
         raw_seeds: Raw seed dictionaries to process
         debug_noise: Optional NoiseCollector for recording rejected articles.
         port: Where to run the ollama server
-        instance_name: Name of the reporter instance bar this run writes to
-            (e.g. "Instance 1"). Defaults to the shared "GDELT" bar.
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -900,7 +897,6 @@ def run(
                 end_date=end_date,
                 cache_dir=GDELT_CACHE_DIR,
                 reporter=reporter,
-                instance_name=instance_name,
             )
         ]
 
@@ -998,7 +994,7 @@ def run(
     if local_reporter:
         reporter.summary(stats)
 
-    return records
+    return stats, records
 
 
 if __name__ == "__main__":
@@ -1115,7 +1111,7 @@ if __name__ == "__main__":
 
     seen = load_seen()
     noise = NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
-    run(
+    _stats, _records = run(
         num_files=args.num_files,
         limit=effective_limit,
         output_path=args.output_path,

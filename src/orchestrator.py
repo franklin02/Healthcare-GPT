@@ -350,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
                         use_bert=args.use_bert,
                         verbose=args.verbose,
                         reporter=reporter,
-                        stats=gdelt_stats,
+                        stats=PipelineStats("GDELT"),  
                         raw_seeds=chunk,
                         debug_noise=gdelt_noise,
                         port=port,
@@ -361,7 +361,8 @@ def main(argv: list[str] | None = None) -> int:
                     port += 1
                     n = 0
             for future in as_completed(futures):
-                future.result()
+                worker_stats, _records = future.result()
+                gdelt_stats.merge(worker_stats)
         if gdelt_noise:
             out = gdelt_noise.flush()
             if out:

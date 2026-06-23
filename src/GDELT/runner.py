@@ -429,11 +429,12 @@ def write_output_records(
 
 def process_staged_seeds(
     seeds: list[dict],
-    seen_urls_path: Path,
+    seen: set,
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     debug_noise: NoiseCollector | None = None,
+    port: int | None = None,
 ) -> list[Vulnerability]:
     """
     Process staged GDELT seeds through validation and extraction while
@@ -441,18 +442,18 @@ def process_staged_seeds(
 
     Parameters:
         seeds: The staged seed dictionaries to process.
-        seen_urls_path: The path used to load and save processed URLs.
+        seen: A set of URLs that have already been processed.
         use_bert: Whether to run a BERT pre-filter before LLM validation.
         reporter: Optional CliReporter for logging progress and details.
         stats: Optional PipelineStats for tracking processing statistics.
         debug_noise: Optional NoiseCollector for recording rejected articles.
+        port: Optional port for the LLM validation service.
 
     Returns:
         A list of vulnerabilities completed from the staged seeds.
     """
     reporter = reporter or CliReporter()
     stats = stats or PipelineStats("GDELT seed stitch")
-    seen = load_seen(seen_urls_path)
     records = []
     stats.discovered = len(seeds)
     reporter.info(f"Processing {len(seeds)} staged GDELT seeds")
@@ -473,6 +474,7 @@ def process_staged_seeds(
                 reporter=reporter,
                 stats=stats,
                 debug_noise=debug_noise,
+                port=port,
             )
             if rec:
                 persist_stage(
@@ -497,7 +499,6 @@ def process_staged_seeds(
             )
             break
 
-    save_seen(seen, seen_urls_path)
     return records
 
 
@@ -563,7 +564,7 @@ def load_staged_payloads(
 def stitch_staged_records(
     output_path: str | None = None,
     stage: str = "enriched",
-    seen_urls_file: str | None = None,
+    seen: set | None = None,
     use_bert: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
@@ -577,7 +578,7 @@ def stitch_staged_records(
     Parameters:
         output_path: Optional JSON file or directory path for the final output.
         stage: The recovery stage to stitch: seeds, validated, or enriched.
-        seen_urls_file: Optional path to the JSON file containing processed URLs.
+        seen: Optional set of URLs that have already been processed.
         use_bert: Whether to run a BERT pre-filter during seed recovery.
         reporter: Optional CliReporter for logging progress and details.
         stats: Optional PipelineStats for tracking recovery statistics.
@@ -608,15 +609,8 @@ def stitch_staged_records(
         if use_bert:
             reporter.status(_bert_status())
         ensure_raw_dirs()
-        if seen_urls_file:
-            seen_urls_path = Path(seen_urls_file)
-            if seen_urls_path.suffix.lower() != ".json":
-                seen_urls_path = seen_urls_path / "seen_urls.json"
-        else:
-            seen_urls_path = _resolve_config_path(
-                get_config_value("SEEN_URLS_FILE", None),
-                PROJECT_ROOT / "data" / "seen_urls.json",
-            )
+        if seen is None:
+            seen = load_seen()
         staged_records = _dedupe_output_records(
             load_staged_payloads("enriched", reporter=reporter, stats=stats)
             + load_staged_payloads("validated", reporter=reporter, stats=stats)
@@ -632,7 +626,7 @@ def stitch_staged_records(
         ]
         records = process_staged_seeds(
             remaining_seeds,
-            seen_urls_path=seen_urls_path,
+            seen=seen,
             use_bert=use_bert,
             reporter=reporter,
             stats=stats,
@@ -660,6 +654,7 @@ def process_seed(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     debug_noise: NoiseCollector | None = None,
+    port=None,
 ) -> Vulnerability | None:
     """
     Run a single seed through validation + extraction.
@@ -714,7 +709,7 @@ def process_seed(
     excerpt = body[:BODY_CHAR_LIMIT]
 
     is_disruption, detail = ai_check_validation(
-        title, excerpt, use_bert=use_bert, verbose=reporter.verbose
+        title, excerpt, use_bert=use_bert, verbose=reporter.verbose, port=port
     )
     LOGGER.debug(
         "LLM validation url=%s disruption=%s detail=%s", url, is_disruption, detail
@@ -768,7 +763,9 @@ def process_seed(
     LOGGER.info("Disruption confirmed url=%s subsector=%s", url, subsector)
 
     try:
-        sector_data, subsector_data_dict = extract_fields(subsector, title, excerpt)
+        sector_data, subsector_data_dict = extract_fields(
+            subsector, title, excerpt, port=port
+        )
     except MissingSubsectorFieldsError as exc:
         seen.discard(url)
         if stats is not None:
@@ -823,13 +820,14 @@ def run(
     output_path: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-    seen_urls_file: str | None = None,
+    seen: set | None = None,
     use_bert: bool = False,
     verbose: bool = False,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     raw_seeds: list[dict] | None = None,
     debug_noise: NoiseCollector | None = None,
+    port: int | None = None,
 ) -> list[dict]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -841,7 +839,7 @@ def run(
         output_path: Optional path to output JSON file or directory.
         start_date: Optional earliest date for GDELT files to include (YYYYMMDD or ISO format).
         end_date: Optional latest date for GDELT files to include (YYYYMMDD or ISO format).
-        seen_urls_file: Optional path to JSON file for storing/loading seen URLs.
+        seen: Optional set of URLs that have already been processed.
         use_bert: Whether to run a BERT pre-filter before LLM validation.
         verbose: Whether to show detailed per-article output.
         reporter: Optional CliReporter for logging progress and details.
@@ -849,6 +847,7 @@ def run(
         clean: Whether to clear modified directories and files before running.
         raw_seeds: Raw seed dictionaries to process
         debug_noise: Optional NoiseCollector for recording rejected articles.
+        port: Where to run the ollama server
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -876,16 +875,6 @@ def run(
     if use_bert:
         reporter.status(_bert_status())
 
-    if seen_urls_file:
-        seen_urls_path = Path(seen_urls_file)
-        if seen_urls_path.suffix.lower() != ".json":
-            seen_urls_path = seen_urls_path / "seen_urls.json"
-    else:
-        seen_urls_path = _resolve_config_path(
-            get_config_value("SEEN_URLS_FILE", None),
-            PROJECT_ROOT / "data" / "seen_urls.json",
-        )
-
     try:
         ensure_model_available()
     except model_unavailable_error as exc:
@@ -896,8 +885,8 @@ def run(
     ensure_raw_dirs()
     ensure_cache_dir()
 
-    # Load seen URLs once at the start
-    seen = load_seen(seen_urls_path)
+    if seen is None:
+        seen = load_seen()
 
     if raw_seeds is None:
         raw_seeds = [
@@ -944,6 +933,7 @@ def run(
                 reporter=reporter,
                 stats=stats,
                 debug_noise=debug_noise,
+                port=port,
             )
             if rec:
                 persist_stage(
@@ -976,7 +966,7 @@ def run(
             break
 
     # Save seen URLs once at the end
-    save_seen(seen, seen_urls_path)
+    save_seen(seen)
 
     LOGGER.debug(
         "Summary seeds_in=%s validated=%s skipped=%s",
@@ -1096,10 +1086,11 @@ if __name__ == "__main__":
             arg in ("-o", "--output-path") or arg.startswith("--output-path=")
             for arg in sys.argv[1:]
         )
+        seen = load_seen()
         stitch_staged_records(
             output_path=args.output_path if output_path_provided else None,
             stage=args.stitch_stage or "enriched",
-            seen_urls_file=args.seen_urls_file,
+            seen=seen,
             use_bert=args.use_bert,
             verbose=args.verbose,
         )
@@ -1119,6 +1110,7 @@ if __name__ == "__main__":
     if args.clean:
         run_clean()
 
+    seen = load_seen()
     noise = NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
     run(
         num_files=args.num_files,
@@ -1126,11 +1118,12 @@ if __name__ == "__main__":
         output_path=args.output_path,
         start_date=args.start_date,
         end_date=args.end_date,
-        seen_urls_file=args.seen_urls_file,
+        seen=seen,
         use_bert=args.use_bert,
         verbose=args.verbose,
         reporter=CliReporter(verbose=args.verbose),
         debug_noise=noise,
     )
+    save_seen(seen)
     if noise:
         noise.flush()

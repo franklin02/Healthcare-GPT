@@ -6,7 +6,6 @@ Including page fetching, validation of files, JSON and CSV outputs, and URL cons
 The shared utilities aim to simplify and streamline repetitive tasks or operations across the project.
 
 Attributes:
-    - `AI_URL`: The base URL for the AI service.
     - `AI_MODEL`: The specific model that the AI will use for processing.
     - `_PROJECT_ROOT`: Specifies the project's root directory.
     - `READY_FOR_RAG_DIR`: Directory designated for resources ready for retrieval-augmented generation (RAG).
@@ -53,6 +52,7 @@ import re
 import subprocess
 import tempfile
 import shutil
+import pandas as pd
 from pathlib import Path
 
 import requests
@@ -165,7 +165,6 @@ def get_config_date(
         return default
 
 
-AI_URL = get_config_value("AI_URL", "http://localhost:11434/api/generate")
 AI_MODEL = get_config_value("AI_MODEL", "llama3.2:latest")
 MIN_BODY_CHARS_FOR_LLM = get_config_int("MIN_BODY_CHARS_FOR_LLM", 150) or 150
 BODY_CHAR_LIMIT = get_config_int("BODY_CHAR_LIMIT", 4000) or 4000
@@ -834,7 +833,7 @@ def _run_bert(title: str, body: str, verbose: bool = False) -> str:
 
 
 def ai_check_validation(
-    title, body, use_bert=False, verbose: bool = False
+    title, body, use_bert=False, verbose: bool = False, port: int = 11434
 ) -> tuple[bool, str]:
     """
     Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach at a named healthcare entity based on strict, predefined criteria.
@@ -843,6 +842,7 @@ def ai_check_validation(
         title (str): The title of the article being analyzed.
         body (str): The main content or excerpt of the article.
         use_bert (bool): False by default, calls bert before calling the llm to save time
+        port (int): The port on which the ollama server is running
 
     Returns: A tuple:
         - A boolean indicating whether the article is flagged as a threat (True if operational disruption or confirmed breach).
@@ -956,8 +956,9 @@ def ai_check_validation(
     """
 
     try:
+        url = f"http://localhost:{port}/api/generate"
         resp = requests.post(
-            AI_URL,
+            url,
             json={
                 "model": AI_MODEL,
                 "prompt": prompt,
@@ -1057,7 +1058,7 @@ class MissingSubsectorFieldsError(ValueError):
     """Raised when a subsector has no configured extraction fields."""
 
 
-def extract_fields(subsector, title, body) -> tuple[dict, dict]:
+def extract_fields(subsector, title, body, port) -> tuple[dict, dict]:
     """Extract universal and subsector fields for a validated article.
 
     This function is called after an article classifies as a true vulnerability.
@@ -1068,6 +1069,7 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
         subsector: Subsector returned by ``ai_check_validation``.
         title: Title of the current article.
         body: Full body text of the current article.
+        port: The port on which the ollama server is running.
 
     Returns:
         A tuple with the universal ``LLM_SECTOR_FIELDS`` values first and the
@@ -1129,8 +1131,9 @@ def extract_fields(subsector, title, body) -> tuple[dict, dict]:
     """
 
     try:
+        url = f"http://localhost:{port}/api/generate"
         resp = requests.post(
-            AI_URL,
+            url,
             json={
                 "model": AI_MODEL,
                 "prompt": prompt,
@@ -1263,6 +1266,98 @@ def clear_directory(directory: Path) -> None:
                 shutil.rmtree(item)
         except Exception as exc:
             LOGGER.warning("Failed to remove %s: %s", item, exc)
+
+
+def df_dup(
+    dfs: list[pd.DataFrame], verbose: bool = False
+) -> tuple[pd.DataFrame, list[str]]:
+    """
+    Deduplicates a lits of dataframes, used to make one single csv write by scooper
+
+    Args:
+        dfs: list of dataframes with the same schema
+        verbose: prints messages when True
+    Returns:
+        One unique DataFrame a list of duplicate titles
+    """
+
+    valid_dfs = [df for df in dfs if df is not None and not df.empty]
+    if not valid_dfs:
+        if verbose:
+            print("[WARNING]: All frames were None")
+        return pd.DataFrame(), []
+
+    combined = pd.concat(valid_dfs, ignore_index=True)
+
+    key = [c for c in ("source_name", "title") if c in combined.columns]
+    if not key:
+        return combined.drop_duplicates(ignore_index=True), []
+
+    dup_titles: list[str] = []
+    if "title" in combined.columns:
+        dup_mask = combined.duplicated(subset=key, keep="first")
+        dup_titles = combined.loc[dup_mask, "title"].dropna().unique().tolist()
+
+    deduped = combined.drop_duplicates(subset=key, keep="first", ignore_index=True)
+    return deduped, dup_titles
+
+
+def update_csv(df: pd.DataFrame, path: Path, verbose: bool = False) -> None:
+    """
+    Appends a csv with a given DataFrame. This is used in scooper after calling 'df_dup'
+
+    Args:
+        df: DataFrame to append
+        path: CSV path
+        verbose: used to print messages if true
+    """
+    if df is None or df.empty:
+        if verbose:
+            print("[WARNING]df is not usable (it is empty or None)")
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    write_header = not path.exists() or path.stat().st_size == 0
+    if write_header and verbose:
+        print("Writing headers, file was empty or did not exist")
+
+    df.to_csv(
+        path,
+        mode="a",
+        header=write_header,
+        index=False,
+        date_format="%Y-%m-%d",
+    )
+
+
+def update_json(vulns: list[Vulnerability], path: str) -> None:
+    """
+    Used to write a list of Vulnerabilities into a given path
+
+    Args:
+        vulns: vulnerabilities to add to the file.
+        path: destination *.json file (created if it does not exist)
+    """
+    clean_vulns: list[Vulnerability] = []
+    seen: set[tuple[str, str]] = set()
+    for vuln in vulns:
+        inst = (vuln.title, vuln.source_name)
+        if inst in seen:
+            continue
+        seen.add(inst)
+        clean_vulns.append(vuln)
+
+    file_path = Path(path)
+
+    if file_path.exists():
+        sources = json.loads(file_path.read_text(encoding="utf-8"))["sources"]
+    else:
+        sources = []
+    sources.extend(vuln.to_dict() for vuln in clean_vulns)
+
+    with open(file_path, "w", encoding="utf-8") as json_file:
+        json.dump({"sources": sources}, json_file, indent=2, ensure_ascii=False)
 
 
 DEBUG_DIR = _PROJECT_ROOT / "data" / "noise"

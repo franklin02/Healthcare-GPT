@@ -12,6 +12,10 @@ an existing skill when a task matches its description.
 - **`create-issue`** — turn a request, bug report, or feature idea into a
   GitHub issue that matches this repo's conventions, then open it with `gh`.
   See [`.agents/skills/create-issue/SKILL.md`](.agents/skills/create-issue/SKILL.md).
+- **`find-improvement-issues`** — scan the repo for evidence-backed cleanup,
+  tech-debt, docs, test-gap, and refactor work, then draft issues spanning quick
+  fixes to deep refactors so there's work for everyone.
+  See [`.agents/skills/find-improvement-issues/SKILL.md`](.agents/skills/find-improvement-issues/SKILL.md).
 
 Discovery by agent:
 

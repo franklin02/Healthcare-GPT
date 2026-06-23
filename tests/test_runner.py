@@ -1137,6 +1137,8 @@ class TestRun:
         mock_load_seen,
         mock_save_seen,
         mock_process_seed,
+        mock_persist_raw_seeds,
+        mock_persist_stage,
     ):
         """run should skip URLs that are already in the provided seen set."""
         seen_url = "https://example.com/seen"

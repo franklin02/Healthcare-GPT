@@ -10,7 +10,7 @@ from src.cli_reporter import CliReporter, PipelineStats
 from src.shared_utils import model_unavailable_error
 import src.scrapers.scooper as scooper
 
-VALID_SUBSECTOR = "cyber_attack"
+VALID_SUBSECTOR = scooper.SUBSECTOR_FIELDS[0]
 
 
 @pytest.fixture(autouse=True)
@@ -230,7 +230,10 @@ def test_run_scooper_counts_validated_and_rejected(
     )
 
     mock_unseen_df.return_value = df
-    mock_ai_check_validation.side_effect = [(True, VALID_SUBSECTOR), (False, "No impact")]
+    mock_ai_check_validation.side_effect = [
+        (True, VALID_SUBSECTOR),
+        (False, "No impact"),
+    ]
     mock_extract_fields.return_value = ({"exec_summary": "Breach confirmed"}, {})
 
     stats, vuln_list, vuln_df, noise_df = scooper.run_scooper()

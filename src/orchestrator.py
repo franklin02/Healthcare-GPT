@@ -19,7 +19,7 @@ from concurrent.futures import as_completed
 
 from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
-from .GDELT.gdelt_seeds import backfill_cyber_seeds
+from .GDELT.gdelt_seeds import backfill_cyber_seeds, fetch_gkg_links
 from .GDELT.runner import load_seen
 from .shared_utils import (
     DEBUG_DIR,
@@ -110,6 +110,109 @@ def chunk_list(items, num_chunks):
     if chunk_size <= 0:
         return []
     return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+
+def _collect_gdelt_seeds(
+    *,
+    num_files: int,
+    start_date: str | None,
+    end_date: str | None,
+    cache_dir: Path,
+    reporter: CliReporter,
+    stats: PipelineStats,
+    seed_threads: int,
+) -> list[dict]:
+    """Collect GDELT seeds, optionally splitting work across threads.
+
+    Parameters:
+        num_files: Number of GDELT GKG files to scan.
+        start_date: Ceiling date (YYYYMMDD or YYYY-MM-DD) for articles; newer articles are skipped.
+        end_date: Floor date (YYYYMMDD or YYYY-MM-DD) for articles; crawling stops at older articles.
+        cache_dir: Directory to cache downloaded GKG files.
+        reporter: CliReporter for logging progress and warnings.
+        stats: PipelineStats for recording statistics.
+        seed_threads: Number of threads to use for seed collection.
+
+    Returns:
+        A list of candidate seed records (dicts) collected from GDELT.
+    """
+    seed_threads = max(1, seed_threads)
+    if seed_threads == 1:
+        LOGGER.debug("Collecting GDELT seeds in single-threaded mode")
+        return list(
+            backfill_cyber_seeds(
+                num_files=num_files,
+                start_date=start_date,
+                end_date=end_date,
+                cache_dir=cache_dir,
+                reporter=reporter,
+                stats=stats,
+            )
+        )
+
+    ceiling = _parse_date(start_date)
+    floor = _parse_date(end_date)
+    quiet_reporter = CliReporter(verbose=False)
+    raw_seeds: list[dict] = []
+
+    if ceiling is not None and floor is not None:
+        windows = _split_date(floor, ceiling, seed_threads)
+        with ThreadPoolExecutor(max_workers=len(windows)) as executor:
+            futures = []
+
+            # Submit tasks for each date window
+            for win_start, win_end in windows:
+                futures.append(
+                    executor.submit(
+                        backfill_cyber_seeds,
+                        num_files=num_files,
+                        start_date=win_end.strftime("%Y%m%d"),
+                        end_date=win_start.strftime("%Y%m%d"),
+                        cache_dir=cache_dir,
+                        reporter=quiet_reporter,
+                    )
+                )
+            for future in as_completed(futures):
+                raw_seeds.extend(future.result())
+
+        LOGGER.debug(
+            "Collected %d GDELT seeds across %d date windows with %d threads",
+            len(raw_seeds),
+            len(windows),
+            seed_threads,
+        )
+        return raw_seeds
+
+    links = fetch_gkg_links(
+        num_files=num_files, start_date=start_date, end_date=end_date
+    )
+    chunks = chunk_list(links, seed_threads)
+    if not chunks:
+        return []
+
+    with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
+        futures = []
+
+        # Submit tasks for each chunk of links
+        for link_chunk in chunks:
+            futures.append(
+                executor.submit(
+                    backfill_cyber_seeds,
+                    links=link_chunk,
+                    cache_dir=cache_dir,
+                    reporter=quiet_reporter,
+                )
+            )
+        for future in as_completed(futures):
+            raw_seeds.extend(future.result())
+
+    LOGGER.debug(
+        "Collected %d GDELT seeds across %d link chunks with %d threads",
+        len(raw_seeds),
+        len(chunks),
+        seed_threads,
+    )
+    return raw_seeds
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -231,6 +334,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Clear all modified directories and files before running",
     )
     parser.add_argument(
+        "--gdelt-seed-threads",
+        type=int,
+        default=get_config_int("GDELT_SEED_THREADS", 1),
+        help="Number of threads to use for GDELT seed collection (default: 1)",
+    )
+    parser.add_argument(
         "--models",
         type=int,
         default=get_config_int("MODELS", 1),
@@ -294,17 +403,15 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.info("Running GDELT pipeline with args: %s", args)
         if args.clean:
             run_clean()
-        raw_seeds = [
-            seed
-            for seed in backfill_cyber_seeds(
-                num_files=args.num_files,
-                start_date=args.start_date,
-                end_date=args.end_date,
-                cache_dir=GDELT_CACHE_DIR,
-                reporter=reporter,
-                stats=gdelt_stats,
-            )
-        ]
+        raw_seeds = _collect_gdelt_seeds(
+            num_files=args.num_files,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            cache_dir=GDELT_CACHE_DIR,
+            reporter=reporter,
+            stats=gdelt_stats,
+            seed_threads=args.gdelt_seed_threads,
+        )
         LOGGER.info(
             f"Seed collection complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
         )

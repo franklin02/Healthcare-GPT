@@ -964,7 +964,7 @@ class TestRun:
         caller_seen = {"https://example.com/already-seen"}
         mock_backfill_cyber_seeds.return_value = []
 
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory():
             runner.run(
                 num_files=1,
                 limit=1,
@@ -1142,17 +1142,22 @@ class TestRun:
         seen_url = "https://example.com/seen"
         new_url = "https://example.com/new"
         caller_seen = {seen_url}
-        
+
         mock_backfill_cyber_seeds.return_value = [
             {"url": seen_url, "source": "test"},
-            {"url": new_url, "source": "test"}
+            {"url": new_url, "source": "test"},
         ]
-        
+
         def fake_process_seed(seed, seen, *args, **kwargs):
             if seed["url"] in seen:
                 return None
             seen.add(seed["url"])
-            return _make_vuln(id_value="new_id", direct_link=seed["url"], source_name="test", title="New")
+            return _make_vuln(
+                id_value="new_id",
+                direct_link=seed["url"],
+                source_name="test",
+                title="New",
+            )
 
         mock_process_seed.side_effect = fake_process_seed
 

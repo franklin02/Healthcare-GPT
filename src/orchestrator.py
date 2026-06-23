@@ -57,8 +57,7 @@ def _split_date(
     """
     if end > start:
         LOGGER.debug("date range given oldest-first; normalizing %s..%s", start, end)
-        start = max(start, end)
-        end = min(start, end)
+        start, end = end, start
 
     num_days = (start - end).days + 1  # inclusive day count
 
@@ -150,39 +149,13 @@ def _collect_gdelt_seeds(
             )
         )
 
-    ceiling = _parse_date(start_date)
-    floor = _parse_date(end_date)
     quiet_reporter = CliReporter(verbose=False)
     raw_seeds: list[dict] = []
 
-    if ceiling is not None and floor is not None:
-        windows = _split_date(floor, ceiling, seed_threads)
-        with ThreadPoolExecutor(max_workers=len(windows)) as executor:
-            futures = []
-
-            # Submit tasks for each date window
-            for win_start, win_end in windows:
-                futures.append(
-                    executor.submit(
-                        backfill_cyber_seeds,
-                        num_files=num_files,
-                        start_date=win_end.strftime("%Y%m%d"),
-                        end_date=win_start.strftime("%Y%m%d"),
-                        cache_dir=cache_dir,
-                        reporter=quiet_reporter,
-                    )
-                )
-            for future in as_completed(futures):
-                raw_seeds.extend(future.result())
-
-        LOGGER.debug(
-            "Collected %d GDELT seeds across %d date windows with %d threads",
-            len(raw_seeds),
-            len(windows),
-            seed_threads,
-        )
-        return raw_seeds
-
+    # Resolve the concrete GKG file list for either a date range or a recent
+    # file count, then split that list across threads. Splitting by file (not
+    # by calendar day) honors seed_threads even when the requested date range
+    # spans fewer days than threads.
     links = fetch_gkg_links(
         num_files=num_files, start_date=start_date, end_date=end_date
     )

@@ -12,17 +12,16 @@ import datetime
 import math
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 
-from .cli_reporter import CliReporter, InstanceSpec, PipelineStats
+from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
 from .GDELT.gdelt_seeds import backfill_cyber_seeds
 from .GDELT.runner import load_seen
 from .shared_utils import (
-    AI_MODEL,
-    AI_URL,
     DEBUG_DIR,
     NoiseCollector,
     ensure_model_available,
@@ -42,19 +41,41 @@ LOGGER = get_file_logger(__name__, LOG_FILE)
 
 
 def _split_date(
-    start: datetime.date, end: datetime.date
+    start: datetime.date, end: datetime.date, k: int
 ) -> list[tuple[datetime.date, datetime.date]]:
     """
-    Dummy function to split date into K parts. This needs to be rewritten later.
-    Team hasnt discussed the best/desired way to split dates. Not documenting on purpose
+    Splits the date into K parts, where K is the number of threads
+    NOTE: only used when both dates are passed into scooper
+
+    Args:
+        start:
+        end:
+        k: Number of threads
+
+    Returns:
+        Start-End window / Number of threads
     """
     if end > start:
-        raise ValueError("dates are backwards")
+        LOGGER.debug("date range given oldest-first; normalizing %s..%s", start, end)
+        start = max(start, end)
+        end = min(start, end)
 
-    half = (end - start) // 2
-    mid = start + half
+    num_days = (start - end).days + 1  # inclusive day count
 
-    return [(start, mid), (mid - datetime.timedelta(days=1), end)]
+    k = max(1, min(k, num_days))
+    base, extra = divmod(num_days, k)
+
+    windows: list[tuple[datetime.date, datetime.date]] = []
+    cursor = end
+    for i in range(k):
+        size = base + (1 if i < extra else 0)
+        window_end = cursor
+        window_start = cursor + datetime.timedelta(days=size - 1)
+        windows.append((window_start, window_end))
+        cursor = window_start + datetime.timedelta(days=1)
+
+    windows.reverse()
+    return windows
 
 
 def _parse_date(s: str | None) -> datetime.date | None:
@@ -68,18 +89,6 @@ def _parse_date(s: str | None) -> datetime.date | None:
             continue
     LOGGER.warning("Could not parse date %r; ignoring for HTML engine", s)
     return None
-
-
-def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
-    """Return whether any CLI option was supplied, including --option=value."""
-    LOGGER.debug(
-        "Checking if any of options %s were provided in args: %s", options, raw_args
-    )
-    return any(
-        arg == option or arg.startswith(f"{option}=")
-        for arg in raw_args
-        for option in options
-    )
 
 
 def chunk_list(items, num_chunks):
@@ -254,40 +263,21 @@ def main(argv: list[str] | None = None) -> int:
     reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
 
-    run_gdelt = not args.skip_gdelt
-    run_html = not args.skip_html
-
-    # Plan the reporter's bar layout up front, before any work starts.
-    #
-    # Instance bars: GDELT fans out into (models * threads_per_model) worker
-    # threads that run concurrently, and each worker gets its own sticky bar.
-    # This count mirrors `threads` in the GDELT loop below. HTML runs as one
-    # flow, so an HTML-only run needs a single bar.
-    gdelt_workers = max(1, args.models) * max(1, args.threads_per_model)
-    instance_count = gdelt_workers if run_gdelt else 1
-
-    # Overall bar: one unit of progress per pipeline phase that will actually
-    # run. Each phase calls reporter.advance_overall(1) when it completes, so
-    # len(phases) is the overall bar's total.
-    phases = (["GDELT"] if run_gdelt else []) + (["HTML"] if run_html else [])
-
-    # Build the bars (and require the LLM) only when something will run.
-    if phases:
+    if not (args.skip_gdelt and args.skip_html):
         try:
             ensure_model_available()
         except model_unavailable_error as exc:
             LOGGER.error("Model availability check failed: %s", exc)
             print(exc, file=sys.stderr)
             return 1
-        reporter.build_instances(
-            [
-                InstanceSpec(f"Instance {i + 1}", model=AI_MODEL, endpoint=AI_URL)
-                for i in range(instance_count)
-            ],
-            model_label=AI_MODEL,
-        )
-        reporter.set_overall_total(len(phases))
+
+    # Overall progress bar: one unit of work per pipeline phase that will run.
+    phases = int(not args.skip_gdelt) + int(not args.skip_html)
+    if phases:
+        reporter.set_overall_total(phases)
         reporter.set_overall_step("Initializing")
+
+    threads = max(1, args.models) * max(1, args.threads_per_model)
 
     if not args.skip_gdelt:
         import src.GDELT.runner as runner
@@ -307,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         gdelt_stats = PipelineStats("GDELT")
         reporter.phase("Running GDELT pipeline")
+        reporter.set_overall_step("GDELT")
         LOGGER.info("Running GDELT pipeline with args: %s", args)
         if args.clean:
             run_clean()
@@ -319,7 +310,6 @@ def main(argv: list[str] | None = None) -> int:
                 cache_dir=GDELT_CACHE_DIR,
                 reporter=reporter,
                 stats=gdelt_stats,
-                instance_name="Instance 1",
             )
         ]
         LOGGER.info(
@@ -331,8 +321,6 @@ def main(argv: list[str] | None = None) -> int:
             exit(0)
 
         seen = load_seen(args.seen_urls_file)
-        reporter.set_overall_step("GDELT")
-        threads = max(1, args.models) * max(1, args.threads_per_model)
         chunks = chunk_list(raw_seeds, threads)
         port = args.starting_port
         if not chunks:
@@ -341,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
         with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = []
             n = 0
-            for i, chunk in enumerate(chunks):
+            for chunk in chunks:
                 futures.append(
                     executor.submit(
                         runner.run,
@@ -358,7 +346,6 @@ def main(argv: list[str] | None = None) -> int:
                         raw_seeds=chunk,
                         debug_noise=gdelt_noise,
                         port=port,
-                        instance_name=f"Instance {i + 1}",
                     )
                 )
                 n += 1
@@ -392,34 +379,44 @@ def main(argv: list[str] | None = None) -> int:
         reporter.set_overall_step("HTML")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
 
-        scooper.setup_scooper(sb_only=args.sb_only, reporter=reporter)
+        scooper.setup_scooper(sb_only=args.sb_only)
         vuln_dfs: list[pd.DataFrame] = []
         noise_dfs: list[pd.DataFrame] = []
 
         # K split — one scooper instance per date window, run in parallel.
-        if args.start_date is not None and args.end_date is not None:
+        start_date = _parse_date(args.start_date)
+        end_date = _parse_date(args.end_date)
+        if start_date is not None and end_date is not None:
             dates: list[tuple[datetime.date, datetime.date]] = _split_date(
-                _parse_date(args.start_date), _parse_date(args.end_date)
+                end_date, start_date, threads
             )
 
-            def _run_window(
-                window: tuple[datetime.date, datetime.date],
-            ) -> tuple[PipelineStats, list, pd.DataFrame, pd.DataFrame]:
-                start, end = window
-                return scooper.run_scooper(
-                    use_bert=args.use_bert,
-                    verbose=args.verbose,
-                    start_date=start,
-                    end_date=end,
-                    reporter=reporter,
-                    stats=PipelineStats(
-                        "HTML"
-                    ),  # each thread gets its own instance (for now?)
-                    sb_only=args.sb_only,
-                )
-
+            # One scooper instance per date window
+            port = args.starting_port
+            results = []
             with ThreadPoolExecutor(max_workers=len(dates)) as executor:
-                results = list(executor.map(_run_window, dates))
+                futures = []
+                n = 0
+                for win_start, win_end in dates:
+                    futures.append(
+                        executor.submit(
+                            scooper.run_scooper,
+                            use_bert=args.use_bert,
+                            verbose=args.verbose,
+                            start_date=win_start,
+                            end_date=win_end,
+                            reporter=reporter,
+                            stats=PipelineStats("HTML"),  # per-window; merged below
+                            sb_only=args.sb_only,
+                            port=port,
+                        )
+                    )
+                    n += 1
+                    if n == args.threads_per_model:
+                        port += 1
+                        n = 0
+                for future in as_completed(futures):
+                    results.append(future.result())
 
             vuln_lists: list = []
             for window_stats, w_vuln_list, v_df, n_df in results:
@@ -435,8 +432,8 @@ def main(argv: list[str] | None = None) -> int:
             html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
                 use_bert=args.use_bert,
                 verbose=args.verbose,
-                start_date=_parse_date(args.start_date),
-                end_date=_parse_date(args.end_date),
+                start_date=_parse_date(args.end_date),  # swapped here
+                end_date=_parse_date(args.start_date),  # swapped here
                 reporter=reporter,
                 stats=html_stats,
                 sb_only=args.sb_only,
@@ -453,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
             reporter.summary(summaries)
             LOGGER.info("HTML scraper paused; skipping remaining pipelines")
             return 0
+
         LOGGER.info(
             f"HTML/Scooper processing complete in {(time.time() - html_start) / 60:.2f} minutes"
         )

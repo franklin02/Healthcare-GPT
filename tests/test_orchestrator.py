@@ -139,8 +139,8 @@ def test_orchestrator_skips_model_check_when_all_model_pipelines_are_skipped():
     mock_model_check.assert_not_called()
 
 
-def test_orchestrator_builds_single_instance_and_tracks_units():
-    """Default runs declare one instance and step the overall bar per unit."""
+def test_orchestrator_tracks_overall_progress_by_phase():
+    """The overall bar counts one unit of work per pipeline phase that runs."""
     with (
         patch("src.orchestrator.ensure_model_available"),
         patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
@@ -151,7 +151,6 @@ def test_orchestrator_builds_single_instance_and_tracks_units():
             return_value=(PipelineStats("HTML"), [], None, None),
         ),
         patch("src.scrapers.scooper.save_results"),
-        patch("src.cli_reporter.CliReporter.build_instances") as mock_build,
         patch("src.cli_reporter.CliReporter.set_overall_total") as mock_total,
         patch("src.cli_reporter.CliReporter.set_overall_step") as mock_step,
         patch("src.cli_reporter.CliReporter.advance_overall") as mock_advance,
@@ -160,11 +159,7 @@ def test_orchestrator_builds_single_instance_and_tracks_units():
         result = orchestrator.main([])
 
     assert result == 0
-    # Single instance until #181 lands.
-    specs = mock_build.call_args.args[0]
-    assert len(specs) == 1
-    assert specs[0].name == "Instance 1"
-    # The overall bar counts units of work by pipeline phase: GDELT + HTML.
+    # GDELT + HTML both run, so the overall bar has two phase units.
     mock_total.assert_called_once_with(2)
     steps = [call.args[0] for call in mock_step.call_args_list]
     assert steps == ["Initializing", "GDELT", "HTML"]

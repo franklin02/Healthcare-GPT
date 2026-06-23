@@ -1164,7 +1164,7 @@ class TestRun:
         mock_process_seed.side_effect = fake_process_seed
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = runner.run(
+            _stats, result = runner.run(
                 num_files=1,
                 limit=2,
                 seen=caller_seen,
@@ -1258,7 +1258,7 @@ class TestRun:
                 mock_backfill_cyber_seeds.return_value = seeds
                 mock_process_seed.side_effect = [first_record, KeyboardInterrupt]
                 mock_clear = mock_clear_directory
-                result = runner.run(
+                _stats, result = runner.run(
                     num_files=1,
                     limit=2,
                     output_path=tmpdir,
@@ -1297,7 +1297,7 @@ class TestRun:
                 mock_backfill_cyber_seeds.return_value = seeds
                 mock_process_seed.side_effect = KeyboardInterrupt
                 mock_clear = mock_clear_directory
-                result = runner.run(
+                _stats, result = runner.run(
                     num_files=1,
                     limit=1,
                     output_path=tmpdir,

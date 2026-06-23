@@ -1,7 +1,20 @@
 from unittest.mock import Mock, patch
 import io
 import zipfile
+import pytest
 import src.GDELT.gdelt_seeds as gdelt_seeds
+
+
+@pytest.fixture
+def mock_get():
+    with patch("src.GDELT.gdelt_seeds.requests.get") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_process():
+    with patch("src.GDELT.gdelt_seeds.process_gkg_file") as mock:
+        yield mock
 
 
 class TestIsUsLocated:
@@ -300,7 +313,6 @@ class TestNormalizeDateBound:
 class TestProcessGkgFile:
     """Tests for process_gkg_file function."""
 
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_successful_processing(self, mock_get):
         """Should successfully process a valid GKG file."""
         # Create mock CSV content
@@ -325,7 +337,6 @@ class TestProcessGkgFile:
         assert isinstance(seeds, list)
         assert total > 0
 
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_download_failed(self, mock_get):
         """Should return empty list on download failure."""
         mock_get.side_effect = Exception("Network error")
@@ -335,7 +346,6 @@ class TestProcessGkgFile:
         assert seeds == []
         assert total == 0
 
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_insufficient_columns(self, mock_get):
         """Should skip file with insufficient columns."""
         csv_content = "1\t2\t3\t4\t5\n"  # Only 5 columns, need 16
@@ -358,8 +368,6 @@ class TestProcessGkgFile:
 class TestBackfillCyberSeeds:
     """Tests for backfill_cyber_seeds function."""
 
-    @patch("src.GDELT.gdelt_seeds.process_gkg_file")
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_successful_backfill(self, mock_get, mock_process):
         """Should successfully backfill seeds."""
         # Mock master file list
@@ -391,8 +399,6 @@ class TestBackfillCyberSeeds:
         mock_get.assert_called()
         mock_process.assert_called()
 
-    @patch("src.GDELT.gdelt_seeds.process_gkg_file")
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_date_range_filtering(self, mock_get, mock_process):
         """Should filter by date range."""
         master_list = (
@@ -419,7 +425,6 @@ class TestBackfillCyberSeeds:
 class TestProcessGkgFileFilters:
     """Tests for filter logic in process_gkg_file."""
 
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_subsector_and_noise_filter(self, mock_get):
         """Should filter by subsector themes and exclude noise."""
         csv_content = (
@@ -445,7 +450,6 @@ class TestProcessGkgFileFilters:
         assert len(seeds) == 1
         assert "CYBER_ATTACK" in seeds[0]["themes"]
 
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_all_subsector_seeds_include_detected_subsectors(self, mock_get):
         """subsector=all seeds should preserve all GDELT-detected subsectors."""
         csv_content = (
@@ -474,7 +478,6 @@ class TestProcessGkgFileFilters:
             "cyber_attack",
         ]
 
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_us_location_filter(self, mock_get):
         """Should filter by US location."""
         csv_content = (
@@ -500,7 +503,6 @@ class TestProcessGkgFileFilters:
         assert len(seeds) == 1
         assert seeds[0]["source"] == "BBC"
 
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_all_rows_filtered_by_theme(self, mock_get):
         """Should return empty when all rows filtered by theme filter."""
         csv_content = (
@@ -525,7 +527,6 @@ class TestProcessGkgFileFilters:
         assert total == 2
         assert len(seeds) == 0
 
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_all_rows_filtered_by_location(self, mock_get):
         """Should return empty when all rows filtered by location filter."""
         csv_content = (
@@ -551,7 +552,6 @@ class TestProcessGkgFileFilters:
         assert total == 2
         assert len(seeds) == 0
 
-    @patch("src.GDELT.gdelt_seeds.requests.get")
     def test_all_rows_filtered_by_url_quality(self, mock_get):
         """Should return empty when all rows filtered by URL quality filter."""
         csv_content = (

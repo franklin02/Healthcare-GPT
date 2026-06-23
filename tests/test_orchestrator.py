@@ -90,9 +90,7 @@ def test_orchestrator_forwards_verbose_to_gdelt_runner(
     with (
         patch("src.orchestrator.ensure_model_available"),
         patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
-        patch(
-            "src.GDELT.runner.run", return_value=(PipelineStats("GDELT"), [])
-        ) as mock_run,
+        patch("src.GDELT.runner.run", return_value=(PipelineStats("GDELT"), [])),
         patch("src.cli_reporter.CliReporter.summary"),
     ):
         result = orchestrator.main(["--skip-html", "--verbose"])
@@ -139,9 +137,7 @@ def test_orchestrator_detects_equals_style_gdelt_options(
     with (
         patch("src.orchestrator.ensure_model_available"),
         patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
-        patch(
-            "src.GDELT.runner.run", return_value=(PipelineStats("GDELT"), [])
-        ) as mock_run,
+        patch("src.GDELT.runner.run", return_value=(PipelineStats("GDELT"), [])),
         patch("src.cli_reporter.CliReporter.summary"),
     ):
         result = orchestrator.main(["--skip-html", "--num-files=5"])
@@ -226,7 +222,7 @@ def test_orchestrator_skips_model_check_when_all_model_pipelines_are_skipped(
     result = orchestrator.main(["--skip-gdelt", "--skip-html"])
 
     assert result == 0
-    mock_model_check.assert_not_called()
+    mock_ensure_model_available.assert_not_called()
 
 
 def test_orchestrator_gdelt_multi_worker_stats_merge_correctly():

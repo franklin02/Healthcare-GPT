@@ -12,8 +12,10 @@ import datetime
 import math
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
+import pandas as pd
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 
 from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
@@ -27,14 +29,53 @@ from .shared_utils import (
     get_config_int,
     get_config_value,
     model_unavailable_error,
+    run_clean,
 )
-from scripts.clean_gdelt import run_clean
+# from scripts.clean_gdelt import run_clean
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GDELT_CACHE_DIR = _PROJECT_ROOT / "data" / "gdelt_cache"
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
+
+
+def _split_date(
+    start: datetime.date, end: datetime.date, k: int
+) -> list[tuple[datetime.date, datetime.date]]:
+    """
+    Splits the date into K parts, where K is the number of threads
+    NOTE: only used when both dates are passed into scooper
+
+    Args:
+        start:
+        end:
+        k: Number of threads
+
+    Returns:
+        Start-End window / Number of threads
+    """
+    if end > start:
+        LOGGER.debug("date range given oldest-first; normalizing %s..%s", start, end)
+        start = max(start, end)
+        end = min(start, end)
+
+    num_days = (start - end).days + 1  # inclusive day count
+
+    k = max(1, min(k, num_days))
+    base, extra = divmod(num_days, k)
+
+    windows: list[tuple[datetime.date, datetime.date]] = []
+    cursor = end
+    for i in range(k):
+        size = base + (1 if i < extra else 0)
+        window_end = cursor
+        window_start = cursor + datetime.timedelta(days=size - 1)
+        windows.append((window_start, window_end))
+        cursor = window_start + datetime.timedelta(days=1)
+
+    windows.reverse()
+    return windows
 
 
 def _parse_date(s: str | None) -> datetime.date | None:
@@ -48,18 +89,6 @@ def _parse_date(s: str | None) -> datetime.date | None:
             continue
     LOGGER.warning("Could not parse date %r; ignoring for HTML engine", s)
     return None
-
-
-def _option_provided(raw_args: list[str], options: tuple[str, ...]) -> bool:
-    """Return whether any CLI option was supplied, including --option=value."""
-    LOGGER.debug(
-        "Checking if any of options %s were provided in args: %s", options, raw_args
-    )
-    return any(
-        arg == option or arg.startswith(f"{option}=")
-        for arg in raw_args
-        for option in options
-    )
 
 
 def chunk_list(items, num_chunks):
@@ -242,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
             print(exc, file=sys.stderr)
             return 1
 
+    threads = max(1, args.models) * max(1, args.threads_per_model)
+
     if not args.skip_gdelt:
         import src.GDELT.runner as runner
 
@@ -283,7 +314,6 @@ def main(argv: list[str] | None = None) -> int:
             exit(0)
 
         seen = load_seen(args.seen_urls_file)
-        threads = max(1, args.models) * max(1, args.threads_per_model)
         chunks = chunk_list(raw_seeds, threads)
         port = args.starting_port
         if not chunks:
@@ -336,40 +366,81 @@ def main(argv: list[str] | None = None) -> int:
         import src.scrapers.scooper as scooper
 
         html_start = time.time()
-        html_noise = (
-            NoiseCollector(DEBUG_DIR / "debug_noise_html.json") if args.debug else None
-        )
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
-        for site in scooper.HTML_SITES:
-            site_stats = scooper.run_html_scraper(
-                site,
+
+        scooper.setup_scooper(sb_only=args.sb_only)
+        vuln_dfs: list[pd.DataFrame] = []
+        noise_dfs: list[pd.DataFrame] = []
+
+        # K split — one scooper instance per date window, run in parallel.
+        start_date = _parse_date(args.start_date)
+        end_date = _parse_date(args.end_date)
+        if start_date is not None and end_date is not None:
+            dates: list[tuple[datetime.date, datetime.date]] = _split_date(
+                end_date, start_date, threads
+            )
+
+            # One scooper instance per date window
+            port = args.starting_port
+            results = []
+            with ThreadPoolExecutor(max_workers=len(dates)) as executor:
+                futures = []
+                n = 0
+                for win_start, win_end in dates:
+                    futures.append(
+                        executor.submit(
+                            scooper.run_scooper,
+                            use_bert=args.use_bert,
+                            verbose=args.verbose,
+                            start_date=win_start,
+                            end_date=win_end,
+                            reporter=reporter,
+                            stats=PipelineStats("HTML"),  # per-window; merged below
+                            sb_only=args.sb_only,
+                            port=port,
+                        )
+                    )
+                    n += 1
+                    if n == args.threads_per_model:
+                        port += 1
+                        n = 0
+                for future in as_completed(futures):
+                    results.append(future.result())
+
+            vuln_lists: list = []
+            for window_stats, w_vuln_list, v_df, n_df in results:
+                html_stats.merge(window_stats)
+                vuln_dfs.append(v_df)
+                noise_dfs.append(n_df)
+                vuln_lists.extend(w_vuln_list)
+
+            scooper.save_results(vuln_lists, vuln_dfs, noise_dfs, sb_only=args.sb_only)
+        # Default: one thread per site. run_scooper fans out internally and
+        # returns frames merged across sites (disjoint); we persist them here.
+        else:
+            html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
                 use_bert=args.use_bert,
                 verbose=args.verbose,
-                start_date=_parse_date(args.start_date),
-                end_date=_parse_date(args.end_date),
-                sb_only=args.sb_only,
+                start_date=_parse_date(args.end_date),  # swapped here
+                end_date=_parse_date(args.start_date),  # swapped here
                 reporter=reporter,
-                stats=PipelineStats(site["name"]),
-                debug_noise=html_noise,
+                stats=html_stats,
+                sb_only=args.sb_only,
+                site_split=True,
             )
-            html_stats.merge(site_stats)
-            if site_stats.paused:
-                summaries.append(html_stats)
-                if html_noise:
-                    out = html_noise.flush()
-                    if out:
-                        reporter.info(f"Debug noise (HTML): {out}")
-                reporter.info("HTML scraper paused; skipping remaining pipelines.")
-                reporter.summary(summaries)
-                LOGGER.info("HTML scraper paused; skipping remaining pipelines")
-                return 0
-        if html_noise:
-            out = html_noise.flush()
-            if out:
-                reporter.info(f"Debug noise (HTML): {out}")
+            scooper.save_results(vuln_list, [v_df], [n_df], sb_only=args.sb_only)
+
+        # TODO: thread per cite implemented here
+
         summaries.append(html_stats)
+        if html_stats.paused:
+            reporter.info("HTML scraper paused; skipping remaining pipelines.")
+            reporter.summary(summaries)
+            LOGGER.info("HTML scraper paused; skipping remaining pipelines")
+            return 0
+
         LOGGER.info(
             f"HTML/Scooper processing complete in {(time.time() - html_start) / 60:.2f} minutes"
         )

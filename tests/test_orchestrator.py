@@ -251,3 +251,98 @@ def test_orchestrator_gdelt_multi_worker_stats_merge_correctly(
     assert gdelt_stats.discovered == 4
     assert gdelt_stats.processed == 4
     assert gdelt_stats.validated == 4
+
+
+def test_dedupe_seeds_preserves_first_seen_order():
+    seeds = [
+        {"url": "https://a.example", "file": "1"},
+        {"url": "https://b.example", "file": "2"},
+        {"url": "https://a.example", "file": "3"},
+    ]
+    assert orchestrator._dedupe_seeds(seeds) == [
+        {"url": "https://a.example", "file": "1"},
+        {"url": "https://b.example", "file": "2"},
+    ]
+
+
+def test_collect_gdelt_seeds_splits_date_range_across_threads():
+    with (
+        patch("src.orchestrator.backfill_cyber_seeds") as mock_backfill,
+        patch("src.orchestrator._split_date") as mock_split,
+    ):
+        mock_split.return_value = [
+            (datetime.date(2026, 1, 16), datetime.date(2026, 1, 1)),
+            (datetime.date(2026, 1, 31), datetime.date(2026, 1, 17)),
+        ]
+        mock_backfill.side_effect = [
+            [{"url": "https://a.example"}],
+            [{"url": "https://b.example"}],
+        ]
+        reporter = CliReporter(verbose=False)
+        result = orchestrator._collect_gdelt_seeds(
+            num_files=2,
+            start_date="2026-01-31",
+            end_date="2026-01-01",
+            cache_dir=orchestrator.GDELT_CACHE_DIR,
+            reporter=reporter,
+            stats=PipelineStats("GDELT"),
+            seed_threads=2,
+        )
+
+    assert result == [
+        {"url": "https://a.example"},
+        {"url": "https://b.example"},
+    ]
+    assert mock_backfill.call_count == 2
+    mock_split.assert_called_once_with(
+        datetime.date(2026, 1, 1),
+        datetime.date(2026, 1, 31),
+        2,
+    )
+    assert mock_backfill.call_args_list[0].kwargs["start_date"] == "20260101"
+    assert mock_backfill.call_args_list[0].kwargs["end_date"] == "20260116"
+    assert mock_backfill.call_args_list[1].kwargs["start_date"] == "20260117"
+    assert mock_backfill.call_args_list[1].kwargs["end_date"] == "20260131"
+
+
+def test_collect_gdelt_seeds_chunks_links_without_full_date_range():
+    with (
+        patch("src.orchestrator.fetch_gkg_links", return_value=["a", "b", "c", "d"]),
+        patch("src.orchestrator.backfill_cyber_seeds") as mock_backfill,
+    ):
+        mock_backfill.side_effect = [
+            [{"url": "https://a.example"}],
+            [{"url": "https://b.example"}],
+        ]
+        reporter = CliReporter(verbose=False)
+        result = orchestrator._collect_gdelt_seeds(
+            num_files=4,
+            start_date=None,
+            end_date=None,
+            cache_dir=orchestrator.GDELT_CACHE_DIR,
+            reporter=reporter,
+            stats=PipelineStats("GDELT"),
+            seed_threads=2,
+        )
+
+    assert result == [
+        {"url": "https://a.example"},
+        {"url": "https://b.example"},
+    ]
+    assert mock_backfill.call_count == 2
+    assert mock_backfill.call_args_list[0].kwargs["links"] == ["a", "b"]
+    assert mock_backfill.call_args_list[1].kwargs["links"] == ["c", "d"]
+
+
+def test_orchestrator_uses_gdelt_seed_threads_argument():
+    with (
+        patch("src.orchestrator.ensure_model_available"),
+        patch("src.orchestrator.get_config_bool", side_effect=lambda _, d=False: d),
+        patch("src.orchestrator._collect_gdelt_seeds", return_value=[]) as mock_collect,
+        patch("src.GDELT.runner.run"),
+        patch("src.cli_reporter.CliReporter.summary"),
+    ):
+        result = orchestrator.main(["--skip-html", "--gdelt-seed-threads=3"])
+
+    assert result == 0
+    assert mock_collect.call_args.kwargs["seed_threads"] == 3

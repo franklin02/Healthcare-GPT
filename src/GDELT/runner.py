@@ -997,7 +997,8 @@ def run(
         reporter.detail(f"Source: {rec.source_name}")
         reporter.detail(f"Fields: {rec.subsector_data}")
 
-    write_output_records(records, output_path, reporter, stats)
+    if local_reporter or output_path is not None:
+        write_output_records(records, output_path, reporter, stats)
 
     if stats.paused:
         reporter.detail(f"Preserved seed staging directory: {SEEDS_DIR}")

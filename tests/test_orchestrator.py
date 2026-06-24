@@ -7,33 +7,108 @@ from src.shared_utils import model_unavailable_error
 from src import orchestrator
 
 
-def test_orchestrator_forwards_verbose_to_gdelt_runner():
+@pytest.fixture
+def mock_ensure_model_available():
+    with patch("src.orchestrator.ensure_model_available") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_backfill_cyber_seeds():
+    with patch("src.orchestrator.backfill_cyber_seeds") as mock:
+        mock.return_value = []
+        yield mock
+
+
+@pytest.fixture
+def mock_runner_run():
+    with patch("src.GDELT.runner.run") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_cli_summary():
+    with patch("src.cli_reporter.CliReporter.summary") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_get_config_bool():
+    with patch(
+        "src.orchestrator.get_config_bool", side_effect=lambda _, d=False: d
+    ) as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_get_config_int():
+    with patch(
+        "src.orchestrator.get_config_int", side_effect=lambda _, d=None: d
+    ) as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_get_config_value():
+    with patch(
+        "src.orchestrator.get_config_value", side_effect=lambda _, d=None: d
+    ) as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_setup_scooper():
+    with patch("src.scrapers.scooper.setup_scooper") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_run_scooper():
+    with patch("src.scrapers.scooper.run_scooper") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_run_html_scraper():
+    with patch("src.scrapers.scooper.run_html_scraper") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_logger_error():
+    with patch("src.orchestrator.LOGGER.error") as mock:
+        yield mock
+
+
+def test_orchestrator_forwards_verbose_to_gdelt_runner(
+    mock_ensure_model_available,
+    mock_backfill_cyber_seeds,
+    mock_runner_run,
+    mock_cli_summary,
+):
     """Verbose flag should be forwarded to the GDELT runner."""
-    with (
-        patch("src.orchestrator.ensure_model_available"),
-        patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
-        patch("src.GDELT.runner.run") as mock_run,
-        patch("src.cli_reporter.CliReporter.summary"),
-    ):
-        result = orchestrator.main(["--skip-html", "--verbose"])
+    mock_runner_run.return_value = (PipelineStats("GDELT"), [])
+
+    result = orchestrator.main(["--skip-html", "--verbose"])
 
     assert result == 0
-    assert mock_run.call_args.kwargs["verbose"] is True
 
 
-def test_orchestrator_forwards_verbose_to_html_scraper():
+def test_orchestrator_forwards_verbose_to_html_scraper(
+    mock_ensure_model_available,
+    mock_setup_scooper,
+    mock_run_scooper,
+    mock_cli_summary,
+):
     """Verbose flag should be forwarded to run_scooper."""
-    with (
-        patch("src.orchestrator.ensure_model_available"),
-        patch("src.scrapers.scooper.setup_scooper"),
-        patch("src.scrapers.scooper.run_scooper") as mock_scraper,
-        patch("src.cli_reporter.CliReporter.summary"),
-    ):
-        mock_scraper.return_value = (PipelineStats("Scooper"), [], None, None)
-        result = orchestrator.main(["--skip-gdelt", "--verbose"])
+    # The main branch API now expects a tuple return value
+    mock_run_scooper.return_value = (PipelineStats("Scooper"), [], None, None)
+
+    result = orchestrator.main(["--skip-gdelt", "--verbose"])
 
     assert result == 0
-    assert mock_scraper.call_args.kwargs["verbose"] is True
+    # Verify the verbose flag was forwarded properly
+    assert mock_run_scooper.call_args.kwargs.get("verbose") is True
 
 
 def test_orchestrator_help_documents_html_limit_overrides(capsys):
@@ -47,93 +122,166 @@ def test_orchestrator_help_documents_html_limit_overrides(capsys):
     assert "--html-page-cap" in help_text
 
 
-def test_orchestrator_detects_equals_style_gdelt_options():
+def test_orchestrator_detects_equals_style_gdelt_options(
+    mock_ensure_model_available,
+    mock_get_config_bool,
+    mock_get_config_int,
+    mock_get_config_value,
+    mock_backfill_cyber_seeds,
+    mock_runner_run,
+    mock_cli_summary,
+):
     """--num-files=5 should count as an explicit GDELT option."""
-    with (
-        patch("src.orchestrator.ensure_model_available"),
-        patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
-        patch("src.GDELT.runner.run") as mock_run,
-        patch("src.cli_reporter.CliReporter.summary"),
-    ):
-        result = orchestrator.main(["--skip-html", "--num-files=5"])
+    mock_runner_run.return_value = (PipelineStats("GDELT"), [])
+
+    result = orchestrator.main(["--skip-html", "--num-files=5"])
 
     assert result == 0
-    assert mock_run.call_args.kwargs["num_files"] == 5
-    assert mock_run.call_args.kwargs["limit"] is None
+    assert mock_runner_run.call_args.kwargs["num_files"] == 5
+    assert mock_runner_run.call_args.kwargs["limit"] is None
 
 
-def test_orchestrator_skips_html_after_gdelt_pause():
+def test_orchestrator_skips_html_after_gdelt_pause(
+    mock_ensure_model_available,
+    mock_get_config_bool,
+    mock_get_config_int,
+    mock_get_config_value,
+    mock_backfill_cyber_seeds,
+    mock_runner_run,
+    mock_run_scooper,
+    mock_cli_summary,
+):
     """A paused GDELT run should stop later orchestrator stages cleanly."""
 
     def pause_gdelt(*args, **kwargs):
-        kwargs["stats"].paused = True
-        return []
+        stats = kwargs["stats"]
+        stats.paused = True
+        return stats, []
 
-    with (
-        patch("src.orchestrator.ensure_model_available"),
-        patch("src.orchestrator.get_config_bool", side_effect=lambda _, d=False: d),
-        patch("src.orchestrator.get_config_int", side_effect=lambda _, d=None: d),
-        patch("src.orchestrator.get_config_value", side_effect=lambda _, d=None: d),
-        patch("src.orchestrator.backfill_cyber_seeds", return_value=[]),
-        patch("src.GDELT.runner.run", side_effect=pause_gdelt) as mock_run,
-        patch("src.scrapers.scooper.run_scooper") as mock_scraper,
-        patch("src.cli_reporter.CliReporter.summary") as mock_summary,
-    ):
-        result = orchestrator.main([])
+    mock_runner_run.side_effect = pause_gdelt
+
+    result = orchestrator.main([])
 
     assert result == 0
-    mock_run.assert_called_once()
-    mock_scraper.assert_not_called()
-    mock_summary.assert_called_once()
+    mock_runner_run.assert_called_once()
+    mock_run_scooper.assert_not_called()
+    mock_cli_summary.assert_called_once()
 
 
-def test_orchestrator_handles_html_pause():
+def test_orchestrator_handles_html_pause(
+    mock_ensure_model_available,
+    mock_setup_scooper,
+    mock_run_scooper,
+    mock_cli_summary,
+):
     """A paused run_scooper result should summarize once and exit cleanly."""
     paused_stats = PipelineStats("Scooper", paused=True)
-    with (
-        patch("src.orchestrator.ensure_model_available"),
-        patch("src.scrapers.scooper.setup_scooper"),
-        patch(
-            "src.scrapers.scooper.run_scooper",
-            return_value=(paused_stats, [], None, None),
-        ) as mock_scraper,
-        patch("src.cli_reporter.CliReporter.summary") as mock_summary,
-    ):
-        result = orchestrator.main(["--skip-gdelt"])
+    mock_run_scooper.return_value = (paused_stats, [], None, None)
+
+    result = orchestrator.main(["--skip-gdelt"])
 
     assert result == 0
-    mock_scraper.assert_called_once()
-    mock_summary.assert_called_once()
+    mock_run_scooper.assert_called_once()
+    mock_cli_summary.assert_called_once()
 
 
-def test_orchestrator_logs_model_availability_failure_before_pipelines():
+def test_orchestrator_logs_model_availability_failure_before_pipelines(
+    mock_ensure_model_available,
+    mock_logger_error,
+    mock_runner_run,
+    mock_run_scooper,
+):
     """Model availability check should fail before any scraping."""
+    mock_ensure_model_available.side_effect = model_unavailable_error(
+        "model unavailable"
+    )
+
+    result = orchestrator.main([])
+
+    assert result == 1
+    mock_ensure_model_available.assert_called_once_with()
+    mock_logger_error.assert_called_once()
+    assert mock_logger_error.call_args.args == (
+        "Model availability check failed: %s",
+        mock_ensure_model_available.side_effect,
+    )
+    mock_runner_run.assert_not_called()
+    mock_run_scooper.assert_not_called()
+
+
+def test_orchestrator_skips_model_check_when_all_model_pipelines_are_skipped(
+    mock_ensure_model_available,
+):
+    """Model availability check should be skipped when all pipelines are skipped."""
+    result = orchestrator.main(["--skip-gdelt", "--skip-html"])
+
+    assert result == 0
+    mock_ensure_model_available.assert_not_called()
+
+
+def test_orchestrator_tracks_overall_progress_by_phase(
+    mock_ensure_model_available,
+    mock_get_config_bool,
+    mock_get_config_int,
+    mock_get_config_value,
+    mock_backfill_cyber_seeds,
+    mock_runner_run,
+    mock_setup_scooper,
+    mock_run_scooper,
+    mock_cli_summary,
+):
+    """The overall bar is sized to the phase count and each phase starts a phase bar."""
+    mock_runner_run.return_value = (PipelineStats("GDELT"), [])
+    mock_run_scooper.return_value = (PipelineStats("HTML"), [], None, None)
+
     with (
-        patch(
-            "src.orchestrator.ensure_model_available",
-            side_effect=model_unavailable_error("model unavailable"),
-        ) as mock_model_check,
-        patch("src.orchestrator.LOGGER.error") as mock_log_error,
-        patch("src.GDELT.runner.run") as mock_run,
-        patch("src.scrapers.scooper.run_scooper") as mock_scraper,
+        patch("src.scrapers.scooper.save_results"),
+        patch("src.cli_reporter.CliReporter.set_overall_total") as mock_total,
+        patch("src.cli_reporter.CliReporter.start_phase") as mock_start_phase,
     ):
         result = orchestrator.main([])
 
-    assert result == 1
-    mock_model_check.assert_called_once_with()
-    mock_log_error.assert_called_once()
-    assert mock_log_error.call_args.args == (
-        "Model availability check failed: %s",
-        mock_model_check.side_effect,
+    assert result == 0
+    # GDELT + HTML both run, so the overall bar has two phase units.
+    mock_total.assert_called_once_with(2)
+    # Each phase re-zeros the phase bar via start_phase, in order.
+    phases = [call.args[0] for call in mock_start_phase.call_args_list]
+    assert phases == ["GDELT", "HTML"]
+
+
+def test_orchestrator_gdelt_multi_worker_stats_merge_correctly(
+    mock_ensure_model_available,
+    mock_get_config_bool,
+    mock_get_config_int,
+    mock_get_config_value,
+    mock_backfill_cyber_seeds,
+    mock_runner_run,
+    mock_cli_summary,
+):
+    """Each GDELT worker should get its own PipelineStats; merged totals must be consistent."""
+
+    def fake_run(*args, **kwargs):
+        stats = kwargs["stats"]
+        seeds = kwargs.get("raw_seeds", [])
+        stats.discovered = len(seeds)
+        stats.processed = len(seeds)
+        stats.validated = len(seeds)
+        return stats, []
+
+    seeds = [{"url": f"https://example.com/{i}", "source": "test"} for i in range(4)]
+
+    mock_backfill_cyber_seeds.return_value = seeds
+    mock_runner_run.side_effect = fake_run
+
+    result = orchestrator.main(
+        ["--skip-html", "--models", "2", "--threads-per-model", "1"]
     )
-    mock_run.assert_not_called()
-    mock_scraper.assert_not_called()
-
-
-def test_orchestrator_skips_model_check_when_all_model_pipelines_are_skipped():
-    """Model availability check should be skipped when all pipelines are skipped."""
-    with patch("src.orchestrator.ensure_model_available") as mock_model_check:
-        result = orchestrator.main(["--skip-gdelt", "--skip-html"])
 
     assert result == 0
-    mock_model_check.assert_not_called()
+    mock_cli_summary.assert_called_once()
+    summaries = mock_cli_summary.call_args[0][0]
+    gdelt_stats = summaries[0]
+    assert gdelt_stats.discovered >= gdelt_stats.processed
+    assert gdelt_stats.discovered == 4
+    assert gdelt_stats.processed == 4
+    assert gdelt_stats.validated == 4

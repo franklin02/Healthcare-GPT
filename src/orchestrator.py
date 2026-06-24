@@ -271,6 +271,12 @@ def main(argv: list[str] | None = None) -> int:
             print(exc, file=sys.stderr)
             return 1
 
+    # Overall progress bar: one unit of work per pipeline phase that will run.
+    phases = int(not args.skip_gdelt) + int(not args.skip_html)
+    if phases:
+        reporter.set_overall_total(phases)
+        reporter.set_overall_step("Initializing")
+
     threads = max(1, args.models) * max(1, args.threads_per_model)
 
     if not args.skip_gdelt:
@@ -291,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         gdelt_stats = PipelineStats("GDELT")
         reporter.phase("Running GDELT pipeline")
+        reporter.set_overall_step("GDELT")
         LOGGER.info("Running GDELT pipeline with args: %s", args)
         if args.clean:
             run_clean()
@@ -319,6 +326,14 @@ def main(argv: list[str] | None = None) -> int:
         if not chunks:
             chunks = [[]]
 
+        # Size the phase bar to the seeds that will actually process (each worker
+        # applies effective_limit to its own chunk). Per-seed advances from the
+        # workers then drive both the phase bar and, smoothly, the overall bar.
+        gdelt_units = sum(
+            min(len(c), effective_limit) if effective_limit else len(c) for c in chunks
+        )
+        reporter.start_phase("GDELT", total=gdelt_units)
+
         with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = []
             n = 0
@@ -334,8 +349,8 @@ def main(argv: list[str] | None = None) -> int:
                         seen=seen,
                         use_bert=args.use_bert,
                         verbose=args.verbose,
-                        reporter=None,
-                        stats=gdelt_stats,
+                        reporter=reporter,
+                        stats=PipelineStats("GDELT"),
                         raw_seeds=chunk,
                         debug_noise=gdelt_noise,
                         port=port,
@@ -346,7 +361,8 @@ def main(argv: list[str] | None = None) -> int:
                     port += 1
                     n = 0
             for future in as_completed(futures):
-                future.result()
+                worker_stats, _records = future.result()
+                gdelt_stats.merge(worker_stats)
         if gdelt_noise:
             out = gdelt_noise.flush()
             if out:
@@ -368,6 +384,7 @@ def main(argv: list[str] | None = None) -> int:
         html_start = time.time()
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")
+        reporter.set_overall_step("HTML")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
 
         scooper.setup_scooper(sb_only=args.sb_only)
@@ -381,6 +398,8 @@ def main(argv: list[str] | None = None) -> int:
             dates: list[tuple[datetime.date, datetime.date]] = _split_date(
                 end_date, start_date, threads
             )
+            # One phase unit per date window; advanced as each window completes.
+            reporter.start_phase("HTML", total=len(dates))
 
             # One scooper instance per date window
             port = args.starting_port
@@ -408,6 +427,7 @@ def main(argv: list[str] | None = None) -> int:
                         n = 0
                 for future in as_completed(futures):
                     results.append(future.result())
+                    reporter.advance(1)
 
             vuln_lists: list = []
             for window_stats, w_vuln_list, v_df, n_df in results:
@@ -419,7 +439,10 @@ def main(argv: list[str] | None = None) -> int:
             scooper.save_results(vuln_lists, vuln_dfs, noise_dfs, sb_only=args.sb_only)
         # Default: one thread per site. run_scooper fans out internally and
         # returns frames merged across sites (disjoint); we persist them here.
+        # Per-site HTML progress lives inside scooper (deferred to #229); treat
+        # the whole phase as one unit for now.
         else:
+            reporter.start_phase("HTML", total=1)
             html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
                 use_bert=args.use_bert,
                 verbose=args.verbose,
@@ -431,6 +454,7 @@ def main(argv: list[str] | None = None) -> int:
                 site_split=True,
             )
             scooper.save_results(vuln_list, [v_df], [n_df], sb_only=args.sb_only)
+            reporter.advance(1)
 
         # TODO: thread per cite implemented here
 

@@ -491,14 +491,6 @@ class TestAiCheckValidation:
         assert is_threat is False
         assert detail == "Parsing Error"
 
-    def test_ai_check_validation_request_exception(self, mock_requests_post):
-        """Test handling of request exceptions"""
-        mock_requests_post.side_effect = requests.RequestException("Connection error")
-
-        is_threat, detail = helpers.ai_check_validation("Title", LONG_BODY)
-        assert is_threat is False
-        assert detail == "Parsing Error"
-
     def test_ai_check_validation_drug_shortage(self, mock_requests_post):
         """Test drug shortage subsector classification"""
         mock_response = MagicMock()

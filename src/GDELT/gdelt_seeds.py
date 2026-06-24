@@ -482,6 +482,7 @@ def backfill_cyber_seeds(
     cache_dir: Path | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    instance_name: str | None = None,
 ):
     """
     Collect recent or date-bounded GDELT seeds for the requested subsector.
@@ -553,7 +554,9 @@ def backfill_cyber_seeds(
             LOGGER.info("Reusing %s cached seeds from %s", len(cached_seeds), fname)
             all_seeds.extend(cached_seeds)
             if recent and not reporter.verbose:
-                reporter.progress(index, len(recent), "GDELT files")
+                reporter.instance(instance_name or "GDELT").set_progress(
+                    index, len(recent)
+                )
             continue
         else:
             seeds, rows = process_gkg_file(
@@ -565,7 +568,7 @@ def backfill_cyber_seeds(
         all_seeds.extend(seeds)
         total_rows += rows
         if recent and not reporter.verbose:
-            reporter.progress(index, len(recent), "GDELT files")
+            reporter.instance(instance_name or "GDELT").set_progress(index, len(recent))
 
     seen, unique = set(), []
     for s in all_seeds:

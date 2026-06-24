@@ -1197,7 +1197,9 @@ class TestRun:
             runner.run(num_files=1, limit=1, output_path=tmpdir)
 
         output = capsys.readouterr().out
-        assert "Progress: [██████████] 100% GDELT articles (1/1)" in output
+        # New reporter renders progress as sticky bars (disabled in non-TTY
+        # capture), so assert the high-level info line instead of bar text.
+        assert "Processing 1 GDELT seeds" in output
         assert "[1/1]" not in output
 
     def test_run_verbose_output_shows_detail(

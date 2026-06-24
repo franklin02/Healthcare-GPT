@@ -40,6 +40,7 @@ from ..cli_reporter import CliReporter, PipelineStats
 from ..logging_utils import get_file_logger
 from ..shared_utils import (
     AI_MODEL,
+    LLMUnavailableError,
     ai_check_validation,
     BODY_CHAR_LIMIT,
     DEBUG_DIR,
@@ -457,6 +458,7 @@ def process_staged_seeds(
     records = []
     stats.discovered = len(seeds)
     reporter.info(f"Processing {len(seeds)} staged GDELT seeds")
+    reporter.start_phase("GDELT", total=len(seeds))
 
     for i, seed in enumerate(seeds, start=1):
         stats.processed += 1
@@ -484,12 +486,11 @@ def process_staged_seeds(
                 records.append(rec)
                 completed_current = True
             if not reporter.verbose:
-                reporter.progress(i, len(seeds), "staged GDELT seeds")
+                reporter.advance(1)
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)
             stats.paused = True
-            reporter.finish_line()
             reporter.info(
                 "GDELT seed stitch paused by operator; saving completed records "
                 "and preserving staged seeds."
@@ -707,10 +708,26 @@ def process_seed(
             )
         return None
     excerpt = body[:BODY_CHAR_LIMIT]
+    # ---------------------------------     Edgar was here.     ----------------------------------------------
+    """
+        I was silently dropping articles when calling `ai_check_validation` when things
+        like a timeout or HTTPS errors happened, wrapping this here so it catches those too and 
+        logs a warning
+    """
+    try:
+        is_disruption, detail = ai_check_validation(
+            title, excerpt, use_bert=use_bert, verbose=reporter.verbose, port=port
+        )
 
-    is_disruption, detail = ai_check_validation(
-        title, excerpt, use_bert=use_bert, verbose=reporter.verbose, port=port
-    )
+    except LLMUnavailableError as exc:
+        # TODO: fix this so it tries again on this run
+        if stats is not None:
+            stats.errors += 1
+        reporter.warn(f"LLM unavailable for {url[:90]}: {exc}")
+        LOGGER.warning("LLM unavailable url=%s: %s", url, exc)
+        return None
+    # ---------------------------------     Edgar was here.     ----------------------------------------------
+
     LOGGER.debug(
         "LLM validation url=%s disruption=%s detail=%s", url, is_disruption, detail
     )
@@ -950,12 +967,11 @@ def run(
             else:
                 LOGGER.debug("Seed skipped url=%s", url)
             if not reporter.verbose:
-                reporter.progress(i, len(seeds), "GDELT articles")
+                reporter.advance(1)
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)
             stats.paused = True
-            reporter.finish_line()
             reporter.info(
                 "GDELT pipeline paused by operator; saving completed records "
                 "and preserving seed staging."

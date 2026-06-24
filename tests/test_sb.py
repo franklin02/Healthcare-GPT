@@ -2,11 +2,11 @@ import os
 import uuid
 
 import pytest
-from dotenv import load_dotenv
 
+dotenv = pytest.importorskip("dotenv")
 supabase = pytest.importorskip("supabase")
 
-load_dotenv()
+dotenv.load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 

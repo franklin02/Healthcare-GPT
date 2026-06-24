@@ -165,6 +165,7 @@ def get_config_date(
         return default
 
 
+AI_URL = get_config_value("AI_URL", "http://localhost:11434/api/generate")
 AI_MODEL = get_config_value("AI_MODEL", "llama3.2:latest")
 MIN_BODY_CHARS_FOR_LLM = get_config_int("MIN_BODY_CHARS_FOR_LLM", 150) or 150
 BODY_CHAR_LIMIT = get_config_int("BODY_CHAR_LIMIT", 4000) or 4000
@@ -969,6 +970,7 @@ def ai_check_validation(
             timeout=60,
         )
         LOGGER.debug("HTTP status %d", resp.status_code)
+        resp.raise_for_status()
         raw_response = resp.json().get("response", "{}")
         LOGGER.debug(
             "Validation LLM raw response title=%s raw_response=%s",
@@ -991,6 +993,12 @@ def ai_check_validation(
             else data.get("analysis", "No impact detected")
         )
         return is_threat, detail
+    # used for timeout / connection refused / HTTP errors
+    # we should wrap all ai_check_validation calls in a try/catch loop
+    # to re try on these vs handling them as noise
+    except requests.exceptions.RequestException as e:
+        LOGGER.warning("LLM call failed for %s: %s", title, e)
+        raise LLMUnavailableError(f"Ollama validation call failed: {e}") from e
 
     except Exception as e:
         LOGGER.warning("Error parsing AI response for title %s: %s", title, e)
@@ -1185,7 +1193,19 @@ def extract_fields(subsector, title, body, port) -> tuple[dict, dict]:
 
 
 class model_unavailable_error(RuntimeError):
-    """Raised when configured Ollama model is unavailable"""
+    """
+    Raised when configured Ollama model is unavailable
+    """
+
+
+class LLMUnavailableError(RuntimeError):
+    """
+    Raised when an LLM HTTP call fails (timeout/connection/HTTP error).
+
+    Distinct from a negative classification: signals the call never produced a
+    usable answer, so callers should skip and retry rather than treat the article
+    as noise.
+    """
 
 
 checked_ollama_models: set[str] = set()

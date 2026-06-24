@@ -2,7 +2,6 @@
 Scooper scraper that
 
 Functions
-    - '_live_site_status' : updates the per-site sticky counter line (no-op in verbose mode)
     - '_bert_status()' : returns a human-readable description of the optional BERT pre-filter
     - '_unseen_df()' : returns a raw df of unclassified data
     - '_setup_csv' : helper function that set ups CSVs and makes sure they exist,
@@ -34,6 +33,7 @@ from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from ..cli_reporter import CliReporter, PipelineStats
 from ..logging_utils import get_file_logger
 from ..shared_utils import (
+    LLMUnavailableError,
     MissingSubsectorFieldsError,
     ai_check_validation,
     ensure_model_available,
@@ -156,25 +156,6 @@ HTML_SITES = [
 
 
 SITE_NAMES = [s["name"] for s in HTML_SITES]
-
-
-def _live_site_status(
-    reporter: CliReporter,
-    site_name: str,
-    page: int,
-    stats: PipelineStats,
-) -> None:
-    """Update the per-site sticky counter line (no-op in verbose mode)."""
-    if reporter.verbose:
-        return
-    reporter.tick(
-        site_name,
-        page=page,
-        processed=stats.processed,
-        validated=stats.validated,
-        rejected=stats.rejected,
-        skipped=stats.skipped,
-    )
 
 
 def _bert_status() -> str:
@@ -544,9 +525,7 @@ def setup_scooper(sb_only: bool = False) -> None:
         futures = []
         for site in HTML_SITES:
             site_df = raw_df[raw_df["source_name"] == site["name"]]
-            futures.append(
-                executor.submit(_raw_data, site_df, site, sb_only)
-            )  # add cite config l8er
+            futures.append(executor.submit(_raw_data, site_df, site, sb_only))
 
         for future in as_completed(futures):
             results.append(future.result())
@@ -565,6 +544,7 @@ def run_scooper(
     sb_only: bool = False,
     site_split: bool = False,
     port: int = 11434,
+    max_workers: int | None = None,
 ) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
     """
     Runs the scooper using the raw and unclassified data. If `site_split` is True,
@@ -598,6 +578,9 @@ def run_scooper(
     # source_name), so a plain concat reassembles them — no cross-site dedup.
     sites = [name for name in df["source_name"].dropna().unique()]
     if not sites:
+        if reporter is not None:
+            reporter.start_phase("HTML", total=1)
+            reporter.advance(1)
         return (
             stats,
             [],
@@ -605,17 +588,29 @@ def run_scooper(
             pd.DataFrame(columns=NOISE_CSV_HEADER),
         )
 
+    if reporter is not None:
+        reporter.start_phase("HTML", total=len(df))
+
     def _run_site(name: str):
         site = df[df["source_name"] == name]
         # each thread gets its own stats instance to avoid races
         return _process_site(
-            site, PipelineStats("HTML"), use_bert, verbose, sb_only, port
+            site, PipelineStats("HTML"), use_bert, verbose, sb_only, port, reporter
         )
+
+    # check to see if we have 5 threads available to give
+    # each site 1, else 1 thread for the whole pipeline
+    cap = (
+        max_workers
+        if max_workers is not None
+        else get_config_int("THREADS_PER_MODEL", 1)
+    )
+    workers = max(1, min(len(sites), cap or 1))
 
     vuln_list: list[Vulnerability] = []
     vuln_frames: list[pd.DataFrame] = []
     noise_frames: list[pd.DataFrame] = []
-    with ThreadPoolExecutor(max_workers=len(sites)) as executor:
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         for site_stats, vl, vdf, ndf in executor.map(_run_site, sites):
             stats.merge(site_stats)
             vuln_list.extend(vl)
@@ -674,6 +669,7 @@ def _process_site(
     verbose: bool = False,
     sb_only: bool = False,
     port: int = 11434,
+    reporter: CliReporter | None = None,
 ) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
     """
     Validate + extract every row in df, returning this slice's own result
@@ -685,6 +681,7 @@ def _process_site(
         use_bert:
         verbose:
         sb_only
+        reporter:
 
     Returns:
         - PipelineStats
@@ -701,6 +698,8 @@ def _process_site(
 
     for row in df.itertuples():
         stats.processed += 1
+        if reporter is not None:
+            reporter.advance(1)
 
         source_name = row.source_name if isinstance(row.source_name, str) else ""
         title = row.title if isinstance(row.title, str) else ""
@@ -838,6 +837,12 @@ def _process_site(
                 link,
             )
             break
+        except LLMUnavailableError as e:
+            stats.errors += 1
+            LOGGER.warning(
+                "LLM unavailable; leaving %r unclassified for retry: %s", title, e
+            )
+            continue
         except Exception as e:
             LOGGER.warning("Validation failed for %s: %s", title, e)
             continue

@@ -20,7 +20,7 @@ from concurrent.futures import as_completed
 from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
 from .GDELT.gdelt_seeds import backfill_cyber_seeds, fetch_gkg_links
-from .GDELT.runner import load_seen
+from .GDELT.runner import load_seen, write_output_records
 from .shared_utils import (
     DEBUG_DIR,
     NoiseCollector,
@@ -413,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         reporter.start_phase("GDELT", total=gdelt_units)
 
+        all_records = []
         with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = []
             n = 0
@@ -422,7 +423,7 @@ def main(argv: list[str] | None = None) -> int:
                         runner.run,
                         num_files=args.num_files,
                         limit=effective_limit,
-                        output_path=args.output_path,
+                        output_path=None,
                         start_date=args.start_date,
                         end_date=args.end_date,
                         seen=seen,
@@ -440,8 +441,10 @@ def main(argv: list[str] | None = None) -> int:
                     port += 1
                     n = 0
             for future in as_completed(futures):
-                worker_stats, _records = future.result()
+                worker_stats, records = future.result()
                 gdelt_stats.merge(worker_stats)
+                all_records.extend(records)
+        write_output_records(all_records, args.output_path, reporter, gdelt_stats)
         if gdelt_noise:
             out = gdelt_noise.flush()
             if out:

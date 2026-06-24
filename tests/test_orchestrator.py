@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.cli_reporter import PipelineStats
+from src.cli_reporter import CliReporter, PipelineStats
 from src.shared_utils import model_unavailable_error
 from src import orchestrator
 
@@ -285,3 +285,86 @@ def test_orchestrator_gdelt_multi_worker_stats_merge_correctly(
     assert gdelt_stats.discovered == 4
     assert gdelt_stats.processed == 4
     assert gdelt_stats.validated == 4
+
+
+def test_collect_gdelt_seeds_splits_date_range_across_threads():
+    with (
+        patch(
+            "src.orchestrator.fetch_gkg_links",
+            return_value=["a", "b", "c", "d"],
+        ) as mock_fetch,
+        patch("src.orchestrator.backfill_cyber_seeds") as mock_backfill,
+    ):
+        mock_backfill.side_effect = [
+            [{"url": "https://a.example"}],
+            [{"url": "https://b.example"}],
+        ]
+        reporter = CliReporter(verbose=False)
+        result = orchestrator._collect_gdelt_seeds(
+            num_files=2,
+            start_date="2026-01-31",
+            end_date="2026-01-01",
+            cache_dir=orchestrator.GDELT_CACHE_DIR,
+            reporter=reporter,
+            stats=PipelineStats("GDELT"),
+            seed_threads=2,
+        )
+
+    assert result == [
+        {"url": "https://a.example"},
+        {"url": "https://b.example"},
+    ]
+    mock_fetch.assert_called_once_with(
+        num_files=2,
+        start_date="2026-01-31",
+        end_date="2026-01-01",
+    )
+    assert mock_backfill.call_count == 2
+    assert mock_backfill.call_args_list[0].kwargs["links"] == ["a", "b"]
+    assert mock_backfill.call_args_list[1].kwargs["links"] == ["c", "d"]
+
+
+def test_collect_gdelt_seeds_chunks_links_without_full_date_range():
+    with (
+        patch("src.orchestrator.fetch_gkg_links", return_value=["a", "b", "c", "d"]),
+        patch("src.orchestrator.backfill_cyber_seeds") as mock_backfill,
+    ):
+        mock_backfill.side_effect = [
+            [{"url": "https://a.example"}],
+            [{"url": "https://b.example"}],
+        ]
+        reporter = CliReporter(verbose=False)
+        result = orchestrator._collect_gdelt_seeds(
+            num_files=4,
+            start_date=None,
+            end_date=None,
+            cache_dir=orchestrator.GDELT_CACHE_DIR,
+            reporter=reporter,
+            stats=PipelineStats("GDELT"),
+            seed_threads=2,
+        )
+
+    assert result == [
+        {"url": "https://a.example"},
+        {"url": "https://b.example"},
+    ]
+    assert mock_backfill.call_count == 2
+    assert mock_backfill.call_args_list[0].kwargs["links"] == ["a", "b"]
+    assert mock_backfill.call_args_list[1].kwargs["links"] == ["c", "d"]
+
+
+def test_orchestrator_uses_gdelt_seed_threads_argument():
+    with (
+        patch("src.orchestrator.ensure_model_available"),
+        patch("src.orchestrator.get_config_bool", side_effect=lambda _, d=False: d),
+        patch("src.orchestrator._collect_gdelt_seeds", return_value=[]) as mock_collect,
+        patch(
+            "src.GDELT.runner.run",
+            return_value=(PipelineStats("GDELT"), []),
+        ),
+        patch("src.cli_reporter.CliReporter.summary"),
+    ):
+        result = orchestrator.main(["--skip-html", "--gdelt-seed-threads=3"])
+
+    assert result == 0
+    assert mock_collect.call_args.kwargs["seed_threads"] == 3

@@ -404,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
             LOGGER.error("Model availability check failed: %s", exc)
             print(exc, file=sys.stderr)
             return 1
-          
+
         # Size the phase bar to the seeds that will actually process (each worker
         # applies effective_limit to its own chunk). Per-seed advances from the
         # workers then drive both the phase bar and, smoothly, the overall bar.

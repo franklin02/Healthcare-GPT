@@ -33,6 +33,7 @@ from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from ..cli_reporter import CliReporter, PipelineStats
 from ..logging_utils import get_file_logger
 from ..shared_utils import (
+    LLMUnavailableError,
     MissingSubsectorFieldsError,
     ai_check_validation,
     ensure_model_available,
@@ -95,62 +96,62 @@ HTML_SITES = [
             "cap": 10,
         },
     },
-    {
-        "name": "StateScoop",
-        "url": "https://statescoop.com/search/healthcare/page/1/",
-        "pagination_url": "https://statescoop.com/search/healthcare/page/{page}/",
-        "map": {
-            "container": "article.post-item",
-            "title": None,
-            "link_selector": "a.post-item__title-link",
-            "body_selector": "div.single-article__content",
-            "date_selector": "time[datetime]",
-            "starting_page": 1,
-            "cap": 7,
-        },
-    },
-    {
-        "name": "FedScoop",
-        "url": "https://fedscoop.com/search/healthcare/",
-        "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
-        "map": {
-            "container": "article.post-item",
-            "title": None,
-            "link_selector": "a.post-item__title-link",
-            "body_selector": "div.single-article__content",
-            "date_selector": "time[datetime]",
-            "starting_page": 1,
-            "cap": 18,
-        },
-    },
-    {
-        "name": "AHA",
-        "url": "https://www.aha.org/news",
-        "pagination_url": "https://www.aha.org/news?page=%2C{page}",
-        "map": {
-            "container": "section.views-latest-feed div.views-row",
-            "title": None,
-            "link_selector": "div.views-field-title span.field-content a",
-            "body_selector": "article .body",
-            "date_selector": "time[datetime]",
-            "starting_page": 0,
-            "cap": 10,
-        },
-    },
-    {
-        "name": "HealthIT_News",
-        "url": "https://www.techtarget.com/news/health-it",
-        "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
-        "map": {
-            "container": "div.topic-related-item-info",
-            "title": None,
-            "link_selector": "h3 a",
-            "body_selector": "article#content-columns",
-            "date_selector": "div.main-article-author-date span",
-            "starting_page": 1,
-            "cap": 9,
-        },
-    },
+    # {
+    #     "name": "StateScoop",
+    #     "url": "https://statescoop.com/search/healthcare/page/1/",
+    #     "pagination_url": "https://statescoop.com/search/healthcare/page/{page}/",
+    #     "map": {
+    #         "container": "article.post-item",
+    #         "title": None,
+    #         "link_selector": "a.post-item__title-link",
+    #         "body_selector": "div.single-article__content",
+    #         "date_selector": "time[datetime]",
+    #         "starting_page": 1,
+    #         "cap": 7,
+    #     },
+    # },
+    # {
+    #     "name": "FedScoop",
+    #     "url": "https://fedscoop.com/search/healthcare/",
+    #     "pagination_url": "https://fedscoop.com/search/healthcare/page/{page}/",
+    #     "map": {
+    #         "container": "article.post-item",
+    #         "title": None,
+    #         "link_selector": "a.post-item__title-link",
+    #         "body_selector": "div.single-article__content",
+    #         "date_selector": "time[datetime]",
+    #         "starting_page": 1,
+    #         "cap": 18,
+    #     },
+    # },
+    # {
+    #     "name": "AHA",
+    #     "url": "https://www.aha.org/news",
+    #     "pagination_url": "https://www.aha.org/news?page=%2C{page}",
+    #     "map": {
+    #         "container": "section.views-latest-feed div.views-row",
+    #         "title": None,
+    #         "link_selector": "div.views-field-title span.field-content a",
+    #         "body_selector": "article .body",
+    #         "date_selector": "time[datetime]",
+    #         "starting_page": 0,
+    #         "cap": 10,
+    #     },
+    # },
+    # {
+    #     "name": "HealthIT_News",
+    #     "url": "https://www.techtarget.com/news/health-it",
+    #     "pagination_url": "https://www.techtarget.com/news/health-it/page/{page}",
+    #     "map": {
+    #         "container": "div.topic-related-item-info",
+    #         "title": None,
+    #         "link_selector": "h3 a",
+    #         "body_selector": "article#content-columns",
+    #         "date_selector": "div.main-article-author-date span",
+    #         "starting_page": 1,
+    #         "cap": 9,
+    #     },
+    # },
 ]
 
 
@@ -524,9 +525,7 @@ def setup_scooper(sb_only: bool = False) -> None:
         futures = []
         for site in HTML_SITES:
             site_df = raw_df[raw_df["source_name"] == site["name"]]
-            futures.append(
-                executor.submit(_raw_data, site_df, site, sb_only)
-            )  # add cite config l8er
+            futures.append(executor.submit(_raw_data, site_df, site, sb_only))
 
         for future in as_completed(futures):
             results.append(future.result())
@@ -545,6 +544,7 @@ def run_scooper(
     sb_only: bool = False,
     site_split: bool = False,
     port: int = 11434,
+    max_workers: int | None = None,
 ) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
     """
     Runs the scooper using the raw and unclassified data. If `site_split` is True,
@@ -578,6 +578,9 @@ def run_scooper(
     # source_name), so a plain concat reassembles them — no cross-site dedup.
     sites = [name for name in df["source_name"].dropna().unique()]
     if not sites:
+        if reporter is not None:
+            reporter.start_phase("HTML", total=1)
+            reporter.advance(1)
         return (
             stats,
             [],
@@ -585,17 +588,29 @@ def run_scooper(
             pd.DataFrame(columns=NOISE_CSV_HEADER),
         )
 
+    if reporter is not None:
+        reporter.start_phase("HTML", total=len(df))
+
     def _run_site(name: str):
         site = df[df["source_name"] == name]
         # each thread gets its own stats instance to avoid races
         return _process_site(
-            site, PipelineStats("HTML"), use_bert, verbose, sb_only, port
+            site, PipelineStats("HTML"), use_bert, verbose, sb_only, port, reporter
         )
+
+    # check to see if we have 5 threads available to give
+    # each site 1, else 1 thread for the whole pipeline
+    cap = (
+        max_workers
+        if max_workers is not None
+        else get_config_int("THREADS_PER_MODEL", 1)
+    )
+    workers = max(1, min(len(sites), cap or 1))
 
     vuln_list: list[Vulnerability] = []
     vuln_frames: list[pd.DataFrame] = []
     noise_frames: list[pd.DataFrame] = []
-    with ThreadPoolExecutor(max_workers=len(sites)) as executor:
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         for site_stats, vl, vdf, ndf in executor.map(_run_site, sites):
             stats.merge(site_stats)
             vuln_list.extend(vl)
@@ -654,6 +669,7 @@ def _process_site(
     verbose: bool = False,
     sb_only: bool = False,
     port: int = 11434,
+    reporter: CliReporter | None = None,
 ) -> tuple[PipelineStats, list[Vulnerability], pd.DataFrame, pd.DataFrame]:
     """
     Validate + extract every row in df, returning this slice's own result
@@ -665,6 +681,7 @@ def _process_site(
         use_bert:
         verbose:
         sb_only
+        reporter:
 
     Returns:
         - PipelineStats
@@ -681,6 +698,8 @@ def _process_site(
 
     for row in df.itertuples():
         stats.processed += 1
+        if reporter is not None:
+            reporter.advance(1)
 
         source_name = row.source_name if isinstance(row.source_name, str) else ""
         title = row.title if isinstance(row.title, str) else ""
@@ -818,6 +837,12 @@ def _process_site(
                 link,
             )
             break
+        except LLMUnavailableError as e:
+            stats.errors += 1
+            LOGGER.warning(
+                "LLM unavailable; leaving %r unclassified for retry: %s", title, e
+            )
+            continue
         except Exception as e:
             LOGGER.warning("Validation failed for %s: %s", title, e)
             continue

@@ -83,6 +83,14 @@ Rules:
   off; 2–6 items is typical.
 - Keep it concise and implementation-focused. No filler.
 
+Formatting: 
+- never hard-wrap prose. Write each paragraph as a single
+continuous line and let GitHub reflow it to the reader's width. Do not insert
+mid-paragraph newlines to wrap at ~80 columns — on GitHub that renders as ragged
+short lines with a big empty gutter on the right. Use blank lines only to separate
+paragraphs, list items, and headings. (Bullet/checklist items are one line each;
+sub-points can nest, but don't wrap a single point across lines.)
+
 ### 5. Choose labels from EXISTING labels only
 
 - Run `gh label list` and apply only labels that already exist AND are clearly

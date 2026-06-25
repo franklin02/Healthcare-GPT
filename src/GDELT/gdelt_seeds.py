@@ -475,36 +475,18 @@ def process_gkg_file(
         return [], 0
 
 
-def backfill_cyber_seeds(
-    num_files=20,
-    start_date=None,
-    end_date=None,
-    cache_dir: Path | None = None,
-    reporter: CliReporter | None = None,
-    stats: PipelineStats | None = None,
-):
+def fetch_gkg_links(num_files=20, start_date=None, end_date=None):
     """
-    Collect recent or date-bounded GDELT seeds for the requested subsector.
+    Fetch and filter GDELT GKG zip URLs from the master file list.
 
     Parameters:
-        num_files: The number of most recent GDELT files to scan if no date bounds are provided. Ignored if start_date or end_date is specified.
-        subsector: The subsector to filter for, or "all" for any supported subsector.
-        start_date: Optional start date bound (inclusive) in formats like YYYY-MM-DD or YYYYMMDD. If provided, only files with timestamps on or after this date will be processed.
-        end_date: Optional end date bound (inclusive) in formats like YYYY-MM-DD or YYYYMMDD. If provided, only files with timestamps on or before this date will be processed.
-        reporter: Optional CliReporter for logging progress and warnings.
-        stats: Optional PipelineStats for recording statistics.
+        num_files: When no date bounds are set, return this many most-recent files.
+        start_date: Optional inclusive lower bound on file timestamps.
+        end_date: Optional inclusive upper bound on file timestamps.
 
     Returns:
-        A list of unique seed records (dicts) that match the specified subsector and date bounds, extracted from the relevant GDELT GKG files. Each seed record includes the URL, source, themes, subsector, date, and file name.
+        A list of GKG zip URLs matching the requested bounds.
     """
-    reporter = reporter or CliReporter(verbose=True)
-    reporter.detail("Fetching GDELT master file list...")
-    LOGGER.debug(
-        "Backfill start num_files=%s start_date=%s end_date=%s",
-        num_files,
-        start_date,
-        end_date,
-    )
     resp = requests.get(
         "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt", timeout=15
     )
@@ -515,12 +497,53 @@ def backfill_cyber_seeds(
     ]
     start_date = _normalize_date_bound(start_date)
     end_date = _normalize_date_bound(end_date, end=True)
-    LOGGER.debug("Normalized date bounds start=%s end=%s", start_date, end_date)
     if start_date:
         links = [link for link in links if link.split("/")[-1][:14] >= start_date]
     if end_date:
         links = [link for link in links if link.split("/")[-1][:14] <= end_date]
-    recent = links if (start_date or end_date) else links[-num_files:]
+    return links if (start_date or end_date) else links[-num_files:]
+
+
+def backfill_cyber_seeds(
+    num_files=20,
+    start_date=None,
+    end_date=None,
+    links=None,
+    cache_dir: Path | None = None,
+    reporter: CliReporter | None = None,
+    stats: PipelineStats | None = None,
+    instance_name: str | None = None,
+):
+    """
+    Collect recent or date-bounded GDELT seeds for the requested subsector.
+
+    Parameters:
+        num_files: The number of most recent GDELT files to scan if no date bounds are provided. Ignored if start_date or end_date is specified.
+        subsector: The subsector to filter for, or "all" for any supported subsector.
+        start_date: Optional start date bound (inclusive) in formats like YYYY-MM-DD or YYYYMMDD. If provided, only files with timestamps on or after this date will be processed.
+        end_date: Optional end date bound (inclusive) in formats like YYYY-MM-DD or YYYYMMDD. If provided, only files with timestamps on or before this date will be processed.
+        links: Optional pre-filtered GKG zip URLs to process instead of fetching the master file list.
+        reporter: Optional CliReporter for logging progress and warnings.
+        stats: Optional PipelineStats for recording statistics.
+
+    Returns:
+        A list of unique seed records (dicts) that match the specified subsector and date bounds, extracted from the relevant GDELT GKG files. Each seed record includes the URL, source, themes, subsector, date, and file name.
+    """
+    reporter = reporter or CliReporter(verbose=True)
+    if links is None:
+        reporter.detail("Fetching GDELT master file list...")
+        recent = fetch_gkg_links(
+            num_files=num_files, start_date=start_date, end_date=end_date
+        )
+    else:
+        recent = list(links)
+    LOGGER.debug(
+        "Backfill start num_files=%s start_date=%s end_date=%s files=%s",
+        num_files,
+        start_date,
+        end_date,
+        len(recent),
+    )
     reporter.info(
         f"Scanning {len(recent)} GDELT files for all subsectors "
         f"(~{len(recent) * 15 / 60:.1f} hours)"
@@ -553,7 +576,9 @@ def backfill_cyber_seeds(
             LOGGER.info("Reusing %s cached seeds from %s", len(cached_seeds), fname)
             all_seeds.extend(cached_seeds)
             if recent and not reporter.verbose:
-                reporter.progress(index, len(recent), "GDELT files")
+                reporter.instance(instance_name or "GDELT").set_progress(
+                    index, len(recent)
+                )
             continue
         else:
             seeds, rows = process_gkg_file(
@@ -565,7 +590,7 @@ def backfill_cyber_seeds(
         all_seeds.extend(seeds)
         total_rows += rows
         if recent and not reporter.verbose:
-            reporter.progress(index, len(recent), "GDELT files")
+            reporter.instance(instance_name or "GDELT").set_progress(index, len(recent))
 
     seen, unique = set(), []
     for s in all_seeds:

@@ -2,11 +2,19 @@
 
 import io
 from unittest.mock import patch
+
 import pytest
 
-from src.classes import Vulnerability
-from src.cli_reporter import CliReporter, PipelineStats
-from src.dedup import handle_vuln
+# Every test here patches src.supabase_function paths; the module imports (and
+# these tests run) even without the supabase package, but not without its own
+# hard dependencies (e.g. python-dotenv).
+pytest.importorskip(
+    "src.supabase_function", reason="src.supabase_function dependencies missing"
+)
+
+from src.classes import Vulnerability  # noqa: E402
+from src.cli_reporter import CliReporter, PipelineStats  # noqa: E402
+from src.dedup import handle_vuln  # noqa: E402
 
 
 @pytest.fixture

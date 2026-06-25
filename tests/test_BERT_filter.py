@@ -1,6 +1,10 @@
 import pytest
 from unittest.mock import MagicMock, patch
-import src.GDELT.BERT_filter as BERT_filter
+
+pytest.importorskip("transformers", reason="transformers not installed (BERT extras)")
+pytest.importorskip("torch", reason="torch not installed (BERT extras)")
+
+import src.GDELT.BERT_filter as BERT_filter  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

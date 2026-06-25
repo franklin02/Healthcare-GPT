@@ -19,8 +19,8 @@ from concurrent.futures import as_completed
 
 from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
-from .GDELT.gdelt_seeds import backfill_cyber_seeds
-from .GDELT.runner import load_seen
+from .GDELT.gdelt_seeds import backfill_cyber_seeds, fetch_gkg_links
+from .GDELT.runner import load_seen, write_output_records
 from .shared_utils import (
     DEBUG_DIR,
     NoiseCollector,
@@ -57,8 +57,7 @@ def _split_date(
     """
     if end > start:
         LOGGER.debug("date range given oldest-first; normalizing %s..%s", start, end)
-        start = max(start, end)
-        end = min(start, end)
+        start, end = end, start
 
     num_days = (start - end).days + 1  # inclusive day count
 
@@ -110,6 +109,83 @@ def chunk_list(items, num_chunks):
     if chunk_size <= 0:
         return []
     return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+
+def _collect_gdelt_seeds(
+    *,
+    num_files: int,
+    start_date: str | None,
+    end_date: str | None,
+    cache_dir: Path,
+    reporter: CliReporter,
+    stats: PipelineStats,
+    seed_threads: int,
+) -> list[dict]:
+    """Collect GDELT seeds, optionally splitting work across threads.
+
+    Parameters:
+        num_files: Number of GDELT GKG files to scan.
+        start_date: Ceiling date (YYYYMMDD or YYYY-MM-DD) for articles; newer articles are skipped.
+        end_date: Floor date (YYYYMMDD or YYYY-MM-DD) for articles; crawling stops at older articles.
+        cache_dir: Directory to cache downloaded GKG files.
+        reporter: CliReporter for logging progress and warnings.
+        stats: PipelineStats for recording statistics.
+        seed_threads: Number of threads to use for seed collection.
+
+    Returns:
+        A list of candidate seed records (dicts) collected from GDELT.
+    """
+    seed_threads = max(1, seed_threads)
+    if seed_threads == 1:
+        LOGGER.debug("Collecting GDELT seeds in single-threaded mode")
+        return list(
+            backfill_cyber_seeds(
+                num_files=num_files,
+                start_date=start_date,
+                end_date=end_date,
+                cache_dir=cache_dir,
+                reporter=reporter,
+                stats=stats,
+            )
+        )
+
+    quiet_reporter = CliReporter(verbose=False)
+    raw_seeds: list[dict] = []
+
+    # Resolve the concrete GKG file list for either a date range or a recent
+    # file count, then split that list across threads. Splitting by file (not
+    # by calendar day) honors seed_threads even when the requested date range
+    # spans fewer days than threads.
+    links = fetch_gkg_links(
+        num_files=num_files, start_date=start_date, end_date=end_date
+    )
+    chunks = chunk_list(links, seed_threads)
+    if not chunks:
+        return []
+
+    with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
+        futures = []
+
+        # Submit tasks for each chunk of links
+        for link_chunk in chunks:
+            futures.append(
+                executor.submit(
+                    backfill_cyber_seeds,
+                    links=link_chunk,
+                    cache_dir=cache_dir,
+                    reporter=quiet_reporter,
+                )
+            )
+        for future in as_completed(futures):
+            raw_seeds.extend(future.result())
+
+    LOGGER.debug(
+        "Collected %d GDELT seeds across %d link chunks with %d threads",
+        len(raw_seeds),
+        len(chunks),
+        seed_threads,
+    )
+    return raw_seeds
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -231,6 +307,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Clear all modified directories and files before running",
     )
     parser.add_argument(
+        "--gdelt-seed-threads",
+        type=int,
+        default=get_config_int("GDELT_SEED_THREADS", 1),
+        help="Number of threads to use for GDELT seed collection (default: 1)",
+    )
+    parser.add_argument(
         "--models",
         type=int,
         default=get_config_int("MODELS", 1),
@@ -263,13 +345,11 @@ def main(argv: list[str] | None = None) -> int:
     reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
 
-    if not (args.skip_gdelt and args.skip_html):
-        try:
-            ensure_model_available()
-        except model_unavailable_error as exc:
-            LOGGER.error("Model availability check failed: %s", exc)
-            print(exc, file=sys.stderr)
-            return 1
+    # Overall progress bar: one unit of work per pipeline phase that will run.
+    phases = int(not args.skip_gdelt) + int(not args.skip_html)
+    if phases:
+        reporter.set_overall_total(phases)
+        reporter.set_overall_step("Initializing")
 
     threads = max(1, args.models) * max(1, args.threads_per_model)
 
@@ -291,20 +371,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         gdelt_stats = PipelineStats("GDELT")
         reporter.phase("Running GDELT pipeline")
+        reporter.set_overall_step("GDELT")
         LOGGER.info("Running GDELT pipeline with args: %s", args)
         if args.clean:
             run_clean()
-        raw_seeds = [
-            seed
-            for seed in backfill_cyber_seeds(
-                num_files=args.num_files,
-                start_date=args.start_date,
-                end_date=args.end_date,
-                cache_dir=GDELT_CACHE_DIR,
-                reporter=reporter,
-                stats=gdelt_stats,
-            )
-        ]
+        raw_seeds = _collect_gdelt_seeds(
+            num_files=args.num_files,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            cache_dir=GDELT_CACHE_DIR,
+            reporter=reporter,
+            stats=gdelt_stats,
+            seed_threads=args.gdelt_seed_threads,
+        )
         LOGGER.info(
             f"Seed collection complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
         )
@@ -319,6 +398,22 @@ def main(argv: list[str] | None = None) -> int:
         if not chunks:
             chunks = [[]]
 
+        try:
+            ensure_model_available()
+        except model_unavailable_error as exc:
+            LOGGER.error("Model availability check failed: %s", exc)
+            print(exc, file=sys.stderr)
+            return 1
+
+        # Size the phase bar to the seeds that will actually process (each worker
+        # applies effective_limit to its own chunk). Per-seed advances from the
+        # workers then drive both the phase bar and, smoothly, the overall bar.
+        gdelt_units = sum(
+            min(len(c), effective_limit) if effective_limit else len(c) for c in chunks
+        )
+        reporter.start_phase("GDELT", total=gdelt_units)
+
+        all_records = []
         with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = []
             n = 0
@@ -328,14 +423,14 @@ def main(argv: list[str] | None = None) -> int:
                         runner.run,
                         num_files=args.num_files,
                         limit=effective_limit,
-                        output_path=args.output_path,
+                        output_path=None,
                         start_date=args.start_date,
                         end_date=args.end_date,
                         seen=seen,
                         use_bert=args.use_bert,
                         verbose=args.verbose,
-                        reporter=None,
-                        stats=gdelt_stats,
+                        reporter=reporter,
+                        stats=PipelineStats("GDELT"),
                         raw_seeds=chunk,
                         debug_noise=gdelt_noise,
                         port=port,
@@ -346,7 +441,10 @@ def main(argv: list[str] | None = None) -> int:
                     port += 1
                     n = 0
             for future in as_completed(futures):
-                future.result()
+                worker_stats, records = future.result()
+                gdelt_stats.merge(worker_stats)
+                all_records.extend(records)
+        write_output_records(all_records, args.output_path, reporter, gdelt_stats)
         if gdelt_noise:
             out = gdelt_noise.flush()
             if out:
@@ -368,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
         html_start = time.time()
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")
+        reporter.set_overall_step("HTML")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
 
         scooper.setup_scooper(sb_only=args.sb_only)
@@ -381,10 +480,20 @@ def main(argv: list[str] | None = None) -> int:
             dates: list[tuple[datetime.date, datetime.date]] = _split_date(
                 end_date, start_date, threads
             )
+            # One phase unit per date window; advanced as each window completes.
+            reporter.start_phase("HTML", total=len(dates))
 
             # One scooper instance per date window
             port = args.starting_port
             results = []
+
+            try:
+                ensure_model_available()
+            except model_unavailable_error as exc:
+                LOGGER.error("Model availability check failed: %s", exc)
+                print(exc, file=sys.stderr)
+                return 1
+
             with ThreadPoolExecutor(max_workers=len(dates)) as executor:
                 futures = []
                 n = 0
@@ -408,6 +517,7 @@ def main(argv: list[str] | None = None) -> int:
                         n = 0
                 for future in as_completed(futures):
                     results.append(future.result())
+                    reporter.advance(1)
 
             vuln_lists: list = []
             for window_stats, w_vuln_list, v_df, n_df in results:
@@ -419,7 +529,10 @@ def main(argv: list[str] | None = None) -> int:
             scooper.save_results(vuln_lists, vuln_dfs, noise_dfs, sb_only=args.sb_only)
         # Default: one thread per site. run_scooper fans out internally and
         # returns frames merged across sites (disjoint); we persist them here.
+        # Per-site HTML progress lives inside scooper (deferred to #229); treat
+        # the whole phase as one unit for now.
         else:
+            reporter.start_phase("HTML", total=1)
             html_stats, vuln_list, v_df, n_df = scooper.run_scooper(
                 use_bert=args.use_bert,
                 verbose=args.verbose,
@@ -431,6 +544,7 @@ def main(argv: list[str] | None = None) -> int:
                 site_split=True,
             )
             scooper.save_results(vuln_list, [v_df], [n_df], sb_only=args.sb_only)
+            reporter.advance(1)
 
         # TODO: thread per cite implemented here
 

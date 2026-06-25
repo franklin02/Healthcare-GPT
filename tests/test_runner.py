@@ -847,7 +847,7 @@ class TestRun:
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = runner.run(
+            _stats, result = runner.run(
                 num_files=1,
                 limit=1,
                 output_path=tmpdir,
@@ -1164,7 +1164,7 @@ class TestRun:
         mock_process_seed.side_effect = fake_process_seed
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = runner.run(
+            _stats, result = runner.run(
                 num_files=1,
                 limit=2,
                 seen=caller_seen,
@@ -1197,7 +1197,9 @@ class TestRun:
             runner.run(num_files=1, limit=1, output_path=tmpdir)
 
         output = capsys.readouterr().out
-        assert "Progress: [██████████] 100% GDELT articles (1/1)" in output
+        # New reporter renders progress as sticky bars (disabled in non-TTY
+        # capture), so assert the high-level info line instead of bar text.
+        assert "Processing 1 GDELT seeds" in output
         assert "[1/1]" not in output
 
     def test_run_verbose_output_shows_detail(
@@ -1258,7 +1260,7 @@ class TestRun:
                 mock_backfill_cyber_seeds.return_value = seeds
                 mock_process_seed.side_effect = [first_record, KeyboardInterrupt]
                 mock_clear = mock_clear_directory
-                result = runner.run(
+                _stats, result = runner.run(
                     num_files=1,
                     limit=2,
                     output_path=tmpdir,
@@ -1297,7 +1299,7 @@ class TestRun:
                 mock_backfill_cyber_seeds.return_value = seeds
                 mock_process_seed.side_effect = KeyboardInterrupt
                 mock_clear = mock_clear_directory
-                result = runner.run(
+                _stats, result = runner.run(
                     num_files=1,
                     limit=1,
                     output_path=tmpdir,

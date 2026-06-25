@@ -4,14 +4,7 @@ import pytest
 
 from src.cli_reporter import CliReporter, PipelineStats
 from src.shared_utils import model_unavailable_error
-import src.shared_utils as shared_utils
 from src import orchestrator
-
-def test_example(monkeypatch):
-    monkeypatch.setattr(shared_utils, "_CONFIG", {
-        "SKIP_HTML": "false",
-        "MODELS": "2",
-    })
 
 @pytest.fixture
 def mock_ensure_model_available():

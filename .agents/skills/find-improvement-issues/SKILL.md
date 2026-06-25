@@ -10,7 +10,7 @@ description: >-
   asked to find tech debt, cleanup or refactor opportunities, docstring/docs
   fixes, test gaps, backlog work items, or "find work for the team." Drafts
   issues for review and only creates them with `gh` after explicit confirmation.
-allowed-tools: Bash, Read, Grep, Glob
+allowed-tools: Bash, Read, Grep, Glob, Write
 ---
 
 # FindImprovementIssues
@@ -112,15 +112,23 @@ behave identically. In particular:
   create the issue through `gh` — show the draft with a note that the label must
   be added to the repo first. Only create the label with explicit user consent.
 - **Preflight, then create:** `command -v gh` and `gh auth status`. If either
-  fails, skip `gh` and print each issue as a copy-pasteable ```md block (Title,
-  body, Labels line) for `https://github.com/<owner>/<repo>/issues/new` — derive
-  `<owner>/<repo>` from the `origin` remote. Otherwise:
+  fails, skip `gh` and print each issue as a copy-pasteable block (Title, body,
+  Labels line) for `https://github.com/<owner>/<repo>/issues/new` — derive
+  `<owner>/<repo>` from the `origin` remote. Wrap each block in a **four-backtick**
+  fence (open with four backticks + `md`, close with four backticks) so a body
+  containing a triple-backtick code block doesn't terminate the wrapper early.
+  Otherwise:
+- **Markdown fidelity:** the body is raw GitHub-flavored Markdown — use native
+  backticks and ``` fences, never escape backticks or other Markdown. Write each
+  issue body to its own temp file with the **Write tool** and create with
+  `--body-file` (NOT inline `--body "..."`, where the shell mangles backticks and
+  `$`):
 
   ```bash
-  gh issue create --title "<title>" --body "<body>" [--label "<label>" ...]
+  gh issue create --title "<title>" --body-file <temp> [--label "<label>" ...]
   ```
 
-Report each issue URL.
+  Delete each temp file afterward. Report each issue URL.
 
 ## Issue template
 

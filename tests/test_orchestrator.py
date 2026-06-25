@@ -6,6 +6,7 @@ from src.cli_reporter import CliReporter, PipelineStats
 from src.shared_utils import model_unavailable_error
 from src import orchestrator
 
+
 @pytest.fixture
 def mock_ensure_model_available():
     with patch("src.orchestrator.ensure_model_available") as mock:

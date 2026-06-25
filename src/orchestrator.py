@@ -38,6 +38,7 @@ GDELT_CACHE_DIR = _PROJECT_ROOT / "data" / "gdelt_cache"
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
+AI_MODEL = get_config_value("AI_MODEL", "llama3.2:latest")
 
 
 def _split_date(
@@ -400,6 +401,7 @@ def main(argv: list[str] | None = None) -> int:
 
         try:
             ensure_model_available()
+            reporter.info(f"LLM model: {AI_MODEL}")
         except model_unavailable_error as exc:
             LOGGER.error("Model availability check failed: %s", exc)
             print(exc, file=sys.stderr)
@@ -412,7 +414,11 @@ def main(argv: list[str] | None = None) -> int:
             min(len(c), effective_limit) if effective_limit else len(c) for c in chunks
         )
         reporter.start_phase("GDELT", total=gdelt_units)
-
+        reporter.info(f"\nProcessing {len(raw_seeds)} seeds")
+        if threads > 1:
+            reporter.info(f"Models: {args.models}")
+            reporter.info(f"Threads per model: {args.threads_per_model}")
+            reporter.info(f"Total threads: {threads}")
         all_records = []
         with ThreadPoolExecutor(max_workers=threads) as executor:
             futures = []
@@ -489,6 +495,7 @@ def main(argv: list[str] | None = None) -> int:
 
             try:
                 ensure_model_available()
+                reporter.info(f"LLM model: {AI_MODEL}")
             except model_unavailable_error as exc:
                 LOGGER.error("Model availability check failed: %s", exc)
                 print(exc, file=sys.stderr)

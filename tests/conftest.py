@@ -4,6 +4,9 @@ import pytest
 from unittest.mock import patch
 import src.shared_utils as shared_utils
 
+@pytest.fixture(autouse=True)
+def isolate_config(monkeypatch):
+    monkeypatch.setattr(shared_utils, "_CONFIG", {})
 
 @pytest.fixture(autouse=True)
 def skip_model_availability_check():
@@ -62,13 +65,3 @@ def mock_runner_dirs(tmp_path):
             "validated": validated_dir,
             "enriched": enriched_dir,
         }
-
-@pytest.fixture(autouse=True)
-def isolate_config(monkeypatch):
-    monkeypatch.setattr(shared_utils, "_CONFIG", {})
-
-def test_example(monkeypatch):
-    monkeypatch.setattr(shared_utils, "_CONFIG", {
-        "SKIP_HTML": "false",
-        "MODELS": "2",
-    })

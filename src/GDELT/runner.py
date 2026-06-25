@@ -39,7 +39,6 @@ from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from ..cli_reporter import CliReporter, PipelineStats
 from ..logging_utils import get_file_logger
 from ..shared_utils import (
-    AI_MODEL,
     LLMUnavailableError,
     ai_check_validation,
     BODY_CHAR_LIMIT,
@@ -460,7 +459,6 @@ def process_staged_seeds(
     stats = stats or PipelineStats("GDELT seed stitch")
     records = []
     stats.discovered = len(seeds)
-    reporter.info(f"Processing {len(seeds)} staged GDELT seeds")
     reporter.start_phase("GDELT", total=len(seeds))
 
     for i, seed in enumerate(seeds, start=1):
@@ -899,7 +897,6 @@ def run(
     stats = stats or PipelineStats("GDELT")
     if local_reporter:
         reporter.phase("GDELT pipeline")
-    reporter.status(f"LLM model: {AI_MODEL}")
     if use_bert:
         reporter.status(_bert_status())
 
@@ -942,7 +939,6 @@ def run(
         seeds = seeds[:limit]
     LOGGER.debug("Processing %s seeds after limit", len(seeds))
 
-    reporter.info(f"Processing {len(seeds)} GDELT seeds")
     records = []
     for i, seed in enumerate(seeds, start=1):
         if pause_if_shutdown(stats):

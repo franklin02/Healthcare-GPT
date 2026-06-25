@@ -52,6 +52,7 @@ import re
 import subprocess
 import tempfile
 import shutil
+import time
 import pandas as pd
 from pathlib import Path
 
@@ -300,12 +301,15 @@ SUBSECTOR_FIELDS = {
 }
 
 
-def get_page(url):
+def get_page(url, connect_timeout=10, read_timeout=15, absolute_timeout=45):
     """
     Fetches the content of a web page for the given URL.
 
     Parameters:
         url (str): The URL of the web page to fetch.
+        connect_timeout (int): Timeout for connecting to the server.
+        read_timeout (int): Idle timeout for reading data from the server.
+        absolute_timeout (int): Maximum total time allowed for the request.
 
     Returns:
         requests.Response: The response object containing the web page content.
@@ -314,8 +318,25 @@ def get_page(url):
         requests.exceptions.HTTPError: If the HTTP request returned an unsuccessful status code.
         requests.exceptions.RequestException: For any issues during the HTTP request such as timeouts or connection errors.
     """
-    resp = requests.get(url, timeout=15, headers=HEADERS)
+    start_time = time.time()
+    
+    resp = requests.get(
+        url, 
+        timeout=(connect_timeout, read_timeout), 
+        headers=HEADERS, 
+        stream=True
+    )
     resp.raise_for_status()
+
+    content = bytearray()
+    for chunk in resp.iter_content(chunk_size=8192):
+        if time.time() - start_time > absolute_timeout:
+            resp.close()
+            raise requests.exceptions.Timeout(f"Absolute timeout of {absolute_timeout}s exceeded")
+        if chunk:
+            content.extend(chunk)
+
+    resp._content = bytes(content)
     LOGGER.debug("Successfully fetched URL: %s", url)
     return resp
 

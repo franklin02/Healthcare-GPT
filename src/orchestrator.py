@@ -238,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--start-date",
-        default=get_config_value("GDELT_START_DATE", None),
+        default=get_config_value("START_DATE", None),
         help=(
             "Ceiling date (YYYYMMDD or YYYY-MM-DD): articles newer than this are "
             "skipped. Applied to both GDELT files and HTML article dates."
@@ -246,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--end-date",
-        default=get_config_value("GDELT_END_DATE", None),
+        default=get_config_value("END_DATE", None),
         help=(
             "Floor date (YYYYMMDD or YYYY-MM-DD): crawling stops at articles older "
             "than this. Applied to both GDELT files and HTML article dates."
@@ -284,21 +284,6 @@ def main(argv: list[str] | None = None) -> int:
         "--seen-urls-file",
         default=get_config_value("SEEN_URLS_FILE", None),
         help="Path to store/load seen URLs JSON file",
-    )
-    parser.add_argument(
-        "--html-start-page",
-        type=int,
-        default=get_config_int("HTML_START_PAGE", None),
-        help="Override configured starting page for every HTML scraper site",
-    )
-    parser.add_argument(
-        "--html-page-cap",
-        type=int,
-        default=get_config_int("HTML_PAGE_CAP", None),
-        help=(
-            "Override configured max page number for every HTML scraper site "
-            "(-1 for unlimited)"
-        ),
     )
     parser.add_argument(
         "--clean",

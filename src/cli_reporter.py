@@ -233,6 +233,18 @@ class CliReporter:
         # re-acquire it through tqdm.
         self._lock = threading.RLock()
         tqdm.set_lock(self._lock)
+        # tqdm only redraws {elapsed} on refresh(); its monitor thread skips
+        # bars with miniters <= 1, so elapsed freezes between advance() calls.
+        self._refresh_stop = threading.Event()
+        if not self._disable:
+
+            def _refresh_elapsed() -> None:
+                while not self._refresh_stop.wait(_MIN_INTERVAL):
+                    with self._lock:
+                        if self._overall is not None:
+                            self._overall._bar.refresh()
+
+            threading.Thread(target=_refresh_elapsed, daemon=True).start()
         set_active_reporter(self)
 
     # ---- phase + overall bar management -------------------------------
@@ -387,6 +399,7 @@ class CliReporter:
         Idempotent. After this, subsequent output prints below the frozen
         bars; new bars would start a fresh sticky area.
         """
+        self._refresh_stop.set()
         with self._lock:
             self._safe_close(self._task)
             # Close the overall bar last so the cursor ends below the whole stack

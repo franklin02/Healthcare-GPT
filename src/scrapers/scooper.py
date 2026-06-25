@@ -438,6 +438,12 @@ def _raw_data(
                 "{page}", str(current_page)
             )
 
+        LOGGER.info(
+            "Fetching %s page %d (%s)...",
+            site_config["name"],
+            current_page,
+            page_url,
+        )
         try:
             articles, stop = _scrape_page(
                 site_config,

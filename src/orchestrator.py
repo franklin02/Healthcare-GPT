@@ -15,7 +15,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from pathlib import Path
-from concurrent.futures import as_completed
 
 from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
@@ -24,12 +23,16 @@ from .GDELT.runner import load_seen, write_output_records
 from .shared_utils import (
     DEBUG_DIR,
     NoiseCollector,
+    collect_as_completed,
     ensure_model_available,
+    exit_if_shutdown,
     get_config_bool,
     get_config_int,
     get_config_value,
+    install_handler,
     model_unavailable_error,
     run_clean,
+    shutdown_executor,
 )
 # from scripts.clean_gdelt import run_clean
 
@@ -163,7 +166,8 @@ def _collect_gdelt_seeds(
     if not chunks:
         return []
 
-    with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
+    executor = ThreadPoolExecutor(max_workers=len(chunks))
+    try:
         futures = []
 
         # Submit tasks for each chunk of links
@@ -176,8 +180,9 @@ def _collect_gdelt_seeds(
                     reporter=quiet_reporter,
                 )
             )
-        for future in as_completed(futures):
-            raw_seeds.extend(future.result())
+        collect_as_completed(futures, raw_seeds.extend)
+    finally:
+        shutdown_executor(executor)
 
     LOGGER.debug(
         "Collected %d GDELT seeds across %d link chunks with %d threads",
@@ -342,6 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     start = time.time()
 
     args = parser.parse_args(argv)
+    install_handler()
     reporter = CliReporter(verbose=args.verbose)
     summaries: list[PipelineStats] = []
 
@@ -414,7 +420,8 @@ def main(argv: list[str] | None = None) -> int:
         reporter.start_phase("GDELT", total=gdelt_units)
 
         all_records = []
-        with ThreadPoolExecutor(max_workers=threads) as executor:
+        executor = ThreadPoolExecutor(max_workers=threads)
+        try:
             futures = []
             n = 0
             for chunk in chunks:
@@ -440,10 +447,15 @@ def main(argv: list[str] | None = None) -> int:
                 if n == args.threads_per_model:
                     port += 1
                     n = 0
-            for future in as_completed(futures):
-                worker_stats, records = future.result()
+
+            def _merge_gdelt(result):
+                worker_stats, records = result
                 gdelt_stats.merge(worker_stats)
                 all_records.extend(records)
+
+            collect_as_completed(futures, _merge_gdelt)
+        finally:
+            shutdown_executor(executor)
         write_output_records(all_records, args.output_path, reporter, gdelt_stats)
         if gdelt_noise:
             out = gdelt_noise.flush()
@@ -458,7 +470,7 @@ def main(argv: list[str] | None = None) -> int:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
             reporter.summary(summaries)
             LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
-            return 0
+            return exit_if_shutdown(0)
 
     if not args.skip_html:
         import src.scrapers.scooper as scooper
@@ -494,7 +506,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(exc, file=sys.stderr)
                 return 1
 
-            with ThreadPoolExecutor(max_workers=len(dates)) as executor:
+            executor = ThreadPoolExecutor(max_workers=len(dates))
+            try:
                 futures = []
                 n = 0
                 for win_start, win_end in dates:
@@ -515,9 +528,14 @@ def main(argv: list[str] | None = None) -> int:
                     if n == args.threads_per_model:
                         port += 1
                         n = 0
-                for future in as_completed(futures):
-                    results.append(future.result())
+
+                def _append_html(result):
+                    results.append(result)
                     reporter.advance(1)
+
+                collect_as_completed(futures, _append_html)
+            finally:
+                shutdown_executor(executor)
 
             vuln_lists: list = []
             for window_stats, w_vuln_list, v_df, n_df in results:
@@ -553,7 +571,7 @@ def main(argv: list[str] | None = None) -> int:
             reporter.info("HTML scraper paused; skipping remaining pipelines.")
             reporter.summary(summaries)
             LOGGER.info("HTML scraper paused; skipping remaining pipelines")
-            return 0
+            return exit_if_shutdown(0)
 
         LOGGER.info(
             f"HTML/Scooper processing complete in {(time.time() - html_start) / 60:.2f} minutes"
@@ -563,7 +581,7 @@ def main(argv: list[str] | None = None) -> int:
         reporter.summary(summaries)
     LOGGER.info("Orchestrator run complete with summaries: %s", summaries)
     LOGGER.info(f"Total execution time: {(time.time() - start) / 60:.2f} minutes")
-    return 0
+    return exit_if_shutdown(0)
 
 
 if __name__ == "__main__":

@@ -16,4 +16,4 @@ beautifulsoup4
 lxml
 torch
 supabase
-tqdm
+rich

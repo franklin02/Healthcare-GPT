@@ -352,8 +352,11 @@ def main(argv: list[str] | None = None) -> int:
     summaries: list[PipelineStats] = []
 
     # Overall progress bar: one unit of work per pipeline phase that will run.
+    # When only one phase runs, the overall bar would just mirror the phase bar,
+    # so we suppress it entirely.
     phases = int(not args.skip_gdelt) + int(not args.skip_html)
-    if phases:
+    show_overall = phases > 1
+    if show_overall:
         reporter.set_overall_total(phases)
         reporter.set_overall_step("Initializing")
 
@@ -377,7 +380,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         gdelt_stats = PipelineStats("GDELT")
         reporter.phase("Running GDELT pipeline")
-        reporter.set_overall_step("GDELT")
+        if show_overall:
+            reporter.set_overall_step("GDELT")
         LOGGER.info("Running GDELT pipeline with args: %s", args)
         if args.clean:
             run_clean()
@@ -393,7 +397,7 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.info(
             f"Seed collection complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
         )
-        gdelt_start = time.time()
+        gdelt_processing_start = time.time()
         if args.seeds_only:
             LOGGER.info("Seeds-only mode enabled; skipping full GDELT processing")
             exit(0)
@@ -463,8 +467,12 @@ def main(argv: list[str] | None = None) -> int:
                 reporter.info(f"Debug noise (GDELT): {out}")
 
         LOGGER.info(
-            f"GDELT processing complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
+            f"GDELT processing complete in {(time.time() - gdelt_processing_start) / 60:.2f} minutes"
         )
+        # Whole-phase wall clock for the run summary. gdelt_start is set
+        # at the top of the GDELT branch; gdelt_processing_start above only covers
+        # the LLM-processing sub-phase.
+        gdelt_stats.elapsed_seconds = time.time() - gdelt_start
         summaries.append(gdelt_stats)
         if gdelt_stats.paused:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
@@ -478,7 +486,8 @@ def main(argv: list[str] | None = None) -> int:
         html_start = time.time()
         html_stats = PipelineStats("HTML")
         reporter.phase("Running HTML/Scooper pipeline")
-        reporter.set_overall_step("HTML")
+        if show_overall:
+            reporter.set_overall_step("HTML")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
 
         scooper.setup_scooper(sb_only=args.sb_only)
@@ -566,6 +575,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # TODO: thread per cite implemented here
 
+        html_stats.elapsed_seconds = time.time() - html_start
         summaries.append(html_stats)
         if html_stats.paused:
             reporter.info("HTML scraper paused; skipping remaining pipelines.")

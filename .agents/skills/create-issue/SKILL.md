@@ -1,7 +1,7 @@
 ---
 name: create-issue
 description: Draft and open a GitHub issue from a user's request, bug report, or feature idea (never from a git diff), matching this repository's conventions — a Conventional-Commit title prefix, a ## Problem section, an optional ## Suggested fix, a ## Checklist items list, and the required AI provenance label (`codex-generated` or `claude-generated`). Inspects the codebase and existing repo labels first, shows the draft for confirmation, then runs `gh issue create`; falls back to a copy-pasteable markdown block if creation fails. Use when the user asks to file, open, create, track, or "make an issue" out of a problem or feature.
-allowed-tools: Bash, Read, Grep, Glob
+allowed-tools: Bash, Read, Grep, Glob, Write
 ---
 
 # CreateIssue
@@ -91,6 +91,17 @@ short lines with a big empty gutter on the right. Use blank lines only to separa
 paragraphs, list items, and headings. (Bullet/checklist items are one line each;
 sub-points can nest, but don't wrap a single point across lines.)
 
+Markdown fidelity (critical):
+- The body is raw GitHub-flavored Markdown. Use native Markdown — real backticks
+  for inline code (`like_this`) and fenced ``` blocks for code. NEVER escape
+  backticks (`\``), dollar signs, or any other Markdown, and never wrap content in
+  extra code fences "to be safe."
+- This corruption comes from passing the body **inline** through shell quoting
+  (`gh issue create --body "..."`), where bash treats backticks/`$(...)`/`$var` as
+  command substitution and forces escaping. Always write the body to a file with
+  the **Write tool** and create the issue with `--body-file` (step 6) — the file is
+  never parsed by the shell, so every character survives verbatim.
+
 ### 5. Choose labels from EXISTING labels only
 
 - Run `gh label list` and apply only labels that already exist AND are clearly
@@ -122,12 +133,16 @@ sub-points can nest, but don't wrap a single point across lines.)
    - `gh auth status` — is it authenticated to the right host?
    If either check fails, skip creation and go straight to the fallback in
    step 7 — do not run a command you already expect to error.
-4. When both checks pass, create it:
+4. When both checks pass, create it. Write the body to a temp file with the
+   **Write tool** (e.g. the scratchpad dir) — NOT a shell heredoc and NOT inline
+   `--body` — then pass `--body-file` so the Markdown survives verbatim:
    ```bash
-   gh issue create --title "<title>" --body "<body>" [--label "<label>" ...]
+   gh issue create --title "<title>" --body-file <temp> [--label "<label>" ...]
    ```
-   Report the issue URL that `gh` prints. If the command still fails (network,
-   a label that does not exist, no remote, etc.), fall back to step 7.
+   The title is short and safe inline; only the body needs the file. Delete the
+   temp file afterward. Report the issue URL that `gh` prints. If the command
+   still fails (network, a label that does not exist, no remote, etc.), fall back
+   to step 7.
 
 ### 7. Fallback when `gh` is unavailable
 
@@ -135,11 +150,14 @@ sub-points can nest, but don't wrap a single point across lines.)
 `gh` is missing, unauthenticated, or `gh issue create` fails for any reason, do
 NOT stop with an error. Instead:
 
-1. Output a single fenced ` ```md ` block containing the complete issue — a
-   `Title:` line, the full body, and a `Labels:` line listing the suggested
-   labels — so the user can paste it straight into GitHub's new-issue form at
+1. Output a single fenced block containing the complete issue — a `Title:` line,
+   the full body, and a `Labels:` line listing the suggested labels — so the user
+   can paste it straight into GitHub's new-issue form at
    `https://github.com/<owner>/<repo>/issues/new` (derive `<owner>/<repo>` from
-   the `origin` remote when available).
+   the `origin` remote when available). The body's Suggested-fix section often
+   contains a triple-backtick code block, which would terminate a triple-backtick
+   wrapper early — so wrap the copy-paste block in a **four-backtick** fence (open
+   with four backticks + `md`, close with four backticks) to safely contain it.
 2. Briefly state why it fell back and how to enable one-step creation next time:
    install the GitHub CLI (<https://cli.github.com>) and run `gh auth login`.
 

@@ -37,6 +37,7 @@ Functions:
     - `request_pause`: Requests a pause in processing, setting the shutdown event.
     - `collect_as_completed`: Collects results from futures as they complete, handling shutdown requests.
     - `shutdown_executor`: Shuts down a concurrent executor, optionally canceling pending futures if a shutdown has been requested.
+    - `shutdown_requested`: Checks if a shutdown has been requested.
 
 
 Possible subsectors:

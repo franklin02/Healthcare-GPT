@@ -319,12 +319,9 @@ def get_page(url, connect_timeout=10, read_timeout=15, absolute_timeout=45):
         requests.exceptions.RequestException: For any issues during the HTTP request such as timeouts or connection errors.
     """
     start_time = time.time()
-    
+
     resp = requests.get(
-        url, 
-        timeout=(connect_timeout, read_timeout), 
-        headers=HEADERS, 
-        stream=True
+        url, timeout=(connect_timeout, read_timeout), headers=HEADERS, stream=True
     )
     resp.raise_for_status()
 
@@ -332,7 +329,9 @@ def get_page(url, connect_timeout=10, read_timeout=15, absolute_timeout=45):
     for chunk in resp.iter_content(chunk_size=8192):
         if time.time() - start_time > absolute_timeout:
             resp.close()
-            raise requests.exceptions.Timeout(f"Absolute timeout of {absolute_timeout}s exceeded")
+            raise requests.exceptions.Timeout(
+                f"Absolute timeout of {absolute_timeout}s exceeded"
+            )
         if chunk:
             content.extend(chunk)
 

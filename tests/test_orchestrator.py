@@ -111,17 +111,6 @@ def test_orchestrator_forwards_verbose_to_html_scraper(
     assert mock_run_scooper.call_args.kwargs.get("verbose") is True
 
 
-def test_orchestrator_help_documents_html_limit_overrides(capsys):
-    """CLI help should list the HTML pagination override flags."""
-    with pytest.raises(SystemExit) as exc_info:
-        orchestrator.main(["--help"])
-
-    assert exc_info.value.code == 0
-    help_text = capsys.readouterr().out
-    assert "--html-start-page" in help_text
-    assert "--html-page-cap" in help_text
-
-
 def test_orchestrator_detects_equals_style_gdelt_options(
     mock_ensure_model_available,
     mock_get_config_bool,

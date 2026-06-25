@@ -1039,12 +1039,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--start-date",
-        default=get_config_value("GDELT_START_DATE", None),
+        default=get_config_value("START_DATE", None),
         help="Earliest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)",
     )
     parser.add_argument(
         "--end-date",
-        default=get_config_value("GDELT_END_DATE", None),
+        default=get_config_value("END_DATE", None),
         help="Latest GDELT file date to include (Format: YYYYMMDD, YYYYMMDDHHMMSS, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS)",
     )
     parser.add_argument(

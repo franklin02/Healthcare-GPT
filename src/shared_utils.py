@@ -75,6 +75,7 @@ from .logging_utils import get_file_logger
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_PATH = _PROJECT_ROOT / "src" / "config" / "config.cfg"
 _T = TypeVar("_T")
+_SHUTDOWN_POLL_INTERVAL = 0.1
 
 
 def _load_config_file() -> dict[str, str]:
@@ -1476,7 +1477,6 @@ class NoiseCollector:
 
 
 _shutdown = threading.Event()
-_SHUTDOWN_POLL_INTERVAL = 0.1
 
 
 def shutdown_requested() -> bool:

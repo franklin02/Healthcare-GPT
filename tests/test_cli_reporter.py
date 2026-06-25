@@ -153,7 +153,7 @@ def test_log_info_and_error_write_above_bars(monkeypatch):
     """log/info/error all emit through tqdm.write so they scroll above bars."""
     writes = []
     monkeypatch.setattr(
-        "src.cli_reporter.tqdm.write", lambda msg, file=None: writes.append(msg)
+        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(msg)
     )
     reporter = CliReporter(file=io.StringIO())
 
@@ -171,7 +171,7 @@ def test_detail_only_writes_when_verbose(monkeypatch):
     """Detail messages should only print when verbose mode is enabled."""
     writes = []
     monkeypatch.setattr(
-        "src.cli_reporter.tqdm.write", lambda msg, file=None: writes.append(msg)
+        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(msg)
     )
 
     CliReporter(file=io.StringIO(), verbose=False).detail("hidden")
@@ -185,7 +185,7 @@ def test_warning_is_hidden_by_default_but_counted(monkeypatch):
     """Default-mode warnings should increment stats without writing output."""
     writes = []
     monkeypatch.setattr(
-        "src.cli_reporter.tqdm.write", lambda msg, file=None: writes.append(msg)
+        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(msg)
     )
     reporter = CliReporter(file=io.StringIO())
     stats = PipelineStats("test")
@@ -200,7 +200,7 @@ def test_verbose_warning_writes_and_counts(monkeypatch):
     """Verbose warnings print above the bars and still count."""
     writes = []
     monkeypatch.setattr(
-        "src.cli_reporter.tqdm.write", lambda msg, file=None: writes.append(msg)
+        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(msg)
     )
     reporter = CliReporter(file=io.StringIO(), verbose=True)
     stats = PipelineStats("test")
@@ -215,7 +215,7 @@ def test_error_always_writes_and_counts(monkeypatch):
     """Errors are always written and counted regardless of verbosity."""
     writes = []
     monkeypatch.setattr(
-        "src.cli_reporter.tqdm.write", lambda msg, file=None: writes.append(msg)
+        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(msg)
     )
     reporter = CliReporter(file=io.StringIO())
     stats = PipelineStats("test")
@@ -288,8 +288,9 @@ def test_summary_finishes_bars_before_printing():
 
 
 def _summary_row(output: str, label: str) -> str:
-    """Return the summary table row that starts with ``label``."""
-    return next(line for line in output.splitlines() if line.startswith(label))
+    """Return the summary table row that contains ``label``."""
+    line = next(line for line in output.splitlines() if label in line)
+    return line.replace("│", "").strip()
 
 
 def test_summary_prints_core_counts():

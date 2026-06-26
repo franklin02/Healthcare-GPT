@@ -238,6 +238,94 @@ def test_orchestrator_tracks_overall_progress_by_phase(
     assert phases == ["GDELT", "HTML"]
 
 
+def test_orchestrator_skips_overall_bar_for_single_phase_runs(
+    mock_ensure_model_available,
+    mock_get_config_bool,
+    mock_get_config_int,
+    mock_get_config_value,
+    mock_backfill_cyber_seeds,
+    mock_runner_run,
+    mock_cli_summary,
+):
+    """Single-pipeline runs should not open the redundant overall bar."""
+    mock_runner_run.return_value = (PipelineStats("GDELT"), [])
+
+    with (
+        patch("src.cli_reporter.CliReporter.set_overall_total") as mock_total,
+        patch("src.cli_reporter.CliReporter.set_overall_step") as mock_step,
+        patch("src.cli_reporter.CliReporter.start_phase") as mock_start_phase,
+    ):
+        result = orchestrator.main(["--skip-html"])
+
+    assert result == 0
+    mock_total.assert_not_called()
+    mock_step.assert_not_called()
+    # The phase bar still runs — only the overall bar is suppressed.
+    phases = [call.args[0] for call in mock_start_phase.call_args_list]
+    assert phases == ["GDELT"]
+
+
+def test_orchestrator_skips_overall_bar_when_only_html_runs(
+    mock_ensure_model_available,
+    mock_setup_scooper,
+    mock_run_scooper,
+    mock_cli_summary,
+):
+    """The same suppression applies when GDELT is skipped."""
+    mock_run_scooper.return_value = (PipelineStats("HTML"), [], None, None)
+
+    with (
+        patch("src.scrapers.scooper.save_results"),
+        patch("src.cli_reporter.CliReporter.set_overall_total") as mock_total,
+        patch("src.cli_reporter.CliReporter.set_overall_step") as mock_step,
+    ):
+        result = orchestrator.main(["--skip-gdelt"])
+
+    assert result == 0
+    mock_total.assert_not_called()
+    mock_step.assert_not_called()
+
+
+def test_orchestrator_populates_gdelt_elapsed_seconds(
+    mock_ensure_model_available,
+    mock_get_config_bool,
+    mock_get_config_int,
+    mock_get_config_value,
+    mock_backfill_cyber_seeds,
+    mock_runner_run,
+    mock_cli_summary,
+):
+    """GDELT summary should report a non-zero wall-clock duration."""
+    mock_runner_run.return_value = (PipelineStats("GDELT"), [])
+
+    result = orchestrator.main(["--skip-html"])
+
+    assert result == 0
+    summaries = mock_cli_summary.call_args[0][0]
+    gdelt_stats = summaries[0]
+    assert gdelt_stats.name == "GDELT"
+    assert gdelt_stats.elapsed_seconds > 0
+
+
+def test_orchestrator_populates_html_elapsed_seconds(
+    mock_ensure_model_available,
+    mock_setup_scooper,
+    mock_run_scooper,
+    mock_cli_summary,
+):
+    """HTML summary should report a non-zero wall-clock duration."""
+    mock_run_scooper.return_value = (PipelineStats("HTML"), [], None, None)
+
+    with patch("src.scrapers.scooper.save_results"):
+        result = orchestrator.main(["--skip-gdelt"])
+
+    assert result == 0
+    summaries = mock_cli_summary.call_args[0][0]
+    html_stats = summaries[0]
+    assert html_stats.name == "HTML"
+    assert html_stats.elapsed_seconds > 0
+
+
 def test_orchestrator_gdelt_multi_worker_stats_merge_correctly(
     mock_ensure_model_available,
     mock_get_config_bool,

@@ -544,10 +544,6 @@ def backfill_cyber_seeds(
         end_date,
         len(recent),
     )
-    reporter.info(
-        f"Scanning {len(recent)} GDELT files for all subsectors "
-        f"(~{len(recent) * 15 / 60:.1f} hours)"
-    )
     LOGGER.debug("Scanning %s files", len(recent))
 
     all_seeds = []

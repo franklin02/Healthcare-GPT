@@ -39,7 +39,6 @@ from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from ..cli_reporter import CliReporter, PipelineStats
 from ..logging_utils import get_file_logger
 from ..shared_utils import (
-    AI_MODEL,
     LLMUnavailableError,
     ai_check_validation,
     BODY_CHAR_LIMIT,
@@ -54,6 +53,9 @@ from ..shared_utils import (
     model_unavailable_error,
     clear_directory,
     MissingSubsectorFieldsError,
+    pause_if_shutdown,
+    request_pause,
+    shutdown_requested,
 )
 from scripts.clean_gdelt import run_clean
 
@@ -457,10 +459,11 @@ def process_staged_seeds(
     stats = stats or PipelineStats("GDELT seed stitch")
     records = []
     stats.discovered = len(seeds)
-    reporter.info(f"Processing {len(seeds)} staged GDELT seeds")
     reporter.start_phase("GDELT", total=len(seeds))
 
     for i, seed in enumerate(seeds, start=1):
+        if pause_if_shutdown(stats):
+            break
         stats.processed += 1
         url = seed["url"]
         was_seen = url in seen
@@ -490,7 +493,7 @@ def process_staged_seeds(
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)
-            stats.paused = True
+            request_pause(stats)
             reporter.info(
                 "GDELT seed stitch paused by operator; saving completed records "
                 "and preserving staged seeds."
@@ -676,6 +679,9 @@ def process_seed(
     url = seed["url"]
     LOGGER.debug("Processing seed url=%s", url)
 
+    if shutdown_requested():
+        return None
+
     if url in seen:
         if stats is not None:
             stats.skipped += 1
@@ -689,6 +695,9 @@ def process_seed(
                 reason="Already seen by LLM",
                 stage="dedup",
             )
+        return None
+
+    if shutdown_requested():
         return None
 
     reporter.detail(f"  -> fetching {url[:90]}")
@@ -888,7 +897,6 @@ def run(
     stats = stats or PipelineStats("GDELT")
     if local_reporter:
         reporter.phase("GDELT pipeline")
-    reporter.status(f"LLM model: {AI_MODEL}")
     if use_bert:
         reporter.status(_bert_status())
 
@@ -931,9 +939,10 @@ def run(
         seeds = seeds[:limit]
     LOGGER.debug("Processing %s seeds after limit", len(seeds))
 
-    reporter.info(f"Processing {len(seeds)} GDELT seeds")
     records = []
     for i, seed in enumerate(seeds, start=1):
+        if pause_if_shutdown(stats):
+            break
         stats.processed += 1
         url = seed["url"]
         was_seen = url in seen
@@ -971,7 +980,7 @@ def run(
         except KeyboardInterrupt:
             if not was_seen and not completed_current:
                 seen.discard(url)
-            stats.paused = True
+            request_pause(stats)
             reporter.info(
                 "GDELT pipeline paused by operator; saving completed records "
                 "and preserving seed staging."

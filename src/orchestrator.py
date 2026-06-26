@@ -139,7 +139,19 @@ def _collect_gdelt_seeds(
     Returns:
         A list of candidate seed records (dicts) collected from GDELT.
     """
+    if start_date is not None and end_date is not None:
+        num_days = (_parse_date(start_date) - _parse_date(end_date)).days + 1
+        reporter.info(
+            f"Collecting GDELT seeds for date range {_parse_date(start_date)} - {_parse_date(end_date)} ({num_days} days)"
+        )
+    else:
+        reporter.info(
+            f"Collecting GDELT seeds for {num_files} files ({num_files / 4} hours)"
+        )
+
     seed_threads = max(1, seed_threads)
+    if seed_threads > 1:
+        reporter.info(f"Collecting GDELT seeds with {seed_threads} threads")
     if seed_threads == 1:
         LOGGER.debug("Collecting GDELT seeds in single-threaded mode")
         return list(
@@ -386,6 +398,7 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.info("Running GDELT pipeline with args: %s", args)
         if args.clean:
             run_clean()
+
         raw_seeds = _collect_gdelt_seeds(
             num_files=args.num_files,
             start_date=args.start_date,

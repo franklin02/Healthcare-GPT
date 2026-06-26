@@ -6,6 +6,13 @@ import src.shared_utils as shared_utils
 
 
 @pytest.fixture(autouse=True)
+def reset_shutdown():
+    shared_utils._shutdown.clear()
+    yield
+    shared_utils._shutdown.clear()
+
+
+@pytest.fixture(autouse=True)
 def isolate_config(monkeypatch):
     monkeypatch.setattr(shared_utils, "_CONFIG", {})
 

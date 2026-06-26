@@ -46,6 +46,9 @@ from ..shared_utils import (
     update_csv,
     update_json,
     df_dup,
+    pause_if_shutdown,
+    request_pause,
+    _shutdown,
 )
 
 LOGGER = get_file_logger(__name__, _PROJECT_ROOT / "data" / "logs" / "scooper.log")
@@ -426,6 +429,8 @@ def _raw_data(
     stats = PipelineStats(site_config["name"])
     new_df = pd.DataFrame(columns=RAW_CSV_HEADER)
     while True:
+        if pause_if_shutdown(stats):
+            break
         if cap != -1 and current_page > cap:
             # reporter.info(f"Reached page cap ({cap}) for {site_config['name']}")
             LOGGER.info(f"Reached page cap ({cap}) for {site_config['name']}")
@@ -448,7 +453,7 @@ def _raw_data(
                 raw_df=known_df,
             )
         except KeyboardInterrupt:
-            stats.paused = True
+            request_pause(stats)
             # reporter.finish_line()
             # reporter.info(
             #     f"HTML scraper paused by operator during {site_config['name']}; "
@@ -490,10 +495,8 @@ def _raw_data(
             break
 
         current_page += 1
-        try:
-            time.sleep(0.25)
-        except KeyboardInterrupt:
-            stats.paused = True
+        if _shutdown.wait(0.25):
+            request_pause(stats)
             LOGGER.info(
                 "HTML scraper paused by operator between %s pages; "
                 "flushing completed records.",
@@ -697,6 +700,8 @@ def _process_site(
     noise_df = pd.DataFrame(columns=NOISE_CSV_HEADER)
 
     for row in df.itertuples():
+        if pause_if_shutdown(stats):
+            break
         stats.processed += 1
         if reporter is not None:
             reporter.advance(1)
@@ -831,7 +836,7 @@ def _process_site(
                     LOGGER.info(f"[NOISE] {detail}: {title}")
 
         except KeyboardInterrupt:
-            stats.paused = True
+            request_pause(stats)
             LOGGER.info(
                 "HTML scraper paused by operator while processing this article %s",
                 link,

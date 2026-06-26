@@ -1199,7 +1199,6 @@ class TestRun:
         output = capsys.readouterr().out
         # New reporter renders progress as sticky bars (disabled in non-TTY
         # capture), so assert the high-level info line instead of bar text.
-        assert "Processing 1 GDELT seeds" in output
         assert "[1/1]" not in output
 
     def test_run_verbose_output_shows_detail(

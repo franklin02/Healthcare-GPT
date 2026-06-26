@@ -32,6 +32,12 @@ Functions:
        at a named healthcare entity based on strict, predefined criteria.
     - `get_extraction_template`: Builds a typed JSON extraction template scoped to a single subsector, mapping each field to its expected primitive type.
     - `extract_fields`: Extracts subsector-specific metadata from a confirmed disruption article by prompting the LLM with a typed, subsector-scoped template.
+    - `install_handler`: Installs a signal handler for graceful shutdown.
+    - `pause_if_shutdown`: Checks if a shutdown has been requested and pauses processing if so.
+    - `request_pause`: Requests a pause in processing, setting the shutdown event.
+    - `collect_as_completed`: Collects results from futures as they complete, handling shutdown requests.
+    - `shutdown_executor`: Shuts down a concurrent executor, optionally canceling pending futures if a shutdown has been requested.
+    - `shutdown_requested`: Checks if a shutdown has been requested.
 
 
 Possible subsectors:
@@ -49,11 +55,16 @@ import datetime
 import json
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import shutil
+import threading
 import pandas as pd
+from collections.abc import Callable, Iterable
+from concurrent.futures import FIRST_COMPLETED, Future, wait
 from pathlib import Path
+from typing import TypeVar
 
 import requests
 from bs4 import BeautifulSoup
@@ -63,6 +74,8 @@ from .logging_utils import get_file_logger
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CONFIG_PATH = _PROJECT_ROOT / "src" / "config" / "config.cfg"
+_T = TypeVar("_T")
+_SHUTDOWN_POLL_INTERVAL = 0.1
 
 
 def _load_config_file() -> dict[str, str]:
@@ -781,6 +794,9 @@ def get_body_and_title(url: str) -> tuple[str, str]:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
+    if shutdown_requested():
+        return "", url
+
     # Fetch once
     try:
         resp = requests.get(url, timeout=30, headers=HEADERS)
@@ -864,6 +880,9 @@ def ai_check_validation(
             MIN_BODY_CHARS_FOR_LLM,
         )
         return False, "Body too short for LLM review"
+
+    if shutdown_requested():
+        raise LLMUnavailableError("shutdown requested")
 
     if use_bert:
         bert_subsector = _run_bert(title, body, verbose=verbose)
@@ -1097,6 +1116,9 @@ def extract_fields(subsector, title, body, port) -> tuple[dict, dict]:
         That keeps extraction flexible, but it is not ideal as a long-term
         structured-data contract.
     """
+    if shutdown_requested():
+        raise LLMUnavailableError("shutdown requested")
+
     try:
         subsector_fields = SUBSECTOR_FIELDS[subsector]
     except KeyError as exc:
@@ -1462,3 +1484,98 @@ class NoiseCollector:
             self.output_path,
         )
         return self.output_path
+
+
+_shutdown = threading.Event()
+
+
+def shutdown_requested() -> bool:
+    """Check if a shutdown event has been triggered."""
+    return _shutdown.is_set()
+
+
+def install_handler() -> None:
+    """Install a SIGINT handler that sets a global shutdown event."""
+    signal.signal(signal.SIGINT, lambda *_: _shutdown.set())
+
+
+def pause_if_shutdown(stats) -> bool:
+    """
+    Check if a shutdown event has been triggered and pause the pipeline if so.
+
+    Args:
+        stats: An object with a 'paused' attribute to indicate the paused state.
+
+    Returns:
+        True if the pipeline was paused due to a shutdown event, False otherwise.
+    """
+    if _shutdown.is_set():
+        stats.paused = True
+        return True
+    return False
+
+
+def request_pause(stats) -> None:
+    """
+    Request a pause in the pipeline by setting a global shutdown event.
+
+    Args:
+        stats: An object with a 'paused' attribute to indicate the paused state.
+    """
+    stats.paused = True
+    _shutdown.set()
+
+
+def collect_as_completed(
+    futures: Iterable[Future[_T]],
+    on_result: Callable[[_T], None],
+) -> None:
+    """Collect future results, returning promptly once shutdown is requested.
+
+    Args:
+        futures: An iterable of Future objects to collect results from.
+        on_result: A callback function to process each result as it becomes available.
+    """
+    pending = set(futures)
+    try:
+        # Wait for futures to complete, but check for shutdown requests periodically.
+        while pending and not _shutdown.is_set():
+            done, pending = wait(
+                pending,
+                timeout=_SHUTDOWN_POLL_INTERVAL,
+                return_when=FIRST_COMPLETED,
+            )
+            # Process results from completed futures.
+            for future in done:
+                on_result(future.result())
+        # If shutdown was requested, process any completed futures without blocking.
+        for future in pending:
+            if future.done() and not future.cancelled():
+                try:
+                    on_result(future.result())
+                except Exception:
+                    LOGGER.debug(
+                        "Skipping result from interrupted worker", exc_info=True
+                    )
+    except KeyboardInterrupt:
+        _shutdown.set()
+
+
+def shutdown_executor(executor) -> None:
+    """Shut down an executor without waiting when shutdown was requested."""
+    executor.shutdown(wait=not _shutdown.is_set(), cancel_futures=_shutdown.is_set())
+
+
+def exit_if_shutdown(code: int = 0) -> int:
+    """
+    Exit the process immediately after shutdown cleanup, without joining workers.
+
+    Args:
+        code: Exit code to return. Defaults to 0.
+
+    Returns:
+        The exit code, which can be used for logging or further processing.
+    """
+    if _shutdown.is_set():
+        os._exit(code)
+    return code

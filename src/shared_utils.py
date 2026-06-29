@@ -1004,7 +1004,12 @@ def ai_check_validation(
                 "prompt": prompt,
                 "stream": False,
                 "format": "json",
-                "options": {"temperature": 0.1, "num_ctx": 4096},
+                "options": {
+                    "temperature": 1,
+                    "top_k": 64,
+                    "top_p": 0.95,
+                    "num_ctx": 4096,
+                },
             },
             timeout=60,
         )
@@ -1189,9 +1194,14 @@ def extract_fields(subsector, title, body, port) -> tuple[dict, dict]:
                 "prompt": prompt,
                 "stream": False,
                 "format": "json",
-                "options": {"temperature": 0.0, "num_ctx": 4096},
+                "options": {
+                    "temperature": 1,
+                    "top_k": 64,
+                    "top_p": 0.95,
+                    "num_ctx": 4096,
+                },
             },
-            timeout=30,
+            timeout=60,
         )
 
         raw_response = resp.json().get("response", "{}")

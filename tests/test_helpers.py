@@ -768,15 +768,15 @@ class TestExtractFields:
         call_kwargs = mock_requests_post.call_args[1]
         assert call_kwargs["json"]["format"] == "json"
 
-    def test_extract_fields_low_temperature(self, mock_requests_post):
-        """Test that low temperature is used for deterministic extraction."""
+    def test_extract_fields_temperature(self, mock_requests_post):
+        """Test that temperature is set to 1 (Gemma-tuned parameter)."""
         mock_response = MagicMock()
         mock_response.json.return_value = {"response": json.dumps({"drug_name": None})}
         mock_requests_post.return_value = mock_response
 
         helpers.extract_fields("drug_shortage", "Title", "Body", TEST_OLLAMA_PORT)
         call_kwargs = mock_requests_post.call_args[1]
-        assert call_kwargs["json"]["options"]["temperature"] == 0.0
+        assert call_kwargs["json"]["options"]["temperature"] == 1
 
     def test_extract_fields_handles_explicit_negative_boolean(self, mock_requests_post):
         """An explicitly negated boolean is requested and returned as false."""

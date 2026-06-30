@@ -853,7 +853,7 @@ def run(
     stats: PipelineStats | None = None,
     raw_seeds: list[dict] | None = None,
     debug_noise: NoiseCollector | None = None,
-    port: int | None = None,
+    port: int | None = 11434,
     sector: str = "health",
 ) -> tuple[PipelineStats, list[dict]]:
     """

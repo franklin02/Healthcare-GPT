@@ -430,6 +430,25 @@ def test_collect_gdelt_seeds_chunks_links_without_full_date_range():
     assert mock_backfill.call_args_list[1].kwargs["links"] == ["c", "d"]
 
 
+def test_collect_gdelt_seeds_forwards_sector():
+    """Should forward the sector argument to backfill_seeds."""
+    with patch("src.orchestrator.backfill_seeds", return_value=[]) as mock_backfill:
+        reporter = CliReporter(verbose=False)
+        orchestrator._collect_gdelt_seeds(
+            num_files=1,
+            start_date=None,
+            end_date=None,
+            cache_dir=orchestrator.GDELT_CACHE_DIR,
+            reporter=reporter,
+            stats=PipelineStats("GDELT"),
+            seed_threads=1,
+            sector="test",
+        )
+
+    mock_backfill.assert_called_once()
+    assert mock_backfill.call_args.kwargs["sector"] == "test"
+
+
 def test_orchestrator_uses_gdelt_seed_threads_argument():
     with (
         patch("src.orchestrator.ensure_model_available"),

@@ -1,6 +1,6 @@
 """
-This migrates a JSON file from the path data/lablr/*.json into supaabase. This does duplicate 
-cleaning by calling dedup_file.py, no other data cleaning is given. This will push everything 
+This migrates a JSON file from the path data/lablr/*.json into supaabase. This does duplicate
+cleaning by calling dedup_file.py, no other data cleaning is given. This will push everything
 to the lablr_raw table, keep all the schema, and add only 2 cols: reviewer and classified
 
 - Reviewer alternates the REVIEWERS list to make sure we all get assigned an even percentage
@@ -10,7 +10,7 @@ to the lablr_raw table, keep all the schema, and add only 2 cols: reviewer and c
     true and be taken away from their feed
 
 Before pushing, the loaded rows are run through the same semantic dedup as
-scripts/dedup_file.py (via dedup_sources function), so only unique incidents 
+scripts/dedup_file.py (via dedup_sources function), so only unique incidents
 reach lablr_raw.
 
 ----------- How to run -----------

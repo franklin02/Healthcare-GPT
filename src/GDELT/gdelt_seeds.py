@@ -137,6 +137,7 @@ def _matches_any_theme(theme_str, theme_set):
 
 
 def _sector_themes(sector="health"):
+    """Get the themes for a given sector"""
     return SECTOR_THEMES.get(sector or "health", SECTOR_THEMES["health"])
 
 

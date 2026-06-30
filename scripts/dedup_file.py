@@ -116,8 +116,7 @@ def _subsector_null_count(source: dict) -> float:
     return sum(
         1
         for value in data.values()
-        if value is None
-        or (isinstance(value, (str, list, dict)) and len(value) == 0)
+        if value is None or (isinstance(value, (str, list, dict)) and len(value) == 0)
     )
 
 
@@ -156,8 +155,7 @@ def _near_reason(dropped: dict, kept: dict, replaced: bool) -> str:
     survivor = "later" if replaced else "earlier"
     if kept_nulls < dropped_nulls:
         why = (
-            f"it has fewer null subsector_data fields "
-            f"({kept_nulls} vs {dropped_nulls})"
+            f"it has fewer null subsector_data fields ({kept_nulls} vs {dropped_nulls})"
         )
     else:
         why = (
@@ -294,9 +292,7 @@ def dedup_sources(
                 # The new record is more complete: keep it and drop the old one.
                 reason = _near_reason(kept, source, replaced=True)
                 duplicates.append(
-                    _dropped_record(
-                        kept, source_id, "near", best_distance, reason
-                    )
+                    _dropped_record(kept, source_id, "near", best_distance, reason)
                 )
                 LOGGER.info(
                     "Duplicate: %s → %s (distance=%.4f)",
@@ -309,9 +305,7 @@ def dedup_sources(
             else:
                 reason = _near_reason(source, kept, replaced=False)
                 duplicates.append(
-                    _dropped_record(
-                        source, kept_id, "near", best_distance, reason
-                    )
+                    _dropped_record(source, kept_id, "near", best_distance, reason)
                 )
                 LOGGER.info(
                     "Duplicate: %s → %s (distance=%.4f)",

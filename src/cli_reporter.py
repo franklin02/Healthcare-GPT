@@ -128,6 +128,7 @@ def _is_tty(file: TextIO) -> bool:
 
 class PostfixColumn(ProgressColumn):
     """Custom column to render the free-form postfix step."""
+
     def render(self, task):
         postfix = task.fields.get("postfix", "")
         if postfix:
@@ -137,6 +138,7 @@ class PostfixColumn(ProgressColumn):
 
 class ElapsedColumnIfOverall(ProgressColumn):
     """Custom column to render elapsed time only for the overall bar."""
+
     def render(self, task):
         if task.fields.get("is_overall", False):
             elapsed = task.finished_time or task.elapsed
@@ -234,7 +236,9 @@ class CliReporter:
         self._file = file if file is not None else (stream or sys.stdout)
         self._disable = (not _is_tty(self._file)) if disable is None else disable
 
-        self._console = Console(file=self._file, force_terminal=False if self._disable else None)
+        self._console = Console(
+            file=self._file, force_terminal=False if self._disable else None
+        )
         self._progress: Progress | None = None
 
         self._task: InstanceBar | None = None
@@ -310,7 +314,9 @@ class CliReporter:
         with self._lock:
             p = self._ensure_progress()
             if self._overall is None:
-                tid = p.add_task("Pipeline progress", total=total, postfix="", is_overall=True)
+                tid = p.add_task(
+                    "Pipeline progress", total=total, postfix="", is_overall=True
+                )
                 self._overall = InstanceBar(p, tid)
             elif total is not None:
                 self._overall.set_total(total)
@@ -391,7 +397,7 @@ class CliReporter:
             show_header=True,
             header_style="bold cyan",
             box=box.ROUNDED,
-            padding=(0, 2)
+            padding=(0, 2),
         )
         table.add_column("Metric", style="bold white")
 
@@ -402,19 +408,58 @@ class CliReporter:
             table.add_row("Paused", *["yes" if s.paused else "-" for s in stats_list])
 
         if any(item.sites_scanned for item in stats_list):
-            table.add_row("Sites scanned", *[str(s.sites_scanned) if s.sites_scanned else "-" for s in stats_list])
+            table.add_row(
+                "Sites scanned",
+                *[str(s.sites_scanned) if s.sites_scanned else "-" for s in stats_list],
+            )
 
-        table.add_row("Discovered", *[str(s.discovered) for s in stats_list], style="dim")
+        table.add_row(
+            "Discovered", *[str(s.discovered) for s in stats_list], style="dim"
+        )
         table.add_row("Processed", *[str(s.processed) for s in stats_list], style="dim")
-        table.add_row("Validated", *[str(s.validated) for s in stats_list], style="green")
-        table.add_row("Rejected", *[str(s.rejected) if s.rejected == 0 else f"[red]{s.rejected}[/red]" for s in stats_list], style="red")
-        table.add_row("Rejection rate", *[f"{s.rejection_rate:.0%}" for s in stats_list], style="dim")
+        table.add_row(
+            "Validated", *[str(s.validated) for s in stats_list], style="green"
+        )
+        table.add_row(
+            "Rejected",
+            *[
+                str(s.rejected) if s.rejected == 0 else f"[red]{s.rejected}[/red]"
+                for s in stats_list
+            ],
+            style="red",
+        )
+        table.add_row(
+            "Rejection rate",
+            *[f"{s.rejection_rate:.0%}" for s in stats_list],
+            style="dim",
+        )
         table.add_row("Skipped", *[str(s.skipped) for s in stats_list], style="dim")
-        table.add_row("Duplicates", *[str(s.duplicates) for s in stats_list], style="dim")
-        table.add_row("Warnings", *[str(s.warnings) if s.warnings == 0 else f"[bold yellow]{s.warnings}[/yellow]" for s in stats_list], style="yellow")
-        table.add_row("Errors", *[str(s.errors) if s.errors == 0 else f"[bold red]{s.errors}[/bold red]" for s in stats_list], style="bold red")
+        table.add_row(
+            "Duplicates", *[str(s.duplicates) for s in stats_list], style="dim"
+        )
+        table.add_row(
+            "Warnings",
+            *[
+                str(s.warnings)
+                if s.warnings == 0
+                else f"[bold yellow]{s.warnings}[/yellow]"
+                for s in stats_list
+            ],
+            style="yellow",
+        )
+        table.add_row(
+            "Errors",
+            *[
+                str(s.errors) if s.errors == 0 else f"[bold red]{s.errors}[/bold red]"
+                for s in stats_list
+            ],
+            style="bold red",
+        )
         table.add_row("Output records", *[str(s.output_records) for s in stats_list])
-        table.add_row("Time elapsed", *[format_interval(int(s.elapsed_seconds)) for s in stats_list])
+        table.add_row(
+            "Time elapsed",
+            *[format_interval(int(s.elapsed_seconds)) for s in stats_list],
+        )
 
         self._console.print("\n")
         self._console.print(table)

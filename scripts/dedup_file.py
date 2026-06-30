@@ -1,27 +1,29 @@
-"""
-Standalone deduplication for processed JSON source files.
+"""Standalone deduplication for processed JSON source files.
 
-Loads one or more files from data/processed/, computes MiniLM embeddings using
-the same fingerprint construction as src/dedup.py, and writes one output file per
-input to data/output/ named <stem>_d.json containing only unique records
-(first occurrence wins). Duplicates are dropped silently.
+Loads one or more files from ``data/processed/``, computes MiniLM embeddings
+from each record's title and content, and writes one output file per input to
+``data/output/`` named ``<stem>_d.json`` containing only unique records. Exact
+title/content duplicates keep the first occurrence; within a near-duplicate
+cluster the record with the fewest null ``subsector_data`` fields is kept (ties
+keep the first occurrence). Duplicates are dropped silently.
 
-Does NOT require Supabase. Deduplication is purely within each supplied file.
-For this reason this standalone script should only be used for prototyping and
-testing how deduplication works. In order to properly deduplicate either load
-the entire raw datasets and run this script or use the prefered method of using
-Supabase.
+Does NOT require Supabase: deduplication is purely within each supplied file, so
+this script is meant only for prototyping and testing how dedup behaves. Proper
+deduplication runs against the full datasets via Supabase.
 
 Usage:
-    python scripts/dedup_file.py data/processed/StateScoop.json
+    python scripts/dedup_file.py data/processed/scooper.json
     python scripts/dedup_file.py data/processed/*.json
-    python scripts/dedup_file.py data/processed/StateScoop.json --threshold 0.5
+    python scripts/dedup_file.py data/processed/scooper.json --threshold 0.5
+    # Sample 10% of records and write the kept/dropped diff for inspection:
+    python scripts/dedup_file.py data/processed/scooper.json --sample 0.1 --write-dropped
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -35,18 +37,17 @@ LOG_FILE = PROJECT_ROOT / "data" / "logs" / "dedup_file.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
 _EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
-_DEFAULT_THRESHOLD = 0.31
+_DEFAULT_THRESHOLD = 0.15
+_DEFAULT_SEED = 45
 _LEAD_CHARS = 700
 _model = None
 
 
 def _embed_model():
-    """
-    Return the singleton SentenceTransformer instance, loading it on first call.
-    Given that emebedings models are small CPU device selection is ideal.
+    """Return the singleton SentenceTransformer, loading it on first call.
 
     Returns:
-        SentenceTransformer: The loaded all-MiniLM-L6-v2 model.
+        The loaded all-MiniLM-L6-v2 model, pinned to the CPU device.
     """
     global _model
     if _model is None:
@@ -71,19 +72,17 @@ def _embed(text: str) -> list[float]:
 
 
 def _fingerprint(source: dict) -> list[float]:
-    """
-    Compute a semantic fingerprint embedding for a raw source record dict.
+    """Compute a semantic fingerprint embedding for a raw source record.
 
-    The fingerprint is built from title and the first 700 chars of content only.
-    Subsector data is intentionally excluded so that similarity reflects title
-    and content alone, regardless of subsector or geography scope. The
-    comparison step compares in-memory rather than querying Supabase.
+    Built from the title and the first 700 chars of content only. Subsector
+    data is intentionally excluded so similarity reflects title and content
+    alone, regardless of subsector or geography scope.
 
     Args:
         source: A source record dict as found in a processed JSON file.
 
     Returns:
-        A list of floats representing the L2-normalised embedding vector.
+        The L2-normalised embedding vector as a list of floats.
     """
     parts: list[str] = []
 
@@ -98,6 +97,110 @@ def _fingerprint(source: dict) -> list[float]:
     return _embed("\n".join(parts))
 
 
+def _subsector_null_count(source: dict) -> float:
+    """Count the null or empty fields in a record's ``subsector_data``.
+
+    Used to break duplicate ties, the record with more populated subsector
+    fields is the more useful one to keep.
+
+    Args:
+        source: A source record dict.
+
+    Returns:
+        The number of null/empty values in ``subsector_data``, or ``inf`` when
+        the record has no usable ``subsector_data`` dict.
+    """
+    data = source.get("subsector_data")
+    if not isinstance(data, dict) or not data:
+        return float("inf")
+    return sum(
+        1
+        for value in data.values()
+        if value is None
+        or (isinstance(value, (str, list, dict)) and len(value) == 0)
+    )
+
+
+def _prefer_new(new: dict, kept: dict) -> bool:
+    """Decide whether a near-duplicate should replace the record kept so far.
+
+    Only used for near matches; exact matches always keep the first occurrence.
+    The record with fewer null ``subsector_data`` fields wins; ties keep the
+    existing record, preserving "first occurrence wins".
+
+    Args:
+        new: The newly encountered duplicate record.
+        kept: The record currently kept for this duplicate cluster.
+
+    Returns:
+        True if ``new`` is strictly more complete and should replace ``kept``.
+    """
+    return _subsector_null_count(new) < _subsector_null_count(kept)
+
+
+def _near_reason(dropped: dict, kept: dict, replaced: bool) -> str:
+    """Explains a near-duplicate drop in a single standardized sentence.
+
+    Args:
+        dropped: The record being dropped.
+        kept: The record kept in its place.
+        replaced: True when ``dropped`` was the earlier original displaced by a
+            more complete later record (survivor is the later record); False
+            when ``dropped`` is the later record and the earlier one was kept.
+
+    Returns:
+        The standardized explanation sentence.
+    """
+    dropped_nulls = _subsector_null_count(dropped)
+    kept_nulls = _subsector_null_count(kept)
+    survivor = "later" if replaced else "earlier"
+    if kept_nulls < dropped_nulls:
+        why = (
+            f"it has fewer null subsector_data fields "
+            f"({kept_nulls} vs {dropped_nulls})"
+        )
+    else:
+        why = (
+            f"it is the first occurrence "
+            f"(tie on null subsector_data fields: {kept_nulls})"
+        )
+    return f"dropped in favor of the {survivor} record because {why}"
+
+
+def _dropped_record(
+    dropped: dict,
+    kept_id: str,
+    match_type: str,
+    distance: float | None = None,
+    reason: str | None = None,
+) -> dict:
+    """Build a diagnostic copy of a dropped duplicate naming its match.
+
+    Args:
+        dropped: The record being dropped.
+        kept_id: Id (or index fallback) of the kept record it matched.
+        match_type: "exact" or "near".
+        distance: Cosine distance to the kept record, for near matches only.
+        reason: Explanation of why the record was dropped and the kept record
+            preferred. Supplied for near matches only.
+
+    Returns:
+        A shallow copy of ``dropped`` with ``_duplicate_of`` (kept record id),
+        ``_match_type``, and, for near matches, ``_match_distance`` and
+        ``_match_reason``.
+    """
+    record = {
+        **dropped,
+        "_duplicate_of": kept_id,
+        "_match_type": match_type,
+    }
+    if distance is not None:
+        record["_match_distance"] = round(distance, 4)
+    if reason is not None:
+        record["_match_reason"] = reason
+    return record
+
+
 def _cosine_distance(a: list[float], b: list[float]) -> float:
     """
     Compute cosine distance between two L2-normalised vectors.
@@ -109,8 +212,6 @@ def _cosine_distance(a: list[float], b: list[float]) -> float:
     Returns:
         Cosine distance in [0, 2]; 0 means identical, 2 means opposite.
     """
-    # Vectors are already L2-normalised by sentence-transformers, so
-    # dot product == cosine similarity; distance = 1 - similarity.
     dot = sum(x * y for x, y in zip(a, b))
     return 1.0 - dot
 
@@ -119,46 +220,54 @@ def dedup_sources(
     sources: list[dict],
     threshold: float = _DEFAULT_THRESHOLD,
 ) -> tuple[list[dict], list[dict]]:
-    """
-    Split a list of source records into unique and duplicate groups.
+    """Split a list of source records into unique and duplicate groups.
 
-    Runs in two passes. First, records whose title or content exactly matches
-    an already-seen record are dropped — this is cheap and certain, so it
-    happens before any embedding is computed. Second, the survivors go through
-    embedding-based near-duplicate detection: a record is a duplicate when its
-    cosine distance to any already-accepted record is at or below the threshold.
-    Subsector is intentionally ignored — only title/content similarity decides a
-    duplicate, so records that differ only in subsector or geography scope are
-    never merged. The first occurrence of any (exact or near) duplicate cluster
-    is always kept.
+    Runs in two passes. First, records whose title or content exactly matches an
+    already-seen record are dropped before any embedding is computed; the first
+    occurrence wins. Second, the survivors go through embedding-based
+    near-duplicate detection: a record is a duplicate when its cosine distance
+    to any already-accepted record is at or below the threshold. Subsector is
+    ignored when matching — only title/content similarity decides a duplicate.
+    Within a near-duplicate cluster the kept record is the one with the fewest
+    null ``subsector_data`` fields (ties keep the first occurrence), so a more
+    complete record seen later can displace the earlier one it matches.
 
     Args:
         sources: List of source record dicts to deduplicate.
-        threshold: Cosine-distance cutoff below which two records are considered
-            duplicates. Defaults to 0.31.
+        threshold: Cosine-distance cutoff at or below which two records are
+            considered duplicates.
 
     Returns:
-        A tuple of (unique, duplicates) where each element is a list of source
-        record dicts with no fields added or removed.
+        A tuple of ``(unique, duplicates)``. Unique records are returned
+        unchanged. Each duplicate is a shallow copy of the original with
+        diagnostic fields added: ``_duplicate_of`` (id of the matched kept
+        record), ``_match_type`` ("exact" or "near"), and, for near matches,
+        ``_match_distance`` and ``_match_reason``.
     """
     accepted: list[dict] = []
     accepted_embeddings: list[list[float]] = []
     duplicates: list[dict] = []
-    seen_titles: set[str] = set()
-    seen_contents: set[str] = set()
+    seen_titles: dict[str, int] = {}
+    seen_contents: dict[str, int] = {}
     candidates: list[dict] = []
     for i, source in enumerate(sources, 1):
         source_id = source.get("id", f"index-{i}")
         title = (source.get("title") or "").strip().lower()
         content = (source.get("content") or "").strip().lower()
-        if (title and title in seen_titles) or (content and content in seen_contents):
-            duplicates.append(source)
-            LOGGER.info("Exact duplicate: %s", source_id)
+        matched_idx = seen_titles.get(title) if title else None
+        if matched_idx is None and content:
+            matched_idx = seen_contents.get(content)
+        if matched_idx is not None:
+            kept = candidates[matched_idx]
+            kept_id = kept.get("id", f"index-{matched_idx + 1}")
+            duplicates.append(_dropped_record(source, kept_id, "exact"))
+            LOGGER.info("Exact duplicate: %s → %s", source_id, kept_id)
             continue
+        idx = len(candidates)
         if title:
-            seen_titles.add(title)
+            seen_titles[title] = idx
         if content:
-            seen_contents.add(content)
+            seen_contents[content] = idx
         candidates.append(source)
 
     total = len(candidates)
@@ -169,23 +278,47 @@ def dedup_sources(
 
         embedding = _fingerprint(source)
 
-        matched_id: str | None = None
-        best_distance = float("inf")
-        for j, (prev, prev_emb) in enumerate(zip(accepted, accepted_embeddings)):
+        matched_j: int | None = None
+        best_distance = 0.0
+        for j, prev_emb in enumerate(accepted_embeddings):
             dist = _cosine_distance(embedding, prev_emb)
-            best_distance = min(best_distance, dist)
             if dist <= threshold:
-                matched_id = prev.get("id", f"index-{j}")
+                matched_j = j
+                best_distance = dist
                 break
 
-        if matched_id is not None:
-            duplicates.append(source)
-            LOGGER.info(
-                "Duplicate: %s → %s (distance=%.4f)",
-                source_id,
-                matched_id,
-                best_distance,
-            )
+        if matched_j is not None:
+            kept = accepted[matched_j]
+            kept_id = kept.get("id", f"index-{matched_j}")
+            if _prefer_new(source, kept):
+                # The new record is more complete: keep it and drop the old one.
+                reason = _near_reason(kept, source, replaced=True)
+                duplicates.append(
+                    _dropped_record(
+                        kept, source_id, "near", best_distance, reason
+                    )
+                )
+                LOGGER.info(
+                    "Duplicate: %s → %s (distance=%.4f)",
+                    kept_id,
+                    source_id,
+                    best_distance,
+                )
+                accepted[matched_j] = source
+                accepted_embeddings[matched_j] = embedding
+            else:
+                reason = _near_reason(source, kept, replaced=False)
+                duplicates.append(
+                    _dropped_record(
+                        source, kept_id, "near", best_distance, reason
+                    )
+                )
+                LOGGER.info(
+                    "Duplicate: %s → %s (distance=%.4f)",
+                    source_id,
+                    kept_id,
+                    best_distance,
+                )
         else:
             accepted.append(source)
             accepted_embeddings.append(embedding)
@@ -194,12 +327,36 @@ def dedup_sources(
     return accepted, duplicates
 
 
-def main(argv: list[str] | None = None) -> int:
-    """
-    Parse CLI arguments, deduplicate each input file, and write output.
+def _sample_sources(sources: list[dict], fraction: float, seed: int) -> list[dict]:
+    """Take a random sample of source records based on a float to keep. Can take
+    in a random seed as a parameter.
 
-    Reads each supplied JSON file, runs dedup_sources on its sources array,
-    and writes the unique records to data/output/<stem>_d.json.
+    Args:
+        sources: Full list of source record dicts.
+        fraction: Fraction of records to keep, in (0, 1]. Values >= 1 return all
+            records unchanged.
+        seed: Seed for the random number generator so samples are reproducible.
+
+    Returns:
+        A list containing the sampled records in their original order.
+    """
+    if fraction >= 1.0:
+        return sources
+    sample_size = max(1, round(len(sources) * fraction))
+    rng = random.Random(seed)
+    chosen = sorted(rng.sample(range(len(sources)), sample_size))
+    return [sources[i] for i in chosen]
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Parse CLI arguments, deduplicate each input file, and write output.
+
+    Reads each supplied JSON file, optionally samples a fraction of its records,
+    runs ``dedup_sources`` on them, and writes the unique records to
+    ``data/output/<stem>_d.json``. When ``--sample`` is used, the sampled slice
+    is written to ``<stem>_sample.json`` so output can be reconciled against its
+    input. With ``--write-dropped``, the dropped duplicates are written to
+    ``<stem>_dropped.json``.
 
     Args:
         argv: Argument list to parse. Defaults to sys.argv when None.
@@ -226,7 +383,31 @@ def main(argv: list[str] | None = None) -> int:
         default=str(PROJECT_ROOT / "data" / "output"),
         help="Directory to write output files (default: data/output/).",
     )
+    parser.add_argument(
+        "--sample",
+        type=float,
+        default=1.0,
+        help="Fraction of records to randomly sample before dedup, e.g. 0.1 for "
+        "10%% (default: 1.0, use all records).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=_DEFAULT_SEED,
+        help=f"Random seed for --sample so samples are reproducible "
+        f"(default: {_DEFAULT_SEED}).",
+    )
+    parser.add_argument(
+        "--write-dropped",
+        action="store_true",
+        help="Also write the dropped duplicates to <stem>_dropped.json for "
+        "inspecting what dedup removed.",
+    )
     args = parser.parse_args(argv)
+
+    if not 0.0 < args.sample <= 1.0:
+        print("ERROR: --sample must be in (0, 1]", file=sys.stderr)
+        return 1
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -247,8 +428,23 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: {path} has no 'sources' array", file=sys.stderr)
             return 1
 
-        print(f"\n{path.name}: {len(sources)} records deduplicating…")
-        unique, dupes = dedup_sources(sources, threshold=args.threshold)
+        if args.sample < 1.0:
+            sampled = _sample_sources(sources, args.sample, args.seed)
+            print(
+                f"\n{path.name}: sampled {len(sampled)} of {len(sources)} records "
+                f"({args.sample:.0%}, seed={args.seed})"
+            )
+            sample_path = output_dir / f"{path.stem}_sample.json"
+            sample_path.write_text(
+                json.dumps({"sources": sampled}, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            print(f"  sample set: {sample_path.relative_to(PROJECT_ROOT)}")
+        else:
+            sampled = sources
+            print(f"\n{path.name}: {len(sampled)} records deduplicating…")
+
+        unique, dupes = dedup_sources(sampled, threshold=args.threshold)
 
         out_path = output_dir / f"{path.stem}_d.json"
         out_path.write_text(
@@ -256,11 +452,19 @@ def main(argv: list[str] | None = None) -> int:
             encoding="utf-8",
         )
 
+        msg = f"  {len(unique)} kept, {len(dupes)} dropped {out_path.relative_to(PROJECT_ROOT)}"
+
+        if args.write_dropped:
+            dropped_path = output_dir / f"{path.stem}_dropped.json"
+            dropped_path.write_text(
+                json.dumps({"sources": dupes}, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            msg += f"\n  dropped diff: {dropped_path.relative_to(PROJECT_ROOT)}"
+
         total_unique += len(unique)
         total_dupes += len(dupes)
-        print(
-            f"  {len(unique)} kept, {len(dupes)} dropped {out_path.relative_to(PROJECT_ROOT)}"
-        )
+        print(msg)
 
     print(f"\nDone. Total kept: {total_unique}, total dropped: {total_dupes}")
     return 0

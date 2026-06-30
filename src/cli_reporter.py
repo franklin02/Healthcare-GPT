@@ -247,7 +247,7 @@ class CliReporter:
     def _ensure_progress(self) -> Progress:
         if self._progress is None:
             self._progress = Progress(
-                SpinnerColumn(spinner_name="dots", style="cyan"),
+                SpinnerColumn(spinner_name="runner"),
                 TextColumn("[bold blue]{task.description}"),
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
                 BarColumn(

@@ -35,7 +35,7 @@ LOG_FILE = PROJECT_ROOT / "data" / "logs" / "dedup_file.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
 _EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
-_DEFAULT_THRESHOLD = 0.44
+_DEFAULT_THRESHOLD = 0.31
 _LEAD_CHARS = 700
 _model = None
 

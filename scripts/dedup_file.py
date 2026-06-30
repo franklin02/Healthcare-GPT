@@ -132,10 +132,13 @@ def dedup_sources(
     """
     Split a list of source records into unique and duplicate groups.
 
-    A record is considered a duplicate when its cosine distance to any
-    already-accepted record is at or below the threshold AND both records
-    share the same subsector value. The first occurrence of any near-duplicate
-    cluster is always kept.
+    Runs in two passes. First, records whose title or content exactly matches
+    an already-seen record are dropped — this is cheap and certain, so it
+    happens before any embedding is computed. Second, the survivors go through
+    embedding-based near-duplicate detection: a record is a duplicate when its
+    cosine distance to any already-accepted record is at or below the threshold
+    AND both records share the same subsector value. The first occurrence of
+    any (exact or near) duplicate cluster is always kept.
 
     Args:
         sources: List of source record dicts to deduplicate.
@@ -149,9 +152,25 @@ def dedup_sources(
     accepted: list[dict] = []
     accepted_embeddings: list[list[float]] = []
     duplicates: list[dict] = []
-
-    total = len(sources)
+    seen_titles: set[str] = set()
+    seen_contents: set[str] = set()
+    candidates: list[dict] = []
     for i, source in enumerate(sources, 1):
+        source_id = source.get("id", f"index-{i}")
+        title = (source.get("title") or "").strip().lower()
+        content = (source.get("content") or "").strip().lower()
+        if (title and title in seen_titles) or (content and content in seen_contents):
+            duplicates.append(source)
+            LOGGER.info("Exact duplicate: %s", source_id)
+            continue
+        if title:
+            seen_titles.add(title)
+        if content:
+            seen_contents.add(content)
+        candidates.append(source)
+
+    total = len(candidates)
+    for i, source in enumerate(candidates, 1):
         source_id = source.get("id", f"index-{i}")
         LOGGER.debug("Embedding %s (%d/%d)", source_id, i, total)
         print(f"  [{i}/{total}] embedding {source_id[:8]}…", end="\r", flush=True)
@@ -181,7 +200,7 @@ def dedup_sources(
             accepted.append(source)
             accepted_embeddings.append(embedding)
 
-    print()  # newline after progress line
+    print()
     return accepted, duplicates
 
 

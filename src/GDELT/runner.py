@@ -854,6 +854,7 @@ def run(
     raw_seeds: list[dict] | None = None,
     debug_noise: NoiseCollector | None = None,
     port: int | None = None,
+    sector: str = "health",
 ) -> tuple[PipelineStats, list[dict]]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -874,6 +875,7 @@ def run(
         raw_seeds: Raw seed dictionaries to process
         debug_noise: Optional NoiseCollector for recording rejected articles.
         port: Where to run the ollama server
+        sector: The sector to filter for (default: "health"). Currently only "health" is supported.
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -922,6 +924,7 @@ def run(
                 end_date=end_date,
                 cache_dir=GDELT_CACHE_DIR,
                 reporter=reporter,
+                sector=sector,
             )
         ]
 
@@ -1105,6 +1108,11 @@ if __name__ == "__main__":
         default=get_config_bool("DEBUG", False),
         help="Log all rejected/skipped articles (noise) to JSON in data/noise/",
     )
+    parser.add_argument(
+        "--sector",
+        default=get_config_value("SECTOR", "health"),
+        help="The sector to process (default: health)",
+    )
     args = parser.parse_args()
 
     if args.stitch_staged or args.stitch_stage:
@@ -1149,6 +1157,7 @@ if __name__ == "__main__":
         verbose=args.verbose,
         reporter=CliReporter(verbose=args.verbose),
         debug_noise=noise,
+        sector=args.sector,
     )
     save_seen(seen)
     if noise:

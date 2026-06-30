@@ -181,7 +181,7 @@ def test_orchestrator_writes_partial_gdelt_output_on_shutdown(tmp_path):
             "src.orchestrator.get_config_value",
             side_effect=lambda _name, default=None: default,
         ),
-        patch("src.orchestrator.backfill_cyber_seeds", return_value=seeds),
+        patch("src.orchestrator._collect_gdelt_seeds", return_value=seeds),
         patch("src.GDELT.runner.run", side_effect=fake_run),
         patch("src.cli_reporter.CliReporter.summary"),
         patch("src.orchestrator.exit_if_shutdown", side_effect=lambda code: code),

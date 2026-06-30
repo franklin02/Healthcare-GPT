@@ -14,8 +14,8 @@ def mock_ensure_model_available():
 
 
 @pytest.fixture
-def mock_backfill_cyber_seeds():
-    with patch("src.orchestrator.backfill_cyber_seeds") as mock:
+def mock_backfill_seeds():
+    with patch("src.orchestrator._collect_gdelt_seeds") as mock:
         mock.return_value = []
         yield mock
 
@@ -82,7 +82,7 @@ def mock_logger_error():
 
 def test_orchestrator_forwards_verbose_to_gdelt_runner(
     mock_ensure_model_available,
-    mock_backfill_cyber_seeds,
+    mock_backfill_seeds,
     mock_runner_run,
     mock_cli_summary,
 ):
@@ -116,7 +116,7 @@ def test_orchestrator_detects_equals_style_gdelt_options(
     mock_get_config_bool,
     mock_get_config_int,
     mock_get_config_value,
-    mock_backfill_cyber_seeds,
+    mock_backfill_seeds,
     mock_runner_run,
     mock_cli_summary,
 ):
@@ -135,7 +135,7 @@ def test_orchestrator_skips_html_after_gdelt_pause(
     mock_get_config_bool,
     mock_get_config_int,
     mock_get_config_value,
-    mock_backfill_cyber_seeds,
+    mock_backfill_seeds,
     mock_runner_run,
     mock_run_scooper,
     mock_cli_summary,
@@ -213,7 +213,7 @@ def test_orchestrator_tracks_overall_progress_by_phase(
     mock_get_config_bool,
     mock_get_config_int,
     mock_get_config_value,
-    mock_backfill_cyber_seeds,
+    mock_backfill_seeds,
     mock_runner_run,
     mock_setup_scooper,
     mock_run_scooper,
@@ -243,7 +243,7 @@ def test_orchestrator_skips_overall_bar_for_single_phase_runs(
     mock_get_config_bool,
     mock_get_config_int,
     mock_get_config_value,
-    mock_backfill_cyber_seeds,
+    mock_backfill_seeds,
     mock_runner_run,
     mock_cli_summary,
 ):
@@ -291,7 +291,7 @@ def test_orchestrator_populates_gdelt_elapsed_seconds(
     mock_get_config_bool,
     mock_get_config_int,
     mock_get_config_value,
-    mock_backfill_cyber_seeds,
+    mock_backfill_seeds,
     mock_runner_run,
     mock_cli_summary,
 ):
@@ -331,7 +331,7 @@ def test_orchestrator_gdelt_multi_worker_stats_merge_correctly(
     mock_get_config_bool,
     mock_get_config_int,
     mock_get_config_value,
-    mock_backfill_cyber_seeds,
+    mock_backfill_seeds,
     mock_runner_run,
     mock_cli_summary,
 ):
@@ -347,7 +347,7 @@ def test_orchestrator_gdelt_multi_worker_stats_merge_correctly(
 
     seeds = [{"url": f"https://example.com/{i}", "source": "test"} for i in range(4)]
 
-    mock_backfill_cyber_seeds.return_value = seeds
+    mock_backfill_seeds.return_value = seeds
     mock_runner_run.side_effect = fake_run
 
     result = orchestrator.main(
@@ -370,7 +370,7 @@ def test_collect_gdelt_seeds_splits_date_range_across_threads():
             "src.orchestrator.fetch_gkg_links",
             return_value=["a", "b", "c", "d"],
         ) as mock_fetch,
-        patch("src.orchestrator.backfill_cyber_seeds") as mock_backfill,
+        patch("src.orchestrator.backfill_seeds") as mock_backfill,
     ):
         mock_backfill.side_effect = [
             [{"url": "https://a.example"}],
@@ -404,7 +404,7 @@ def test_collect_gdelt_seeds_splits_date_range_across_threads():
 def test_collect_gdelt_seeds_chunks_links_without_full_date_range():
     with (
         patch("src.orchestrator.fetch_gkg_links", return_value=["a", "b", "c", "d"]),
-        patch("src.orchestrator.backfill_cyber_seeds") as mock_backfill,
+        patch("src.orchestrator.backfill_seeds") as mock_backfill,
     ):
         mock_backfill.side_effect = [
             [{"url": "https://a.example"}],

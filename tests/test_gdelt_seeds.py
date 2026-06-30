@@ -391,7 +391,7 @@ class TestBackfillCyberSeeds:
         ]
         mock_process.return_value = (mock_seeds, 100)
 
-        result = gdelt_seeds.backfill_cyber_seeds(num_files=2)
+        result = gdelt_seeds.backfill_seeds(num_files=2)
 
         assert isinstance(result, list)
         assert len(result) > 0
@@ -414,7 +414,7 @@ class TestBackfillCyberSeeds:
 
         mock_process.return_value = ([], 0)
 
-        result = gdelt_seeds.backfill_cyber_seeds(
+        result = gdelt_seeds.backfill_seeds(
             num_files=3, start_date="20230515", end_date="20230515"
         )
 
@@ -580,32 +580,6 @@ class TestProcessGkgFileFilters:
 
 class TestConstantDefinitions:
     """Tests for constant definitions."""
-
-    def test_cyber_themes_exist(self):
-        """Should have CYBER_THEMES defined."""
-        assert isinstance(gdelt_seeds.CYBER_THEMES, set)
-        assert "CYBER_ATTACK" in gdelt_seeds.CYBER_THEMES
-
-    def test_health_themes_exist(self):
-        """Should have HEALTH_THEMES defined."""
-        assert isinstance(gdelt_seeds.HEALTH_THEMES, set)
-        assert "HOSPITAL" in gdelt_seeds.HEALTH_THEMES
-
-    def test_drug_shortage_themes_exist(self):
-        """Should have DRUG_SHORTAGE_THEMES defined."""
-        assert isinstance(gdelt_seeds.DRUG_SHORTAGE_THEMES, set)
-        assert "SHORTAGE" in gdelt_seeds.DRUG_SHORTAGE_THEMES
-
-    def test_device_shortage_themes_exist(self):
-        """Should have DEVICE_SHORTAGE_THEMES defined."""
-        assert isinstance(gdelt_seeds.DEVICE_SHORTAGE_THEMES, set)
-        assert "MEDICAL_EQUIPMENT" in gdelt_seeds.DEVICE_SHORTAGE_THEMES
-
-    def test_subsector_themes_mapping(self):
-        """Should have SUBSECTOR_THEMES mapping."""
-        assert isinstance(gdelt_seeds.SUBSECTOR_THEMES, dict)
-        assert "cyber_attack" in gdelt_seeds.SUBSECTOR_THEMES
-        assert "drug_shortage" in gdelt_seeds.SUBSECTOR_THEMES
 
     def test_us_tlds(self):
         """Should have US_TLDS defined."""

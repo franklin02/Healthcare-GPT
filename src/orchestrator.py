@@ -432,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
             min(len(c), effective_limit) if effective_limit else len(c) for c in chunks
         )
         reporter.start_phase("GDELT", total=gdelt_units)
-        reporter.info(f"\nProcessing {len(raw_seeds)} seeds")
+        reporter.info(f"\nProcessing {effective_limit} seeds")
         if threads > 1:
             reporter.info(f"Models: {args.models}")
             reporter.info(f"Threads per model: {args.threads_per_model}")

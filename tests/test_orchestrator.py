@@ -314,7 +314,13 @@ def test_orchestrator_populates_html_elapsed_seconds(
     mock_cli_summary,
 ):
     """HTML summary should report a non-zero wall-clock duration."""
-    mock_run_scooper.return_value = (PipelineStats("HTML"), [], None, None)
+    import time
+
+    def slow_run(*args, **kwargs):
+        time.sleep(0.02)
+        return (PipelineStats("HTML"), [], None, None)
+
+    mock_run_scooper.side_effect = slow_run
 
     with patch("src.scrapers.scooper.save_results"):
         result = orchestrator.main(["--skip-gdelt"])

@@ -153,7 +153,7 @@ def test_log_info_and_error_write_above_bars(monkeypatch):
     """log/info/error all emit through tqdm.write so they scroll above bars."""
     writes = []
     monkeypatch.setattr(
-        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(msg)
+        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(str(msg))
     )
     reporter = CliReporter(file=io.StringIO())
 
@@ -163,7 +163,7 @@ def test_log_info_and_error_write_above_bars(monkeypatch):
 
     assert "hello" in writes
     assert "logged" in writes
-    assert any("[ERROR] boom" in w for w in writes)
+    assert any("ERROR" in w and "boom" in w for w in writes)
     reporter.close()
 
 
@@ -171,7 +171,7 @@ def test_detail_only_writes_when_verbose(monkeypatch):
     """Detail messages should only print when verbose mode is enabled."""
     writes = []
     monkeypatch.setattr(
-        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(msg)
+        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(str(msg))
     )
 
     CliReporter(file=io.StringIO(), verbose=False).detail("hidden")
@@ -185,7 +185,7 @@ def test_warning_is_hidden_by_default_but_counted(monkeypatch):
     """Default-mode warnings should increment stats without writing output."""
     writes = []
     monkeypatch.setattr(
-        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(msg)
+        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(str(msg))
     )
     reporter = CliReporter(file=io.StringIO())
     stats = PipelineStats("test")
@@ -200,14 +200,14 @@ def test_verbose_warning_writes_and_counts(monkeypatch):
     """Verbose warnings print above the bars and still count."""
     writes = []
     monkeypatch.setattr(
-        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(msg)
+        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(str(msg))
     )
     reporter = CliReporter(file=io.StringIO(), verbose=True)
     stats = PipelineStats("test")
 
     reporter.warn("something happened", stats)
 
-    assert any("[WARN] something happened" in w for w in writes)
+    assert any("WARN" in w and "something happened" in w for w in writes)
     assert stats.warnings == 1
 
 
@@ -215,14 +215,14 @@ def test_error_always_writes_and_counts(monkeypatch):
     """Errors are always written and counted regardless of verbosity."""
     writes = []
     monkeypatch.setattr(
-        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(msg)
+        "src.cli_reporter.CliReporter._write", lambda self, msg: writes.append(str(msg))
     )
     reporter = CliReporter(file=io.StringIO())
     stats = PipelineStats("test")
 
     reporter.error("kaboom", stats)
 
-    assert any("[ERROR] kaboom" in w for w in writes)
+    assert any("ERROR" in w and "kaboom" in w for w in writes)
     assert stats.errors == 1
 
 

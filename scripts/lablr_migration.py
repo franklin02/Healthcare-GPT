@@ -1,23 +1,29 @@
 """
-This migrates a JSON file from the path data/lablr/*.json into supaabase. This does not do
-any data cleaning and expects the JSON format to stay the same. This will push everything to
-the lablr_raw table, keep all the schema, and add only 2 cols: reviewer and classified
+This migrates a JSON file from the path data/lablr/*.json into supaabase. This does duplicate 
+cleaning by calling dedup_file.py, no other data cleaning is given. This will push everything 
+to the lablr_raw table, keep all the schema, and add only 2 cols: reviewer and classified
 
 - Reviewer alternates the REVIEWERS list to make sure we all get assigned an even percentage
-of the given file.
+    of the given file.
 - Classified is a bool set to false. When false, it will show up on the user's feed. Only
-after the user lables this with lablr (either true, false, or re-classified) this will turn
-true and be taken away from their feed
+    after the user lables this with lablr (either true,lfalse, or re-classified) this will turn
+    true and be taken away from their feed
+
+Before pushing, the loaded rows are run through the same semantic dedup as
+scripts/dedup_file.py (via dedup_sources function), so only unique incidents 
+reach lablr_raw.
 
 ----------- How to run -----------
 1) Have supabase creds
 2) Have an already clean ish JSON file in data/lablr/
 3) run the terminal command `python -m scripts.lablr_migration`
+    optional: `--threshold 0.5` to tune the dedup cosine-distance cutoff
 
 """
 
 from __future__ import annotations
 
+import argparse
 import itertools
 import json
 import os
@@ -31,6 +37,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from scripts.dedup_file import _DEFAULT_THRESHOLD, dedup_sources  # noqa: E402
 from src.logging_utils import get_file_logger  # noqa: E402
 
 try:
@@ -140,7 +147,7 @@ def _build_row(record: dict) -> dict | None:
 
 def _load_rows() -> tuple[list[dict], int, int]:
     """
-    Read every data/lablr/*.json and return (valid_rows, total_records, skipped), 
+    Read every data/lablr/*.json and return (valid_rows, total_records, skipped),
     pure stats/sanity check
     """
     rows: list[dict] = []
@@ -184,7 +191,7 @@ def _assign_reviewers(rows: list[dict]) -> None:
         row["reviewer"] = _next_person()
 
 
-def migrate_lablr_raw() -> None:
+def migrate_lablr_raw(threshold: float = _DEFAULT_THRESHOLD) -> None:
     if not _has_supabase_creds():
         print("[WARN] SUPABASE_URL or SUPABASE_KEY not set — nothing to migrate")
         LOGGER.warning("Supabase creds missing; aborting migration")
@@ -205,6 +212,14 @@ def migrate_lablr_raw() -> None:
 
     if not rows:
         print(f"[WARN] No valid rows to insert (total {total}, skipped {skipped})")
+        return
+
+    rows, dupes = dedup_sources(rows, threshold=threshold)
+    print(f"[OK] dedup: {len(rows)} unique | {len(dupes)} near-duplicates dropped")
+    LOGGER.info("dedup unique=%d dropped=%d", len(rows), len(dupes))
+
+    if not rows:
+        print("[WARN] No unique rows left after dedup")
         return
 
     _assign_reviewers(rows)
@@ -243,4 +258,14 @@ def migrate_lablr_raw() -> None:
 
 
 if __name__ == "__main__":
-    migrate_lablr_raw()
+    parser = argparse.ArgumentParser(
+        description="Dedup data/lablr/*.json and migrate the unique rows to lablr_raw."
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=_DEFAULT_THRESHOLD,
+        help=f"Cosine-distance cutoff for near-duplicates (default: {_DEFAULT_THRESHOLD}).",
+    )
+    args = parser.parse_args()
+    migrate_lablr_raw(threshold=args.threshold)

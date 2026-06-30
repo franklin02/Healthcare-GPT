@@ -74,10 +74,10 @@ def _fingerprint(source: dict) -> list[float]:
     """
     Compute a semantic fingerprint embedding for a raw source record dict.
 
-    Uses the same fingerprint construction as src/dedup.embed_vulnerability:
-    title, first 700 chars of content, and subsector_data entity values are
-    concatenated and embedded together. The comparison step differs — this
-    script compares in-memory rather than querying Supabase.
+    The fingerprint is built from title and the first 700 chars of content only.
+    Subsector data is intentionally excluded so that similarity reflects title
+    and content alone, regardless of subsector or geography scope. The
+    comparison step compares in-memory rather than querying Supabase.
 
     Args:
         source: A source record dict as found in a processed JSON file.
@@ -94,16 +94,6 @@ def _fingerprint(source: dict) -> list[float]:
     content = (source.get("content") or "").strip()
     if content:
         parts.append(content[:_LEAD_CHARS])
-
-    subsector_data = source.get("subsector_data")
-    if isinstance(subsector_data, dict):
-        for value in subsector_data.values():
-            if value in (None, "", []):
-                continue
-            if isinstance(value, list):
-                parts.append(", ".join(str(v) for v in value))
-            else:
-                parts.append(str(value))
 
     return _embed("\n".join(parts))
 
@@ -136,14 +126,16 @@ def dedup_sources(
     an already-seen record are dropped — this is cheap and certain, so it
     happens before any embedding is computed. Second, the survivors go through
     embedding-based near-duplicate detection: a record is a duplicate when its
-    cosine distance to any already-accepted record is at or below the threshold
-    AND both records share the same subsector value. The first occurrence of
-    any (exact or near) duplicate cluster is always kept.
+    cosine distance to any already-accepted record is at or below the threshold.
+    Subsector is intentionally ignored — only title/content similarity decides a
+    duplicate, so records that differ only in subsector or geography scope are
+    never merged. The first occurrence of any (exact or near) duplicate cluster
+    is always kept.
 
     Args:
         sources: List of source record dicts to deduplicate.
-        threshold: Cosine-distance cutoff below which two records with matching
-            subsectors are considered duplicates. Defaults to 0.44.
+        threshold: Cosine-distance cutoff below which two records are considered
+            duplicates. Defaults to 0.31.
 
     Returns:
         A tuple of (unique, duplicates) where each element is a list of source
@@ -181,12 +173,10 @@ def dedup_sources(
         best_distance = float("inf")
         for j, (prev, prev_emb) in enumerate(zip(accepted, accepted_embeddings)):
             dist = _cosine_distance(embedding, prev_emb)
-            if dist < best_distance:
-                best_distance = dist
-                if dist <= threshold and source.get("subsector") == prev.get(
-                    "subsector"
-                ):
-                    matched_id = prev.get("id", f"index-{j}")
+            best_distance = min(best_distance, dist)
+            if dist <= threshold:
+                matched_id = prev.get("id", f"index-{j}")
+                break
 
         if matched_id is not None:
             duplicates.append(source)

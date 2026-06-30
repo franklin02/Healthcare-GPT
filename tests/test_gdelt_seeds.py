@@ -3,6 +3,7 @@ import io
 import zipfile
 import pytest
 import src.GDELT.gdelt_seeds as gdelt_seeds
+from src.GDELT.sector_themes import SECTOR_THEMES
 
 
 @pytest.fixture
@@ -109,6 +110,175 @@ class TestMatchesAnyTheme:
     def test_empty_theme_set(self):
         """Should return False for empty theme set."""
         assert gdelt_seeds._matches_any_theme("CYBER_ATTACK", set()) is False
+
+
+def _gkg_zip_from_rows(*rows: str) -> bytes:
+    """Build a minimal GDELT GKG zip from tab-separated CSV rows."""
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as z:
+        z.writestr("test.csv", "".join(rows))
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
+
+
+def _gkg_row(themes: str, url: str = "https://hospital.com/cyber") -> str:
+    """Build a minimal GDELT GKG row with specified themes and URL."""
+    return (
+        f"1\t20230515123045\t2\tBBC\t{url}\t5\t6\t"
+        f"{themes}\t8\t1#New York#US#123#40.7#74.0\t10\t11\t12\t13\t14\t15\n"
+    )
+
+
+class TestSectorThemeRegistry:
+    """Tests for the sector theme registry."""
+
+    def test_health_and_test_sectors_registered(self):
+        """Should have 'health' and 'test' sectors registered."""
+        assert "health" in SECTOR_THEMES
+        assert "test" in SECTOR_THEMES
+
+    def test_sector_entries_are_sector_and_subsector_pairs(self):
+        """Each sector entry should be a tuple of (sector_themes, subsector_themes)."""
+        for sector, config in SECTOR_THEMES.items():
+            sector_themes, subsector_themes = config
+            assert sector_themes
+            assert subsector_themes
+            assert all(isinstance(themes, set) for themes in subsector_themes.values())
+
+
+class TestThemesMatchBySector:
+    """Tests for sector-scoped themes_match."""
+
+    def test_health_requires_sector_and_subsector_themes(self):
+        """Should require both sector and subsector themes for health sector."""
+        assert gdelt_seeds.themes_match("HEALTHCARE;CYBER_ATTACK", "health") is True
+        assert gdelt_seeds.themes_match("HEALTHCARE", "health") is False
+        assert gdelt_seeds.themes_match("CYBER_ATTACK", "health") is False
+
+    def test_test_sector_requires_sector_and_subsector_themes(self):
+        """Should require both sector and subsector themes for test sector."""
+        assert (
+            gdelt_seeds.themes_match("TEST_THEME_1;TEST_SUBSECTOR_1_THEME_1", "test")
+            is True
+        )
+        assert gdelt_seeds.themes_match("TEST_THEME_1", "test") is False
+        assert gdelt_seeds.themes_match("TEST_SUBSECTOR_1_THEME_1", "test") is False
+
+    def test_health_themes_do_not_match_test_sector(self):
+        """Should not match health themes under test sector."""
+        assert gdelt_seeds.themes_match("HEALTHCARE;CYBER_ATTACK", "test") is False
+
+    def test_test_themes_do_not_match_health_sector(self):
+        """Should not match test themes under health sector."""
+        assert (
+            gdelt_seeds.themes_match("TEST_THEME_1;TEST_SUBSECTOR_1_THEME_1", "health")
+            is False
+        )
+
+    def test_unknown_sector_defaults_to_health(self):
+        """Should default to health sector when unknown sector is provided."""
+        assert gdelt_seeds.themes_match("HEALTHCARE;SHORTAGE", "unknown") is True
+        assert (
+            gdelt_seeds.themes_match("TEST_THEME_1;TEST_SUBSECTOR_1_THEME_1", "unknown")
+            is False
+        )
+
+    def test_none_sector_defaults_to_health(self):
+        """Should default to health sector when no sector is provided."""
+        assert gdelt_seeds.themes_match("HEALTHCARE;SHORTAGE", None) is True
+
+
+class TestDetectSubsectorBySector:
+    """Tests for sector-scoped subsector detection."""
+
+    def test_test_sector_detects_matching_subsector(self):
+        assert (
+            gdelt_seeds.detect_subsector(
+                "TEST_THEME_2;TEST_SUBSECTOR_2_THEME_1", "test"
+            )
+            == "subsector_2"
+        )
+
+    def test_test_sector_detects_multiple_subsectors(self):
+        themes = "TEST_THEME_1;TEST_SUBSECTOR_1_THEME_1;TEST_SUBSECTOR_2_THEME_2"
+        assert gdelt_seeds.detect_subsectors(themes, "test") == [
+            "subsector_1",
+            "subsector_2",
+        ]
+
+    def test_health_subsector_not_detected_under_test_sector(self):
+        """Should not detect health subsector under test sector."""
+        assert gdelt_seeds.detect_subsector("HEALTHCARE;CYBER_ATTACK", "test") is None
+
+    def test_test_subsector_not_detected_under_health_sector(self):
+        """Should not detect test subsector under health sector."""
+        assert (
+            gdelt_seeds.detect_subsector(
+                "TEST_THEME_1;TEST_SUBSECTOR_1_THEME_1", "health"
+            )
+            is None
+        )
+
+
+class TestProcessGkgFileBySector:
+    """Tests for sector argument in process_gkg_file."""
+
+    def test_test_sector_filters_rows_by_test_themes(self, mock_get):
+        csv_content = (
+            _gkg_row("TEST_THEME_1;TEST_SUBSECTOR_1_THEME_1")
+            + _gkg_row("HEALTHCARE;CYBER_ATTACK")
+            + _gkg_row("TEST_THEME_2")
+        )
+        response = Mock()
+        response.content = _gkg_zip_from_rows(csv_content)
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+
+        seeds, total = gdelt_seeds.process_gkg_file(
+            "http://example.com/test.zip", sector="test"
+        )
+
+        assert total == 3
+        assert len(seeds) == 1
+        assert seeds[0]["subsector"] == "subsector_1"
+        assert "TEST_SUBSECTOR_1_THEME_1" in seeds[0]["themes"]
+
+    def test_health_sector_ignores_test_sector_rows(self, mock_get):
+        """Should ignore test sector rows when processing health sector."""
+        csv_content = _gkg_row("TEST_THEME_1;TEST_SUBSECTOR_1_THEME_1") + _gkg_row(
+            "HEALTHCARE;CYBER_ATTACK"
+        )
+        response = Mock()
+        response.content = _gkg_zip_from_rows(csv_content)
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+
+        seeds, total = gdelt_seeds.process_gkg_file(
+            "http://example.com/test.zip", sector="health"
+        )
+
+        assert total == 2
+        assert len(seeds) == 1
+        assert seeds[0]["subsector"] == "cyber_attack"
+
+
+class TestBackfillSeedsBySector:
+    """Tests for sector argument in backfill_seeds."""
+
+    def test_backfill_forwards_sector_to_process_gkg_file(self, mock_get, mock_process):
+        master_list = (
+            "20230515000000 200 http://example.com/20230515000000.gkg.csv.zip\n"
+        )
+        response = Mock()
+        response.text = master_list
+        response.raise_for_status = Mock()
+        mock_get.return_value = response
+        mock_process.return_value = ([], 0)
+
+        gdelt_seeds.backfill_seeds(num_files=1, sector="test")
+
+        mock_process.assert_called_once()
+        assert mock_process.call_args.kwargs["sector"] == "test"
 
 
 class TestDetectSubsector:
@@ -391,7 +561,7 @@ class TestBackfillCyberSeeds:
         ]
         mock_process.return_value = (mock_seeds, 100)
 
-        result = gdelt_seeds.backfill_cyber_seeds(num_files=2)
+        result = gdelt_seeds.backfill_seeds(num_files=2)
 
         assert isinstance(result, list)
         assert len(result) > 0
@@ -414,7 +584,7 @@ class TestBackfillCyberSeeds:
 
         mock_process.return_value = ([], 0)
 
-        result = gdelt_seeds.backfill_cyber_seeds(
+        result = gdelt_seeds.backfill_seeds(
             num_files=3, start_date="20230515", end_date="20230515"
         )
 
@@ -580,32 +750,6 @@ class TestProcessGkgFileFilters:
 
 class TestConstantDefinitions:
     """Tests for constant definitions."""
-
-    def test_cyber_themes_exist(self):
-        """Should have CYBER_THEMES defined."""
-        assert isinstance(gdelt_seeds.CYBER_THEMES, set)
-        assert "CYBER_ATTACK" in gdelt_seeds.CYBER_THEMES
-
-    def test_health_themes_exist(self):
-        """Should have HEALTH_THEMES defined."""
-        assert isinstance(gdelt_seeds.HEALTH_THEMES, set)
-        assert "HOSPITAL" in gdelt_seeds.HEALTH_THEMES
-
-    def test_drug_shortage_themes_exist(self):
-        """Should have DRUG_SHORTAGE_THEMES defined."""
-        assert isinstance(gdelt_seeds.DRUG_SHORTAGE_THEMES, set)
-        assert "SHORTAGE" in gdelt_seeds.DRUG_SHORTAGE_THEMES
-
-    def test_device_shortage_themes_exist(self):
-        """Should have DEVICE_SHORTAGE_THEMES defined."""
-        assert isinstance(gdelt_seeds.DEVICE_SHORTAGE_THEMES, set)
-        assert "MEDICAL_EQUIPMENT" in gdelt_seeds.DEVICE_SHORTAGE_THEMES
-
-    def test_subsector_themes_mapping(self):
-        """Should have SUBSECTOR_THEMES mapping."""
-        assert isinstance(gdelt_seeds.SUBSECTOR_THEMES, dict)
-        assert "cyber_attack" in gdelt_seeds.SUBSECTOR_THEMES
-        assert "drug_shortage" in gdelt_seeds.SUBSECTOR_THEMES
 
     def test_us_tlds(self):
         """Should have US_TLDS defined."""

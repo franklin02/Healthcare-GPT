@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
-from .GDELT.gdelt_seeds import backfill_cyber_seeds, fetch_gkg_links
+from .GDELT.gdelt_seeds import backfill_seeds, fetch_gkg_links
 from .GDELT.runner import load_seen, write_output_records
 from .shared_utils import (
     DEBUG_DIR,
@@ -124,6 +124,7 @@ def _collect_gdelt_seeds(
     reporter: CliReporter,
     stats: PipelineStats,
     seed_threads: int,
+    sector: str | None = None,
 ) -> list[dict]:
     """Collect GDELT seeds, optionally splitting work across threads.
 
@@ -135,6 +136,7 @@ def _collect_gdelt_seeds(
         reporter: CliReporter for logging progress and warnings.
         stats: PipelineStats for recording statistics.
         seed_threads: Number of threads to use for seed collection.
+        sector: Sector key into SECTOR_THEMES (default: health).
 
     Returns:
         A list of candidate seed records (dicts) collected from GDELT.
@@ -155,13 +157,14 @@ def _collect_gdelt_seeds(
     if seed_threads == 1:
         LOGGER.debug("Collecting GDELT seeds in single-threaded mode")
         return list(
-            backfill_cyber_seeds(
+            backfill_seeds(
                 num_files=num_files,
                 start_date=start_date,
                 end_date=end_date,
                 cache_dir=cache_dir,
                 reporter=reporter,
                 stats=stats,
+                sector=sector,
             )
         )
 
@@ -187,10 +190,11 @@ def _collect_gdelt_seeds(
         for link_chunk in chunks:
             futures.append(
                 executor.submit(
-                    backfill_cyber_seeds,
+                    backfill_seeds,
                     links=link_chunk,
                     cache_dir=cache_dir,
                     reporter=quiet_reporter,
+                    sector=sector,
                 )
             )
         collect_as_completed(futures, raw_seeds.extend)
@@ -342,6 +346,11 @@ def main(argv: list[str] | None = None) -> int:
         default=get_config_bool("SEEDS_ONLY", False),
         help="Process only seed articles, skipping full scraping and processing. Also skips the scooper pipeline.",
     )
+    parser.add_argument(
+        "--sector",
+        default=get_config_value("SECTOR", "health"),
+        help="The sector to process (default: health)",
+    )
     start = time.time()
 
     args = parser.parse_args(argv)
@@ -377,7 +386,7 @@ def main(argv: list[str] | None = None) -> int:
             NoiseCollector(DEBUG_DIR / "debug_noise_gdelt.json") if args.debug else None
         )
         gdelt_stats = PipelineStats("GDELT")
-        reporter.phase("Running GDELT pipeline")
+        reporter.phase(f"Running GDELT pipeline for sector: {args.sector}")
         if show_overall:
             reporter.set_overall_step("GDELT")
         LOGGER.info("Running GDELT pipeline with args: %s", args)
@@ -392,6 +401,7 @@ def main(argv: list[str] | None = None) -> int:
             reporter=reporter,
             stats=gdelt_stats,
             seed_threads=args.gdelt_seed_threads,
+            sector=args.sector,
         )
         LOGGER.info(
             f"Seed collection complete in {(time.time() - gdelt_start) / 60:.2f} minutes"
@@ -422,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
             min(len(c), effective_limit) if effective_limit else len(c) for c in chunks
         )
         reporter.start_phase("GDELT", total=gdelt_units)
-        reporter.info(f"\nProcessing {len(raw_seeds)} seeds")
+        reporter.info(f"\nProcessing {effective_limit} seeds")
         if threads > 1:
             reporter.info(f"Models: {args.models}")
             reporter.info(f"Threads per model: {args.threads_per_model}")

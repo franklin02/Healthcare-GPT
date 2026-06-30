@@ -2,7 +2,7 @@
 GDELT end-to-end runner.
 
 Pipeline:
-  gdelt_seeds.backfill_cyber_seeds     -- collect candidate seeds from GDELT GKG
+  gdelt_seeds.backfill_seeds     -- collect candidate seeds from GDELT GKG
   src.shared_utils.get_body_and_title  -- scrape page body + title in one request
   src.shared_utils.ai_check_validation -- LLM validates as active disruption
   src.shared_utils.extract_fields      -- LLM extracts schema-specific fields
@@ -34,7 +34,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from .gdelt_seeds import backfill_cyber_seeds
+from .gdelt_seeds import backfill_seeds
 from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from ..cli_reporter import CliReporter, PipelineStats
 from ..logging_utils import get_file_logger
@@ -916,7 +916,7 @@ def run(
     if raw_seeds is None:
         raw_seeds = [
             seed
-            for seed in backfill_cyber_seeds(
+            for seed in backfill_seeds(
                 num_files=num_files,
                 start_date=start_date,
                 end_date=end_date,

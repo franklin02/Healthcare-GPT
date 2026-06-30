@@ -6,11 +6,6 @@ It also includes a backfill function to collect seeds from recent GDELT files ba
 
 Constants:
 GKG_COLS: Mapping of column indices to their corresponding field names in the GDELT GKG files.
-CYBER_THEMES: Set of themes related to cyber attacks.
-HEALTH_THEMES: Set of themes related to healthcare.
-DRUG_SHORTAGE_THEMES: Set of themes related to drug shortages.
-DEVICE_SHORTAGE_THEMES: Set of themes related to medical device shortages.
-NATURAL_DISASTER_THEMES: Set of themes related to natural disasters.
 NOISE_THEMES: Set of themes considered noise.
 SUBSECTOR_THEMES: Mapping of subsectors to their required theme sets.
 US_TLDS: Set of top-level domains associated with US-based websites.
@@ -25,7 +20,7 @@ detect_subsector(theme_str): Detect the specific subsector for a theme string ba
 themes_match_noise(theme_str): Check if themes in a theme string match any of the noise themes.
 url_passes_quality(url): Check if a URL passes quality checks based on its domain and path.
 process_gkg_file(link, subsector="all", reporter=None, stats=None): Download and process a GDELT GKG file, filtering for relevant themes, US locations, and quality URLs, and return candidate seed records.
-backfill_cyber_seeds(num_files=20, subsector="all", start_date=None, end_date=None, reporter=None, stats=None): Collect recent or date-bounded GDELT seeds for the requested subsector by scanning the master file list and processing relevant GKG files.
+backfill_seeds(num_files=20, subsector="all", start_date=None, end_date=None, reporter=None, stats=None): Collect recent or date-bounded GDELT seeds for the requested subsector by scanning the master file list and processing relevant GKG files.
 """
 
 import io
@@ -41,6 +36,7 @@ import requests
 
 from ..cli_reporter import CliReporter, PipelineStats
 from ..logging_utils import get_file_logger
+from .sector_themes import SECTOR_THEMES
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -61,63 +57,8 @@ GKG_COLS = {
     15: "V2Tone",
 }
 
-CYBER_THEMES = {
-    "CYBER_ATTACK",
-    "TAX_FNCACT_HACKER",
-    "RANSOMWARE",
-    "DATA_BREACH",
-    "EPU_SECURITY_CYB",
-    "CYBERSECURITY",
-    "TAX_FNCACT_CYBERCRIMINAL",
-    "WB_IMFWEO_DIGITAL",
-}
-
-HEALTH_THEMES = {
-    "HOSPITAL",
-    "WB_HEALTH_SYSTEMS",
-    "SOC_GENERALHEALTH",
-    "HEALTH_INSTITUTION",
-    "MEDICAL",
-    "HEALTH_PANDEMIC",
-    "TAX_FNCACT_NURSE",
-    "TAX_FNCACT_DOCTOR",
-    "TAX_FNCACT_PHYSICIAN",
-    "HEALTHCARE",
-}
-
-DRUG_SHORTAGE_THEMES = {
-    "SHORTAGE",
-    "PHARMACEUTICAL_SUPPLY_CHAIN",
-    "ESSENTIAL_MEDICINES",
-    "MANUFACTURING_OF_DRUGS",
-    "PHARMACEUTICALS",
-    "GENERIC_DRUGS",
-    "PHARMACEUTICAL_PRICING",
-    "PHARMACEUTICAL_POLICY",
-    "PHARMACEUTICAL_REGULATION",
-    "QUALITY_ASSURANCE_FOR_PHARMACEUTICALS",
-    "FINANCING_OF_DRUGS",
-    "RATIONAL_SELECTION_AND_USE_OF_DRUGS",
-}
-
-DEVICE_SHORTAGE_THEMES = {
-    "MEDICAL_EQUIPMENT",
-    "HEALTH_TECHNOLOGIES",
-    "PROCUREMENT_OF_HEALTH_TECHNOLOGIES",
-    "MEDICAL_SUPPLIES_FINANCE",
-}
-
-NATURAL_DISASTER_THEMES = {"NATURAL_DISASTER"}
-
 NOISE_THEMES = {"SPORTS", "GAMES_ESPORTS", "ENV_", "TOURISM", "EDUCATION_UNIVERSITY"}
 
-# Mapping of subsectors to their required theme sets
-SUBSECTOR_THEMES = {
-    "drug_shortage": DRUG_SHORTAGE_THEMES,
-    "medical_device_shortage": DEVICE_SHORTAGE_THEMES,
-    "cyber_attack": CYBER_THEMES,
-    "natural_disaster": NATURAL_DISASTER_THEMES,
-}
 
 US_TLDS = {
     ".com",
@@ -195,59 +136,64 @@ def _matches_any_theme(theme_str, theme_set):
     return any(any(expected in token for token in tokens) for expected in theme_set)
 
 
-def themes_match(theme_str):
+def _sector_themes(sector="health"):
+    return SECTOR_THEMES.get(sector or "health", SECTOR_THEMES["health"])
+
+
+def themes_match(theme_str, sector="health"):
     """
     Check if themes match a requested subsector.
 
     Parameters:
         theme_str: The theme string from GDELT's V1Themes field.
+        sector: Sector key into SECTOR_THEMES (default: health).
 
     Returns:
-        True if the themes match the requested subsector, False otherwise.
+        True if the themes match the requested sector, False otherwise.
     """
-    if not _matches_any_theme(theme_str, HEALTH_THEMES):
+    sector_themes, subsector_themes = _sector_themes(sector)
+    if not _matches_any_theme(theme_str, sector_themes):
         return False
-
     return any(
         _matches_any_theme(theme_str, theme_set)
-        for theme_set in SUBSECTOR_THEMES.values()
+        for theme_set in subsector_themes.values()
     )
 
 
-def detect_subsectors(theme_str):
+def detect_subsectors(theme_str, sector="health"):
     """
     Return all matching subsectors for a theme string.
 
     Parameters:
         theme_str: The theme string from GDELT's V1Themes field.
+        sector: Sector key into SECTOR_THEMES (default: health).
 
     Returns:
         A list of detected subsector names, or an empty list if no specific
         subsectors can be detected.
     """
-    if not _matches_any_theme(theme_str, HEALTH_THEMES):
+    sector_themes, subsector_themes = _sector_themes(sector)
+    if not _matches_any_theme(theme_str, sector_themes):
         return []
-
-    subsectors = []
-    for subsector, theme_set in SUBSECTOR_THEMES.items():
-        if _matches_any_theme(theme_str, theme_set):
-            subsectors.append(subsector)
-    if subsectors:
-        return subsectors
-    return []
+    return [
+        subsector
+        for subsector, theme_set in subsector_themes.items()
+        if _matches_any_theme(theme_str, theme_set)
+    ]
 
 
-def detect_subsector(theme_str):
+def detect_subsector(theme_str, sector="health"):
     """
     Return the first matching subsector for a theme string, or None.
 
     Parameters:
         theme_str: The theme string from GDELT's V1Themes field.
+        sector: Sector key into SECTOR_THEMES (default: health).
 
     Returns:
         The detected subsector name if a match is found, or None if no specific subsector can be detected.
     """
-    subsectors = detect_subsectors(theme_str)
+    subsectors = detect_subsectors(theme_str, sector)
     return subsectors[0] if subsectors else None
 
 
@@ -357,6 +303,7 @@ def process_gkg_file(
     cache_dir: Path | None = None,
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
+    sector: str = "health",
 ):
     """
     Download and filter one GDELT GKG file into candidate seed records.
@@ -367,6 +314,7 @@ def process_gkg_file(
         cache_dir: Optional directory for caching downloaded zip files.
         reporter: Optional CliReporter for logging progress and warnings.
         stats: Optional PipelineStats for recording statistics.
+        sector: Sector key into SECTOR_THEMES (default: health).
 
     Returns:
         A tuple containing a list of candidate seed records (dicts) and the total number of rows processed from the GKG file. Each seed record includes the URL, source, themes, subsector, date, and file name.
@@ -431,7 +379,7 @@ def process_gkg_file(
         total = len(df)
         LOGGER.debug("Loaded %s rows for link=%s", total, link)
         # Filter for the requested subsector, or all supported subsectors, excluding noise
-        subsector_match = df["themes"].apply(lambda t: themes_match(t))
+        subsector_match = df["themes"].apply(lambda t: themes_match(t, sector))
         noise = df["themes"].apply(lambda t: themes_match_noise(t))
         df = df[subsector_match & ~noise].copy()
         if df.empty:
@@ -456,7 +404,7 @@ def process_gkg_file(
         LOGGER.info("File %s produced %s leads from %s rows", fname, len(df), total)
         seeds = []
         for _, row in df.iterrows():
-            detected_subsectors = detect_subsectors(row["themes"])
+            detected_subsectors = detect_subsectors(row["themes"], sector)
             seed = {
                 "url": row["url"],
                 "source": row["source"],
@@ -504,7 +452,7 @@ def fetch_gkg_links(num_files=20, start_date=None, end_date=None):
     return links if (start_date or end_date) else links[-num_files:]
 
 
-def backfill_cyber_seeds(
+def backfill_seeds(
     num_files=20,
     start_date=None,
     end_date=None,
@@ -513,6 +461,7 @@ def backfill_cyber_seeds(
     reporter: CliReporter | None = None,
     stats: PipelineStats | None = None,
     instance_name: str | None = None,
+    sector: str = "health",
 ):
     """
     Collect recent or date-bounded GDELT seeds for the requested subsector.
@@ -525,6 +474,7 @@ def backfill_cyber_seeds(
         links: Optional pre-filtered GKG zip URLs to process instead of fetching the master file list.
         reporter: Optional CliReporter for logging progress and warnings.
         stats: Optional PipelineStats for recording statistics.
+        sector: Sector key into SECTOR_THEMES (default: health).
 
     Returns:
         A list of unique seed records (dicts) that match the specified subsector and date bounds, extracted from the relevant GDELT GKG files. Each seed record includes the URL, source, themes, subsector, date, and file name.
@@ -560,11 +510,11 @@ def backfill_cyber_seeds(
                         s = j.get("seed") or j
                         if isinstance(s, dict) and s.get("file") == fname:
                             cached_seeds.append(s)
-                    except Exception:
-                        LOGGER.warning("Failed to read cache file %s: %s", p)
+                    except Exception as exc:
+                        LOGGER.warning("Failed to read cache file %s: %s", p, exc)
                         continue
-        except Exception:
-            LOGGER.warning("Failed to access cache directory %s: %s", SEEDS_DIR)
+        except Exception as exc:
+            LOGGER.warning("Failed to access cache directory %s: %s", SEEDS_DIR, exc)
             cached_seeds = []
 
         if cached_seeds:
@@ -582,6 +532,7 @@ def backfill_cyber_seeds(
                 cache_dir=cache_dir,
                 reporter=reporter,
                 stats=stats,
+                sector=sector,
             )
         all_seeds.extend(seeds)
         total_rows += rows
@@ -600,10 +551,11 @@ def backfill_cyber_seeds(
     for s in unique:
         reporter.detail(f"[{s['date']}]  {s['source']}")
         reporter.detail(f"  URL: {s['url']}")
+        sector_themes, _ = _sector_themes(sector)
         relevant = [
             t
             for t in (s["themes"] or "").split(";")
-            if any(c in t.upper() for c in CYBER_THEMES | HEALTH_THEMES)
+            if any(c in t.upper() for c in sector_themes)
         ]
         reporter.detail(f"  Themes: {' | '.join(relevant[:8])}\n")
 

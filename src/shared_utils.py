@@ -740,6 +740,10 @@ def get_title(url: str) -> str:
     except requests.RequestException as e:
         LOGGER.warning("Failed to fetch URL %s: %s", url, e)
         return url
+    # should solve the unicode error
+    except UnicodeDecodeError as e:
+        LOGGER.warning("Unable to decode URL (not in UTF 8) %s: %s", url, e)
+        return url
 
     soup = BeautifulSoup(resp.text, "html.parser")
     return _extract_title_from_soup(soup, url)
@@ -779,6 +783,10 @@ def get_body(url: str) -> str:
         resp.raise_for_status()
     except requests.RequestException as e:
         LOGGER.warning("Failed to fetch URL %s: %s", url, e)
+        return ""
+    # should solve the unicode error
+    except UnicodeDecodeError as e:
+        LOGGER.warning("Unable to decode URL (not in UTF 8) %s: %s", url, e)
         return ""
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -823,6 +831,10 @@ def get_body_and_title(url: str) -> tuple[str, str]:
         resp.raise_for_status()
     except requests.RequestException as e:
         LOGGER.warning("Failed to fetch URL %s: %s", url, e)
+        return "", url
+    # should solve the unicode error
+    except UnicodeDecodeError as e:
+        LOGGER.warning("Unable to decode URL (not in UTF 8) %s: %s", url, e)
         return "", url
 
     soup = BeautifulSoup(resp.text, "html.parser")

@@ -279,10 +279,10 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--sb-only",
+        "--use-sb",
         action="store_true",
-        default=get_config_bool("HTML_SB_ONLY", False),
-        help="HTML pipeline: write to Supabase only, no local reads or writes",
+        default=get_config_bool("USE_SB", False),
+        help="Push to supabase",
     )
 
     # GDELT-specific

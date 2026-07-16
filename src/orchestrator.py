@@ -6,6 +6,7 @@ source-specific defaults and implementation details.
 """
 
 from __future__ import annotations
+from supabase import create_client, Client
 
 import argparse
 import datetime
@@ -15,6 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 from pathlib import Path
+import os
 
 from .cli_reporter import CliReporter, PipelineStats
 from .logging_utils import get_file_logger
@@ -42,6 +44,8 @@ GDELT_CACHE_DIR = _PROJECT_ROOT / "data" / "gdelt_cache"
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
 AI_MODEL = get_config_value("AI_MODEL", "llama3.2:latest")
+
+supabase: Client = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY"))
 
 
 def _split_date(
@@ -465,6 +469,8 @@ def main(argv: list[str] | None = None) -> int:
                 if n == args.threads_per_model:
                     port += 1
                     n = 0
+
+            response = {supabase.table("vulnerability").insert({}).execute()}
 
             def _merge_gdelt(result):
                 worker_stats, records = result

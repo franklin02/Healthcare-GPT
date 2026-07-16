@@ -44,3 +44,6 @@ docs/_autosummary/
 .ipynb_checkpoints/
 .jupyter/
 src/tests/train-bert/*.csv
+
+# --- Other ---
+*.txt

@@ -30,7 +30,7 @@ import pandas as pd
 from bs4 import BeautifulSoup
 
 from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
-from ..cli_reporter import CliReporter, PipelineStats
+from ..cli_reporter import CliReporter, PipelineStats, get_active_reporter
 from ..logging_utils import get_file_logger
 from ..shared_utils import (
     LLMUnavailableError,
@@ -261,7 +261,7 @@ def _scrape_page(
         - A bool, True when we encountered a past article and should stop
     """
     local_only = not sb_only
-    # reporter = reporter or CliReporter(verbose=True) # tbr
+    # reporter = reporter or CliReporter(verbose=True)  # tbr
     response = get_page(page_url)
     soup = BeautifulSoup(response.content, "html.parser")
     m = site_config["map"]
@@ -443,6 +443,16 @@ def _raw_data(
                 "{page}", str(current_page)
             )
 
+        reporter = get_active_reporter()
+        reporter.info(
+            f"Fetching {site_config['name']} page {current_page} ({page_url})..."
+        )
+        LOGGER.info(
+            "Fetching %s page %d (%s)...",
+            site_config["name"],
+            current_page,
+            page_url,
+        )
         try:
             articles, stop = _scrape_page(
                 site_config,

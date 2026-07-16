@@ -2,7 +2,7 @@
 GDELT end-to-end runner.
 
 Pipeline:
-  gdelt_seeds.backfill_cyber_seeds     -- collect candidate seeds from GDELT GKG
+  gdelt_seeds.backfill_seeds     -- collect candidate seeds from GDELT GKG
   src.shared_utils.get_body_and_title  -- scrape page body + title in one request
   src.shared_utils.ai_check_validation -- LLM validates as active disruption
   src.shared_utils.extract_fields      -- LLM extracts schema-specific fields
@@ -34,7 +34,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from .gdelt_seeds import backfill_cyber_seeds
+from .gdelt_seeds import backfill_seeds
 from ..classes import SUBSECTOR_DATA_CLASSES, Vulnerability
 from ..cli_reporter import CliReporter, PipelineStats
 from ..logging_utils import get_file_logger
@@ -853,7 +853,8 @@ def run(
     stats: PipelineStats | None = None,
     raw_seeds: list[dict] | None = None,
     debug_noise: NoiseCollector | None = None,
-    port: int | None = None,
+    port: int | None = 11434,
+    sector: str = "health",
 ) -> tuple[PipelineStats, list[dict]]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -874,6 +875,7 @@ def run(
         raw_seeds: Raw seed dictionaries to process
         debug_noise: Optional NoiseCollector for recording rejected articles.
         port: Where to run the ollama server
+        sector: The sector to filter for (default: "health"). Currently only "health" is supported.
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -916,12 +918,13 @@ def run(
     if raw_seeds is None:
         raw_seeds = [
             seed
-            for seed in backfill_cyber_seeds(
+            for seed in backfill_seeds(
                 num_files=num_files,
                 start_date=start_date,
                 end_date=end_date,
                 cache_dir=GDELT_CACHE_DIR,
                 reporter=reporter,
+                sector=sector,
             )
         ]
 
@@ -1105,6 +1108,11 @@ if __name__ == "__main__":
         default=get_config_bool("DEBUG", False),
         help="Log all rejected/skipped articles (noise) to JSON in data/noise/",
     )
+    parser.add_argument(
+        "--sector",
+        default=get_config_value("SECTOR", "health"),
+        help="The sector to process (default: health)",
+    )
     args = parser.parse_args()
 
     if args.stitch_staged or args.stitch_stage:
@@ -1149,6 +1157,7 @@ if __name__ == "__main__":
         verbose=args.verbose,
         reporter=CliReporter(verbose=args.verbose),
         debug_noise=noise,
+        sector=args.sector,
     )
     save_seen(seen)
     if noise:

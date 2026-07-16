@@ -47,8 +47,8 @@ def mock_persist_raw_seeds():
 
 
 @pytest.fixture
-def mock_backfill_cyber_seeds():
-    with patch("src.GDELT.runner.backfill_cyber_seeds") as mock:
+def mock_backfill_seeds():
+    with patch("src.GDELT.runner.backfill_seeds") as mock:
         yield mock
 
 
@@ -403,7 +403,7 @@ class TestStagedRecovery:
     def test_stitch_staged_records_uses_enriched_stage_without_pipeline_calls(
         self,
         mock_runner_dirs,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_process_seed,
         mock_load_seen,
         mock_save_seen,
@@ -449,7 +449,7 @@ class TestStagedRecovery:
         ]
         assert len(result["sources"]) == 1
         assert result["sources"][0]["id"] == "rec1"
-        mock_backfill_cyber_seeds.assert_not_called()
+        mock_backfill_seeds.assert_not_called()
         mock_process_seed.assert_not_called()
         mock_load_seen.assert_not_called()
         mock_save_seen.assert_not_called()
@@ -458,7 +458,7 @@ class TestStagedRecovery:
     def test_stitch_staged_records_can_process_staged_seeds(
         self,
         mock_runner_dirs,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_process_seed,
         mock_clear_directory,
     ):
@@ -540,7 +540,7 @@ class TestStagedRecovery:
         ]
         mock_process_seed.assert_called_once()
         assert mock_process_seed.call_args.args[0] == remaining_seed
-        mock_backfill_cyber_seeds.assert_not_called()
+        mock_backfill_seeds.assert_not_called()
         mock_clear_directory.assert_not_called()
         assert completed_seed_exists
         assert remaining_seed_exists
@@ -805,7 +805,7 @@ class TestRun:
     """Tests for the main run function."""
 
     def test_run_checks_model_before_setup_or_seed_collection(
-        self, mock_log_error, mock_ensure_raw_dirs, mock_backfill_cyber_seeds
+        self, mock_log_error, mock_ensure_raw_dirs, mock_backfill_seeds
     ):
         """run should fail fast when the configured Ollama model is unavailable."""
         with patch(
@@ -821,11 +821,11 @@ class TestRun:
             mock_model_check.side_effect,
         )
         mock_ensure_raw_dirs.assert_not_called()
-        mock_backfill_cyber_seeds.assert_not_called()
+        mock_backfill_seeds.assert_not_called()
 
     def test_run_returns_records(
         self,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -835,7 +835,7 @@ class TestRun:
     ):
         """run should return list of validated records."""
         mock_load_seen.return_value = set()
-        mock_backfill_cyber_seeds.return_value = [
+        mock_backfill_seeds.return_value = [
             {"url": "https://example.com/1", "source": "test"},
         ]
         mock_process_seed.return_value = _make_vuln(
@@ -859,7 +859,7 @@ class TestRun:
 
     def test_run_applies_limit(
         self,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -872,7 +872,7 @@ class TestRun:
         seeds = [
             {"url": f"https://example.com/{i}", "source": "test"} for i in range(5)
         ]
-        mock_backfill_cyber_seeds.return_value = seeds
+        mock_backfill_seeds.return_value = seeds
         mock_process_seed.return_value = None
 
         runner.run(num_files=1, limit=2)
@@ -882,7 +882,7 @@ class TestRun:
 
     def test_run_outputs_to_default_location(
         self,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -892,7 +892,7 @@ class TestRun:
     ):
         """run should write to default output location if not specified."""
         mock_load_seen.return_value = set()
-        mock_backfill_cyber_seeds.return_value = [{"url": "https://example.com/1"}]
+        mock_backfill_seeds.return_value = [{"url": "https://example.com/1"}]
         mock_process_seed.return_value = None
 
         with patch("builtins.open", mock_open()) as mock_file:
@@ -902,7 +902,7 @@ class TestRun:
 
     def test_run_dedupes_raw_seeds_across_subsectors(
         self,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -912,7 +912,7 @@ class TestRun:
     ):
         """run should process duplicate URLs once across requested subsectors."""
         mock_load_seen.return_value = set()
-        mock_backfill_cyber_seeds.return_value = [
+        mock_backfill_seeds.return_value = [
             {
                 "url": "https://example.com/shared",
                 "source": "cyber source",
@@ -952,7 +952,7 @@ class TestRun:
 
     def test_run_with_caller_supplied_seen_set(
         self,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -962,7 +962,7 @@ class TestRun:
     ):
         """run should use a caller-supplied seen set and skip load_seen."""
         caller_seen = {"https://example.com/already-seen"}
-        mock_backfill_cyber_seeds.return_value = []
+        mock_backfill_seeds.return_value = []
 
         with tempfile.TemporaryDirectory():
             runner.run(
@@ -977,7 +977,7 @@ class TestRun:
 
     def test_run_merges_existing_dict_output(
         self,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -987,7 +987,7 @@ class TestRun:
     ):
         """run should merge with existing output file containing dict with sources list."""
         mock_load_seen.return_value = set()
-        mock_backfill_cyber_seeds.return_value = [{"url": "https://example.com/new"}]
+        mock_backfill_seeds.return_value = [{"url": "https://example.com/new"}]
         mock_process_seed.return_value = _make_vuln(
             id_value="new_id",
             direct_link="https://example.com/new",
@@ -1021,7 +1021,7 @@ class TestRun:
 
     def test_run_merges_existing_list_output(
         self,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -1031,7 +1031,7 @@ class TestRun:
     ):
         """run should merge with existing output file that is a list."""
         mock_load_seen.return_value = set()
-        mock_backfill_cyber_seeds.return_value = [{"url": "https://example.com/new"}]
+        mock_backfill_seeds.return_value = [{"url": "https://example.com/new"}]
         mock_process_seed.return_value = _make_vuln(
             id_value="new_id",
             direct_link="https://example.com/new",
@@ -1058,7 +1058,7 @@ class TestRun:
 
     def test_run_replaces_unexpected_existing_output(
         self,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -1068,7 +1068,7 @@ class TestRun:
     ):
         """run should replace unexpected existing output content with fresh records."""
         mock_load_seen.return_value = set()
-        mock_backfill_cyber_seeds.return_value = [{"url": "https://example.com/new"}]
+        mock_backfill_seeds.return_value = [{"url": "https://example.com/new"}]
         mock_process_seed.return_value = _make_vuln(
             id_value="new_id",
             direct_link="https://example.com/new",
@@ -1096,7 +1096,7 @@ class TestRun:
 
     def test_run_creates_new_output_file(
         self,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -1106,7 +1106,7 @@ class TestRun:
     ):
         """run should create new output file."""
         mock_load_seen.return_value = set()
-        mock_backfill_cyber_seeds.return_value = [{"url": "https://example.com/new"}]
+        mock_backfill_seeds.return_value = [{"url": "https://example.com/new"}]
         mock_process_seed.return_value = _make_vuln(
             id_value="new_id",
             direct_link="https://example.com/new",
@@ -1132,7 +1132,7 @@ class TestRun:
 
     def test_run_with_prepopulated_seen_set_skips_urls(
         self,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_save_seen,
@@ -1145,7 +1145,7 @@ class TestRun:
         new_url = "https://example.com/new"
         caller_seen = {seen_url}
 
-        mock_backfill_cyber_seeds.return_value = [
+        mock_backfill_seeds.return_value = [
             {"url": seen_url, "source": "test"},
             {"url": new_url, "source": "test"},
         ]
@@ -1180,7 +1180,7 @@ class TestRun:
     def test_run_default_output_is_compact(
         self,
         capsys,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -1190,7 +1190,7 @@ class TestRun:
     ):
         """Default run output should show progress but not verbose item numbering."""
         mock_load_seen.return_value = set()
-        mock_backfill_cyber_seeds.return_value = [{"url": "https://example.com/1"}]
+        mock_backfill_seeds.return_value = [{"url": "https://example.com/1"}]
         mock_process_seed.return_value = None
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1204,7 +1204,7 @@ class TestRun:
     def test_run_verbose_output_shows_detail(
         self,
         capsys,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_ensure_raw_dirs,
         mock_load_seen,
         mock_persist_raw_seeds,
@@ -1214,7 +1214,7 @@ class TestRun:
     ):
         """Verbose run output should show the current per-item progress detail."""
         mock_load_seen.return_value = set()
-        mock_backfill_cyber_seeds.return_value = [{"url": "https://example.com/1"}]
+        mock_backfill_seeds.return_value = [{"url": "https://example.com/1"}]
         mock_process_seed.return_value = None
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1235,7 +1235,7 @@ class TestRun:
         mock_load_seen,
         mock_save_seen,
         mock_persist_raw_seeds,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_process_seed,
         mock_persist_stage,
         mock_clear_directory,
@@ -1256,7 +1256,7 @@ class TestRun:
         with tempfile.TemporaryDirectory() as tmpdir:
             if True:
                 mock_load_seen.return_value = set()
-                mock_backfill_cyber_seeds.return_value = seeds
+                mock_backfill_seeds.return_value = seeds
                 mock_process_seed.side_effect = [first_record, KeyboardInterrupt]
                 mock_clear = mock_clear_directory
                 _stats, result = runner.run(
@@ -1283,7 +1283,7 @@ class TestRun:
         mock_load_seen,
         mock_save_seen,
         mock_persist_raw_seeds,
-        mock_backfill_cyber_seeds,
+        mock_backfill_seeds,
         mock_process_seed,
         mock_persist_stage,
         mock_clear_directory,
@@ -1295,7 +1295,7 @@ class TestRun:
         with tempfile.TemporaryDirectory() as tmpdir:
             if True:
                 mock_load_seen.return_value = set()
-                mock_backfill_cyber_seeds.return_value = seeds
+                mock_backfill_seeds.return_value = seeds
                 mock_process_seed.side_effect = KeyboardInterrupt
                 mock_clear = mock_clear_directory
                 _stats, result = runner.run(

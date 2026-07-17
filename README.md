@@ -1,37 +1,29 @@
 # Healthcare GPT
 
-## Overview
-Healthcare GPT is a proof-of-concept project for an AI-assisted workflow that
-collects public healthcare-disruption signals, validates operational impact,
-and produces structured incident records for analysis and retrieval.
+## What is it?
+**Healthcare GPT** is a data pipeline and research tool that collects public data and classifies it into vulnerability events affecting critical infrastructure sectors.
+It is currently a proof of concept tool. 
 
-The current implementation centers on a GDELT discovery pipeline, local
-Ollama-backed validation/extraction, optional BERT pre-screening, ChromaDB
-ingestion, and a FastAPI chat interface over processed records.
+## Table of Contents
+- [Main Features](#main-features)
+- [Dependencies](#dependencies)
+- [Configuration](#configuration)
+- [License](#license)
 
-## Pilot Scope
-**Primary focus**
-- Medical device disruption events, including cyber incidents and natural hazard events
-- Medical device shortages when directly linked to disruptions
+## Main Features:
+- Automated source collection via [The GDELT Project](https://www.gdeltproject.org/)
+- Custom source collection support for priority information sources
+- Parallel inference across a configurable number of models and threads 
+- LLM-based classification of articles into vulnererability events
+- Deduplication of articles with prioritization on data quality
+- Structured JSON output per infrastructure sector
 
-**Secondary focus**
-- Hospital cyberattacks and related operational disruptions
-- Pharmaceutical manufacturing events as capacity allows
+Some features have been deprecated and may or may not return:
+- BERT pre-screening to reduce inference load
+- ChromaDB ingestion and RAG frontend
 
-**Data sources**
-- Public and authoritative sources
+## Dependencies
 
-## Key Outputs
-1. **Processed disruption JSON**
-   Structured records in `data/processed/*.json`, wrapped in a top-level
-   `sources` list with provenance and subsector metadata.
-2. **Raw GDELT staging files**
-   Seed, validated, and enriched records under `data/raw/gdelt/` for pipeline
-   inspection.
-3. **Local retrieval index**
-   A ChromaDB vector store created by `src/ingest.py`.
-4. **FastAPI chat app**
-   A local UI and `/chat` API served from `src/RAG/server.py`.
 
 ## Repository Structure
 - `docs/` - project documentation and API reference sources
@@ -54,78 +46,3 @@ https://franklin02.github.io/Healthcare-GPT/index.html
 2. Install the development tools listed below.
 3. Run a small GDELT smoke test or docs build before opening a pull request.
 
-## Optional Supabase Setup
-Supabase is used as an optional persistence and deduplication store. When
-`SUPABASE_URL` and `SUPABASE_KEY` are set, the GDELT and HTML pipelines can
-write accepted vulnerabilities, rejected noise articles, and duplicate records
-to Supabase. When those variables are missing, database writes are disabled and
-the local JSON/CSV outputs still work.
-
-1. Get the project URL and service-role key for the existing Healthcare-GPT
-   Supabase project from a maintainer.
-2. If the database needs to be initialized or updated, run the setup SQL files
-   in the Supabase SQL editor in this order:
-
-```sql
--- src/config/schema.sql
--- src/config/duplicate.sql
--- src/config/dedup_rpc.sql
-```
-
-3. Add the provided credentials in a gitignored `.env` file:
-
-```bash
-SUPABASE_URL=https://your-project-ref.supabase.co
-SUPABASE_KEY=your-service-role-key
-```
-
-Use the service-role key only for local/private pipeline runs and never commit
-it. The schema enables row-level security, so an anon key will need explicit
-policies before it can insert or query rows.
-
-The main tables are:
-- `vulnerabilities` - accepted disruption records with optional embeddings
-- `noise` - rejected articles used to avoid reprocessing known noise
-- `duplicates` - duplicate records linked back to their original vulnerability
-
-## Developer Tooling
-Install the development tools with:
-
-```bash
-python -m pip install -r requirements-dev.txt
-```
-
-Format Python files with Ruff before opening a pull request:
-
-```bash
-ruff format .
-```
-
-Check formatting without changing files:
-
-```bash
-ruff format --check .
-```
-
-Build the Sphinx documentation locally:
-
-```bash
-sphinx-build -b html -E docs docs/_build/html
-```
-
-## GitHub Actions
-This repository uses GitHub Actions for two automation checks:
-
-- `CI` runs on pull requests to `main` and fails if pytest, Ruff lint, or Ruff
-  formatting checks fail.
-- `Sphinx Docs` runs on pull requests and pushes to `main`. Pushes to `main`
-  also publish the built docs to GitHub Pages.
-
-The workflow files live in `.github/workflows/`. GitHub starts running them
-automatically after they are merged.
-
-Repo admins still need to finish two settings in GitHub:
-
-1. In Settings -> Branches, require the CI status check before merging to
-   `main`.
-2. In Settings -> Pages, set the publishing source to GitHub Actions.

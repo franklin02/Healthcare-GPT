@@ -75,17 +75,6 @@ LOGGER = get_file_logger(__name__, LOG_FILE)
 # cache for downloaded GDELT GKG zip files to avoid redownloading
 GDELT_CACHE_DIR = PROJECT_ROOT / "data" / "gdelt_cache"
 
-try:
-    from ..supabase_function import has_supabase_creds
-    from ..dedup import handle_vuln
-
-    SUPABASE_AVAILABLE = has_supabase_creds()
-    if not SUPABASE_AVAILABLE:
-        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
-except Exception as e:
-    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
-    SUPABASE_AVAILABLE = False
-
 
 def _bert_status() -> str:
     """
@@ -855,6 +844,7 @@ def run(
     debug_noise: NoiseCollector | None = None,
     port: int | None = 11434,
     sector: str = "health",
+    clear_seeds: bool = True,
 ) -> tuple[PipelineStats, list[dict]]:
     """
     Main function to run the GDELT pipeline end-to-end.
@@ -876,6 +866,9 @@ def run(
         debug_noise: Optional NoiseCollector for recording rejected articles.
         port: Where to run the ollama server
         sector: The sector to filter for (default: "health"). Currently only "health" is supported.
+        clear_seeds: When True (default), clear the shared seed staging directory
+            after a successful run. Set False when a parent (e.g. orchestrator)
+            clears it once after all workers finish.
 
      Returns:
         A list of validated and enriched vulnerability records as dictionaries.
@@ -971,11 +964,6 @@ def run(
                 persist_stage(ENRICHED_DIR, article_id, "enriched", url, rec.to_dict())
                 records.append(rec)
                 completed_current = True
-                if SUPABASE_AVAILABLE:
-                    try:
-                        handle_vuln(rec, reporter=reporter, stats=stats)
-                    except Exception as e:
-                        LOGGER.warning("dedup/insert failed for %r: %s", rec.title, e)
             else:
                 LOGGER.debug("Seed skipped url=%s", url)
             if not reporter.verbose:
@@ -1015,7 +1003,7 @@ def run(
     if stats.paused:
         reporter.detail(f"Preserved seed staging directory: {SEEDS_DIR}")
         LOGGER.debug("Preserved seeds directory after pause: %s", SEEDS_DIR)
-    else:
+    elif clear_seeds:
         # Clear the seed files after a successful pipeline run.
         clear_directory(SEEDS_DIR)
         reporter.detail(f"Cleared seed staging directory: {SEEDS_DIR}")

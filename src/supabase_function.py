@@ -220,3 +220,28 @@ def insert_noise(
         response.data[0].get("id"),
     )
     return response.data[0]
+
+
+def push_vulnerabilities(
+    records: list[dict],
+    table: str = "vulnerability",
+) -> int:
+    """Bulk-insert vulnerability dicts into Supabase.
+
+    Expects records already shaped like ``Vulnerability.to_dict()`` (including
+    ``id``). Used by the orchestrator after normalize + local dedup.
+
+    Args:
+        records: Vulnerability dicts to insert.
+        table: Destination table (default: ``vulnerability``).
+
+    Returns:
+        Number of records submitted for insert.
+    """
+    if not records:
+        return 0
+    if supabase is None:
+        raise RuntimeError("Supabase client not configured")
+    supabase.table(table).insert(records).execute()
+    LOGGER.info("Pushed %s records to %s", len(records), table)
+    return len(records)

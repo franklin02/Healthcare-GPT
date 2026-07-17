@@ -279,10 +279,10 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--use-sb",
+        "--sb-only",
         action="store_true",
-        default=get_config_bool("USE_SB", False),
-        help="Push to supabase",
+        default=get_config_bool("HTML_SB_ONLY", False),
+        help="HTML pipeline: write to Supabase only, no local reads or writes",
     )
 
     # GDELT-specific
@@ -470,14 +470,17 @@ def main(argv: list[str] | None = None) -> int:
                     port += 1
                     n = 0
 
-            response = {supabase.table("vulnerability").insert({}).execute()}
-
             def _merge_gdelt(result):
                 worker_stats, records = result
                 gdelt_stats.merge(worker_stats)
                 all_records.extend(records)
 
             collect_as_completed(futures, _merge_gdelt)
+
+            if all_records:
+                supabase.table("vulnerability").insert(
+                    [r.to_dict() for r in all_records]
+                ).execute()
         finally:
             shutdown_executor(executor)
         write_output_records(all_records, args.output_path, reporter, gdelt_stats)

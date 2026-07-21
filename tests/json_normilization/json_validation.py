@@ -17,6 +17,7 @@ import csv
 import json
 import re
 import sys
+from datetime import datetime, date
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -385,6 +386,46 @@ def _normalize_geography_scope(value: Any) -> str | None:
     return None
 
 
+def _valid_datetime(date_str, date_format="%Y-%m-%d"):
+    if not isinstance(date_str, str):
+        return False
+    try:
+        datetime.strptime(date_str, date_format)
+        return True
+    except ValueError:
+        return False
+
+    
+def _fix_date(date_str) -> tuple[bool, str]:
+    """
+    Salvage a partial or dirty date string into a real ``YYYY-MM-DD`` date.
+
+    Args:
+        date_str: The raw date value to repair.
+
+    Returns:
+        (True, "YYYY-MM-DD") when at least a 4-digit year is recoverable, or
+        (False, "") otherwise
+    """
+    if not isinstance(date_str, str):
+        return False, ""
+
+    match = re.match(r"\s*(\d{4})(?:[-/](\d{1,2}))?(?:[-/](\d{1,2}))?", date_str)
+    if not match:
+        return False, ""
+
+    year = int(match.group(1))
+    month = int(match.group(2)) if match.group(2) else 1
+    day = int(match.group(3)) if match.group(3) else 1
+
+    for y, m, d in ((year, month, day), (year, month, 1), (year, 1, 1)):
+        try:
+            return True, date(y, m, d).isoformat()
+        except ValueError:
+            continue
+    return False, ""
+
+
 def validate_source(source: dict[str, Any], index: int) -> list[str]:
     """Validate one source record and return any schema errors found.
 
@@ -434,6 +475,30 @@ def validate_source(source: dict[str, Any], index: int) -> list[str]:
             errors.append(
                 f"{prefix}: {field_name} must be YYYY-MM-DD, YYYY-MM-DD HH-MM, or YYYY-MM-DD HH:MM"
             )
+
+    _bad_values = ["", "null", "none"]
+
+    start_date = source.get("start_date")
+    if isinstance(start_date, str) and start_date.lower() in _bad_values:
+        source["start_date"] = None
+    elif not _valid_datetime(start_date):
+        valid, fixed_date = _fix_date(start_date)
+        if valid:
+            source["start_date"] = fixed_date
+        else:
+            source["start_date"] = None
+ 
+
+    end_date = source.get("end_date")
+    if isinstance(end_date, str) and end_date.lower() in _bad_values:
+        source["end_date"] = None
+
+    elif not _valid_datetime(end_date):
+        valid, fixed_date = _fix_date(end_date)
+        if valid:
+            source["end_date"] = fixed_date
+        else: 
+            source["end_date"] = None
 
     geography_scope = source.get("geography_scope")
     # Normalize explicit 'null' or empty values to Python None (JSON null)

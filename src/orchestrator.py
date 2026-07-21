@@ -154,6 +154,7 @@ def _post_process_and_push(
         reporter.info("Dedup failed; skipping Supabase push")
         return
 
+    # TODO remove this or the if stmt on  line 128
     if not use_sb:
         reporter.info("Skipping Supabase push (--use-sb not set)")
         return
@@ -689,9 +690,6 @@ def main(argv: list[str] | None = None) -> int:
             reporter.advance(1)
 
         json_files.append(_SCOOPER_JSON)
-
-        # TODO: thread per cite implemented here
-
         html_stats.elapsed_seconds = time.time() - html_start
         summaries.append(html_stats)
         if html_stats.paused:

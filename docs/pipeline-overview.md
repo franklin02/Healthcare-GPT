@@ -141,6 +141,7 @@ python -m src.GDELT.runner --stitch-stage validated
 python -m src.GDELT.runner --stitch-stage seeds
 ```
 
+
 ## Current Supporting Modules
 
 | Module | Role |
@@ -165,3 +166,9 @@ python -m src.GDELT.runner --stitch-stage seeds
 | `src/data_migration.py` | Generate Supabase-ready SQL from local CSV/JSON files |
 
 
+## Notes for Contributors
+
+- Use small `--limit` values for smoke tests.
+- Keep Ollama running when using the LLM validation and extraction path.
+- All CLI flags can be persisted in `src/config/config.cfg` to avoid long command lines.
+- The `data/gdelt_cache/` directory is not auto-cleared unless the `--clean` flag is used or set in your config. You can manually delete the contents of the directory to force fresh downloads.

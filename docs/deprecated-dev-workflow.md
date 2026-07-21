@@ -1,4 +1,4 @@
-# Developer Workflow
+# [deprecated] Developer Workflow
 
 Use this page as the current contributor path for the code that is active in
 this repository.

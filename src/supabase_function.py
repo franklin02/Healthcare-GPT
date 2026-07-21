@@ -226,7 +226,8 @@ def push_vulnerabilities(
     records: list[dict],
     table: str = "vulnerability",
 ) -> int:
-    """Bulk-insert vulnerability dicts into Supabase.
+    """
+    Bulk-insert vulnerability dicts into Supabase.
 
     Expects records already shaped like ``Vulnerability.to_dict()`` (including
     ``id``). Used by the orchestrator after normalize + local dedup.
@@ -242,6 +243,22 @@ def push_vulnerabilities(
         return 0
     if supabase is None:
         raise RuntimeError("Supabase client not configured")
-    supabase.table(table).insert(records).execute()
+    
+    _counter = 0
+    for rec in records:
+        try: 
+            response = (
+                supabase.table(table)
+                .insert(rec)
+                .execute()
+            )
+        except Exception as e:
+            _counter += 1
+            print(f"[TEMP] ayo we failed trying to insert this: {rec}")
+
+    # supabase.table(table).insert(records).execute()
     LOGGER.info("Pushed %s records to %s", len(records), table)
+    if _counter > 0:
+        LOGGER.warning("Did not push %s records (failed)", _counter)
+
     return len(records)

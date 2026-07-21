@@ -1,8 +1,6 @@
 # Pipeline Overview
 
-The pipeline turns public news articles into structured healthcare disruption
-records. Two independent source pipelines — **GDELT** and **HTML scraper** —
-feed into the same LLM validation and field-extraction layer, then record
+The pipeline turns public news articles into structured healthcare disruption records. Two independent source pipelines (**GDELT** and **HTML scraper**) feed into the same LLM validation and field-extraction layer, then record
 results to local JSON/CSV and optionally to Supabase.
 
 
@@ -156,21 +154,14 @@ python -m src.GDELT.runner --stitch-stage seeds
 | `src/GDELT/gemma.py` | Filter for healthcare-related articles using Gemma |
 | `src/scrapers/scooper.py` | HTML site scraping and LLM classification for configured news sites |
 | `src/scrapers/fda_congress_reports.py` | FDA Reports to Congress PDF scraper (drug shortage reports) |
-| `src/shared_utils.py` | Utilities used by both GDElt and HTML pipelines (article fetching, LLM validation/extraction, config loading, signal handling) |
+| `src/shared_utils.py` | Utilities used by both GDELT and HTML pipelines (article fetching, LLM validation/extraction, config loading, signal handling) |
 | `src/classes/vulnerability.py` | `Vulnerability` dataclass and subsector-specific data classes |
-| `src/cli_reporter.py` | tqdm-backed progress bars and run summaries |
-| `src/logging_utils.py` | File-backed module loggers with retention pruning |
-| `src/ingest.py` | JSON → ChromaDB ingestion with semantic dedup and chunking |
-| `src/RAG/server.py` | FastAPI chat endpoints and web UI over the vector store |
+| `src/cli_reporter.py` | Live progress bars and run summaries |
+| `src/logging_utils.py` | File-backed module loggers |
+| `src/ingest.py` | JSON to ChromaDB ingestion with semantic dedup and chunking |
+| `src/RAG/server.py` | FastAPI chat endpoints and web UI |
 | `src/dedup.py` | Semantic fingerprint embedding for Supabase dedup |
 | `src/supabase_function.py` | Supabase client, reads, and writes |
-| `src/data_migration.py` | Generate Supabase-ready SQL from local CSV/JSON corpus |
+| `src/data_migration.py` | Generate Supabase-ready SQL from local CSV/JSON files |
 
-## Notes For Contributors
 
-- Use small `--limit` values for smoke tests.
-- Keep Ollama running when using the LLM validation and extraction path.
-- Prefer adding new pipeline behavior to `src/shared_utils.py` and the GDELT runner
-  rather than creating one-off scripts.
-- Treat prompt-pack and source-pack documents as historical unless they are
-  explicitly pulled into the current Sphinx toctree.

@@ -152,11 +152,11 @@ python -m src.GDELT.runner --stitch-stage seeds
 | `src/GDELT/gdelt_seeds.py` | GKG file discovery, theme matching, subsector detection, URL quality |
 | `src/GDELT/sector_themes.py` | Sector and subsector theme definitions |
 | `src/GDELT/BERT_filter.py` | Optional pre-screen using BERT model before LLM validation |
-| `src/GDELT/ollama_filter.py` | Focused Ollama URL filter for healthcare cyberattack experiments |
-| `src/GDELT/gemma.py` | Focused Gemma URL filter for healthcare cyberattack experiments |
+| `src/GDELT/ollama_filter.py` | Old code; filter for healthcare-related articles using Ollama |
+| `src/GDELT/gemma.py` | Filter for healthcare-related articles using Gemma |
 | `src/scrapers/scooper.py` | HTML site scraping and LLM classification for configured news sites |
 | `src/scrapers/fda_congress_reports.py` | FDA Reports to Congress PDF scraper (drug shortage reports) |
-| `src/shared_utils.py` | Article fetching, LLM validation/extraction, config loading, signal handling |
+| `src/shared_utils.py` | Utilities used by both GDElt and HTML pipelines (article fetching, LLM validation/extraction, config loading, signal handling) |
 | `src/classes/vulnerability.py` | `Vulnerability` dataclass and subsector-specific data classes |
 | `src/cli_reporter.py` | tqdm-backed progress bars and run summaries |
 | `src/logging_utils.py` | File-backed module loggers with retention pruning |

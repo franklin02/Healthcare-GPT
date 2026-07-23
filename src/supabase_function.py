@@ -283,7 +283,7 @@ def push_vulnerabilities(
     _counter = 0
     for rec in records:
         try:
-            response = supabase.table(table).insert(rec).execute()
+            supabase.table(table).insert(rec).execute()
             push_lablr(rec)
 
         except Exception as e:

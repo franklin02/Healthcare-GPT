@@ -1,4 +1,5 @@
 import os
+import itertools
 from dotenv import load_dotenv
 
 try:
@@ -20,6 +21,24 @@ LOGGER = get_file_logger(__name__, LOG_FILE)
 load_dotenv()
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+
+REVIEWERS = [
+    "Edgar",
+    "Hunter",
+    "Evan",
+    "Lachlan",
+    "Dolan",
+    "Briana",
+]
+_reviewer_cycle = itertools.cycle(REVIEWERS)
+
+
+def _next_person() -> str:
+    """
+    Return the next reviewer, cycling through the 6-person REVIEWERS list
+    """
+    return next(_reviewer_cycle)
 
 
 def has_supabase_creds() -> bool:
@@ -222,6 +241,23 @@ def insert_noise(
     return response.data[0]
 
 
+def push_lablr(
+    raw_record: dict,
+) -> None:
+    """ """
+    rec = {
+        "id": raw_record["id"],
+        "reviewed": False,
+        "reviewer": _next_person(),
+        "reclassified": False,
+        "vulnerability": True,
+    }
+    try:
+        supabase.table("lablr").insert(rec).execute()
+    except Exception as e:
+        LOGGER.warning("Failed to push lablr row for id %s: %s", raw_record["id"], e)
+
+
 def push_vulnerabilities(
     records: list[dict],
     table: str = "vulnerability",
@@ -243,18 +279,16 @@ def push_vulnerabilities(
         return 0
     if supabase is None:
         raise RuntimeError("Supabase client not configured")
-    
+
     _counter = 0
     for rec in records:
-        try: 
-            response = (
-                supabase.table(table)
-                .insert(rec)
-                .execute()
-            )
+        try:
+            response = supabase.table(table).insert(rec).execute()
+            push_lablr(rec)
+
         except Exception as e:
             _counter += 1
-            print(f"[TEMP] ayo we failed trying to insert this: {rec}")
+            LOGGER.warning("We trying to insert this: % ", rec)
 
     # supabase.table(table).insert(records).execute()
     LOGGER.info("Pushed %s records to %s", len(records), table)

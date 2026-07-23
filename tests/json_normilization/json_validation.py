@@ -395,7 +395,7 @@ def _valid_datetime(date_str, date_format="%Y-%m-%d"):
     except ValueError:
         return False
 
-    
+
 def _fix_date(date_str) -> tuple[bool, str]:
     """
     Salvage a partial or dirty date string into a real ``YYYY-MM-DD`` date.
@@ -487,7 +487,6 @@ def validate_source(source: dict[str, Any], index: int) -> list[str]:
             source["start_date"] = fixed_date
         else:
             source["start_date"] = None
- 
 
     end_date = source.get("end_date")
     if isinstance(end_date, str) and end_date.lower() in _bad_values:
@@ -497,7 +496,7 @@ def validate_source(source: dict[str, Any], index: int) -> list[str]:
         valid, fixed_date = _fix_date(end_date)
         if valid:
             source["end_date"] = fixed_date
-        else: 
+        else:
             source["end_date"] = None
 
     geography_scope = source.get("geography_scope")
@@ -574,23 +573,18 @@ def validate_json_file(file_path: Path, remove_outside_us: bool = False) -> list
     # Optionally remove records normalized to Outside US and write back the file
     if remove_outside_us:
         cleaned = [
-            s
-            for s in sources
+            s for s in sources
             if not (isinstance(s, dict) and s.get("geography_scope") == "Outside US")
         ]
-        if len(cleaned) != len(sources):
-            try:
-                with file_path.open("w", encoding="utf-8") as handle:
-                    json.dump(
-                        {"sources": cleaned}, handle, indent=2, ensure_ascii=False
-                    )
-                LOGGER.info(
-                    f"Removed records normalized to Outside US from file {file_path}, updated file with {len(cleaned)} sources remaining"
-                )
+        try:
+            with file_path.open("w", encoding="utf-8") as handle:
+                json.dump({"sources": cleaned}, handle, indent=2, ensure_ascii=False)
+            if len(cleaned) != len(sources):
+                LOGGER.info(f"Removed records normalized to Outside US from file {file_path}, updated file with {len(cleaned)} sources remaining")
                 errors.append("Removed records normalized to Outside US from file")
-            except Exception as exc:
-                LOGGER.error(f"Failed to write cleaned file: {exc}")
-                errors.append(f"Failed to write cleaned file: {exc}")
+        except Exception as exc:
+            LOGGER.error(f"Failed to write cleaned file: {exc}")
+            errors.append(f"Failed to write cleaned file: {exc}")
 
     LOGGER.info(
         f"Validation completed for file {file_path} with {len(errors)} error(s)"

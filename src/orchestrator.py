@@ -567,9 +567,7 @@ def main(argv: list[str] | None = None) -> int:
             reporter.detail(f"Cleared seed staging directory: {runner.SEEDS_DIR}")
             LOGGER.debug("Cleared seeds directory: %s", runner.SEEDS_DIR)
         else:
-            reporter.detail(
-                f"Preserved seed staging directory: {runner.SEEDS_DIR}"
-            )
+            reporter.detail(f"Preserved seed staging directory: {runner.SEEDS_DIR}")
 
         out_file = write_output_records(
             all_records, args.output_path, reporter, gdelt_stats

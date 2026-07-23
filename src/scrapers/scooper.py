@@ -22,7 +22,6 @@ import argparse
 import csv
 import datetime
 import time
-import uuid
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse

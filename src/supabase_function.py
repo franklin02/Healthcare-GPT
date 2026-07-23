@@ -288,7 +288,7 @@ def push_vulnerabilities(
 
         except Exception as e:
             _counter += 1
-            LOGGER.warning("We trying to insert this: % ", rec)
+            LOGGER.warning("Exception %  ", e)
 
     # supabase.table(table).insert(records).execute()
     LOGGER.info("Pushed %s records to %s", len(records), table)

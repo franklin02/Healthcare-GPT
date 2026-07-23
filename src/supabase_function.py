@@ -250,7 +250,7 @@ def push_lablr(
         "reviewed": False,
         "reviewer": _next_person(),
         "reclassified": False,
-        "vulnerability": True,
+        "vulnerability": False,
     }
     try:
         supabase.table("lablr").insert(rec).execute()

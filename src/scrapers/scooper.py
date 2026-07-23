@@ -161,9 +161,11 @@ HTML_SITES = [
 
 SITE_NAMES = [s["name"] for s in HTML_SITES]
 
+
 def _stable_id(url: str) -> str:
     """Generate a stable ID for a given URL using SHA-256 hashing."""
     return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+
 
 def _bert_status() -> str:
     """Return a human-readable description of the optional BERT pre-filter."""
@@ -762,7 +764,7 @@ def _process_site(
 
                 # build a vuln object
                 vuln = Vulnerability(
-                    id= _stable_id(link),
+                    id=_stable_id(link),
                     title=title,
                     source_name=source_name,
                     direct_link=link,

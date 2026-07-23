@@ -573,14 +573,17 @@ def validate_json_file(file_path: Path, remove_outside_us: bool = False) -> list
     # Optionally remove records normalized to Outside US and write back the file
     if remove_outside_us:
         cleaned = [
-            s for s in sources
+            s
+            for s in sources
             if not (isinstance(s, dict) and s.get("geography_scope") == "Outside US")
         ]
         try:
             with file_path.open("w", encoding="utf-8") as handle:
                 json.dump({"sources": cleaned}, handle, indent=2, ensure_ascii=False)
             if len(cleaned) != len(sources):
-                LOGGER.info(f"Removed records normalized to Outside US from file {file_path}, updated file with {len(cleaned)} sources remaining")
+                LOGGER.info(
+                    f"Removed records normalized to Outside US from file {file_path}, updated file with {len(cleaned)} sources remaining"
+                )
                 errors.append("Removed records normalized to Outside US from file")
         except Exception as exc:
             LOGGER.error(f"Failed to write cleaned file: {exc}")

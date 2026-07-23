@@ -69,4 +69,5 @@ autodoc_mock_imports = [
     "requests",
     "sentence_transformers",
     "transformers",
+    "tqdm",
 ]

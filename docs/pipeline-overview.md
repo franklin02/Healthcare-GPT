@@ -9,7 +9,7 @@ results to local JSON/CSV and optionally to Supabase.
 ### GDELT Pipeline
 
 1. **Seed Discovery** 
-   - `src/GDELT/gdelt_seeds.py` scans GDELT GKG files, filtering by sector themes (configured in `src/GDELT/sector_themes.py`), U.S. location hints, noise themes, and URL quality rules
+   - `src/GDELT/gdelt_seeds.py` scans GDELT GKG files, filtering by sector themes (configured in `src/GDELT/sector_themes.py`)
    - Seeds can be collected across multiple threads (`--gdelt-seed-threads`)
 
 2. **Scraping** 
@@ -17,25 +17,20 @@ results to local JSON/CSV and optionally to Supabase.
 
 3. **Validation and Classification** (*shared with the HTML pipeline*)
    - `src/shared_utils.py` calls a local Ollama endpoint to classify the article as an operational disruption and assign a subsector
-   - Optionally, `src/GDELT/BERT_filter.py` can be used as a pre-screen before LLM validation
+   - Optionally, `src/GDELT/BERT_filter.py` can be used as a pre-screen before LLM validation however this functionality is deprecated
 
 4. **Field Extraction** (*shared with the HTML pipeline*)
    - Confirmed disruptions are given one of the following subsectors:
-      - `cyber_attack`: confirmed breach or attack on a named healthcare entity
-      - `drug_shortage`: confirmed shortage of a named drug
-      - `medical_device_shortage`: confirmed inability to supply a specific device
-      - `natural_disaster`: operational shutdown from fire, flood, storm, etc.
-      - `other`: disruption that doesn't fit the above categories
-   -  `src/shared_utils.extract_fields()` prompts the LLM with a subsector-scoped JSON template to extract subsector-specific info about the disruption
+      - `cyber_attack`
+      - `drug_shortage`
+      - `medical_device_shortage`
+      - `natural_disaster`
+      - `other`: a catach all to capture disruptions that don't fit the above categories
+   - `src/shared_utils.extract_fields()` prompts the LLM with a subsector-scoped JSON template to extract subsector-specific info about the disruption
    - Records are built as `Vulnerability` objects (`src/classes/vulnerability.py`) with subsector-specific dataclasses (`DrugShortageData`, `MedicalDeviceShortageData`, `CyberAttackData`, `NaturalDisasterData`, `OtherData`)
 
 5. **Saving results**
    - The runner writes intermediate stage files under `data/raw/gdelt/{seeds,validated,enriched}/`, appends final records to `data/output/results.json` (orchestrator default) or `data/processed/GDELT.json` (runner default), and updates `data/seen_urls.json`
-   - If Supabase credentials are present, validated records are also deduplicated and inserted via `src/dedup.py` and `src/supabase_function.py`
-
-6. **Optional retrieval app**
-   - `src/ingest.py` loads processed JSON records into ChromaDB
-   - `src/RAG/server.py` serves the FastAPI chat app over the local vector store
 
 
 ### HTML Pipeline
@@ -50,44 +45,25 @@ results to local JSON/CSV and optionally to Supabase.
 
 3. **Field Extraction** (*shared with the GDELT pipeline*)
    - Confirmed disruptions are given one of the following subsectors:
-      - `cyber_attack`: confirmed breach or attack on a named healthcare entity
-      - `drug_shortage`: confirmed shortage of a named drug
-      - `medical_device_shortage`: confirmed inability to supply a specific device
-      - `natural_disaster`: operational shutdown from fire, flood, storm, etc.
-      - `other`: disruption that doesn't fit the above categories
+      - `cyber_attack`
+      - `drug_shortage`
+      - `medical_device_shortage`
+      - `natural_disaster`
+      - `other`: a catach all to capture disruptions that don't fit the above categories
    - `src/shared_utils.extract_fields()` prompts the LLM with a subsector-scoped JSON template to extract subsector-specific info about the disruption
    - Records are built as `Vulnerability` objects (`src/classes/vulnerability.py`) with subsector-specific dataclasses (`DrugShortageData`, `MedicalDeviceShortageData`, `CyberAttackData`, `NaturalDisasterData`, `OtherData`)
 
 4. **Saving Results**
-   - Validated records go to `data/vulnerabilities/scooper_vuln.csv` and `data/processed/scooper.json`
-   - Rejected articles go to `data/noise/scooper_noise.csv`
+   - HTML results will output in `data/processed/scooper.json` 
 
 
-## Typical Commands
+## Recommendations
 
-Run from the repository root using module execution:
+Each pipeline was designed to be able to run standalone using it's own command line interfaces however it is highly recommened to fill out and use the `config-template.cfg` as it covers the same settings that can passed as arguments.  
 
-```bash
-# GDELT only — quick smoke test (3-seed default cap)
-python -m src.orchestrator --skip-html --num-files 2
+## Deprecated features
 
-# GDELT only — bounded historical run
-python -m src.orchestrator --skip-html --start-date 20260101 --end-date 20260131
-
-# Both pipelines
-python -m src.orchestrator --num-files 2 --limit 3
-
-# HTML-only smoke test
-python -m src.orchestrator --skip-gdelt
-
-# Multithreaded parallel run
-python -m src.orchestrator --models 2 --threads-per-model 2 --starting-port 11434
-
-# Seeds-only mode (collect seeds without LLM processing)
-python -m src.orchestrator --seeds_only
-```
-
-After collecting records, index them for the local chat app:
+This project also contains a deprecated RAG pipeline and frontend to query records it can be used with the following commands:
 
 ```bash
 python -m src.ingest --file data/processed/GDELT.json
@@ -98,14 +74,6 @@ Then run the app:
 ```bash
 uvicorn src.RAG.server:app --reload
 ```
-
-
-## Configuration
-
-- All CLI flags can be set as defaults in `src/config/config.cfg` (copy from `config-template.cfg`)
-- Environment variables and `.env` are used for Supabase credentials (`SUPABASE_URL`, `SUPABASE_KEY`)
-- The AI model defaults to `llama3.2:latest` and is read from `AI_MODEL` in config
-
 
 ## Outputs
 
@@ -124,20 +92,20 @@ uvicorn src.RAG.server:app --reload
 | `data/logs/` | Per-module log files |
 | `chroma_db/` | Local vector store for the RAG app |
 
-## Recovery
+## GDELT Recovery 
 
-The **GDELT** pipeline saves seen URLs, writes completed records, and preserves `data/raw/gdelt/seeds/` for recovery. 
+In the case of a unrecoverable pipeline state the **GDELT** pipeline saves records in stages all preserved in `data/raw/gdelt/seeds/`. 
 
-This is state preservation, not automatic resume. To recover from staged GDELT data:
+To recover from staged GDELT data:
 
 ```bash
-# Stitch from enriched (default, no LLM needed)
+# Stitch from enriched data
 python -m src.GDELT.runner --stitch-stage enriched
 
-# Stitch from validated
+# Stitch from validated data
 python -m src.GDELT.runner --stitch-stage validated
 
-# Stitch from seeds (re-runs scraping + LLM, keep Ollama running)
+# Stitch from seeds (re-runs scraping + LLM)
 python -m src.GDELT.runner --stitch-stage seeds
 ```
 
@@ -166,9 +134,6 @@ python -m src.GDELT.runner --stitch-stage seeds
 | `src/data_migration.py` | Generate Supabase-ready SQL from local CSV/JSON files |
 
 
-## Notes for Contributors
+## Note
 
-- Use small `--limit` values for smoke tests
-- Keep Ollama running when using the LLM validation and extraction path
-- All CLI flags can be persisted in `src/config/config.cfg` to avoid long command lines
 - The `data/gdelt_cache/` directory is not auto-cleared unless the `--clean` flag is used or set in your config; you can manually delete the contents of the directory to clear disk space or force fresh downloads

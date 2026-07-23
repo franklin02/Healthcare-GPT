@@ -1,7 +1,6 @@
 # Pipeline Overview
 
-The pipeline turns public news articles into structured healthcare disruption records. Two independent source pipelines (**GDELT** and **HTML scraper**) feed into the same LLM validation and field-extraction layer, then record
-results to local JSON/CSV and optionally to Supabase.
+The pipeline turns public news articles into structured healthcare disruption records. Two independent source pipelines (**GDELT** and **HTML scraper**) feed into the same LLM validation and field-extraction layer, then record results to local JSON/CSV and optionally to Supabase.
 
 
 ## Main Flow
@@ -59,11 +58,12 @@ results to local JSON/CSV and optionally to Supabase.
 
 ## Recommendations
 
-Each pipeline was designed to be able to run standalone using it's own command line interfaces however it is highly recommened to fill out and use the `config-template.cfg` as it covers the same settings that can passed as arguments.  
+Each pipeline was designed to be able to run standalone using its own command line interfaces; however, it is highly recommended to fill out and use the `config-template.cfg` as it covers the same settings that can be passed as arguments.  
+
 
 ## Deprecated features
 
-This project also contains a deprecated RAG pipeline and frontend to query records it can be used with the following commands:
+This project also contains a deprecated RAG pipeline and frontend to query records. It can be used with the following commands:
 
 ```bash
 python -m src.ingest --file data/processed/GDELT.json
@@ -92,9 +92,10 @@ uvicorn src.RAG.server:app --reload
 | `data/logs/` | Per-module log files |
 | `chroma_db/` | Local vector store for the RAG app |
 
+
 ## GDELT Recovery 
 
-In the case of a unrecoverable pipeline state the **GDELT** pipeline saves records in stages all preserved in `data/raw/gdelt/seeds/`. 
+In the case of an unrecoverable pipeline state, the **GDELT** pipeline saves records in stages all preserved in `data/raw/gdelt/seeds/`. 
 
 To recover from staged GDELT data:
 

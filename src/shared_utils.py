@@ -1,19 +1,15 @@
-"""Provide shared utility functions for file validation, data processing, and URL handling in the application.
+"""Provide shared utility functions for config loading, data processing, and URL handling in the application.
 
 This module provides utility functions and constants that assist in processing and managing data for the application.
 It includes functions for fetching news articles, extracting key information, and classifying them into different categories.
-Including page fetching, validation of files, JSON and CSV outputs, and URL construction.
+Including config lookups, page fetching, LLM validation/extraction, CSV and JSON writing, and cooperative shutdown.
 The shared utilities aim to simplify and streamline repetitive tasks or operations across the project.
 
 Attributes:
     - `AI_MODEL`: The specific model that the AI will use for processing.
     - `_PROJECT_ROOT`: Specifies the project's root directory.
-    - `READY_FOR_RAG_DIR`: Directory designated for resources ready for retrieval-augmented generation (RAG).
-    - `NOISE_DIR`: Directory for storing noise data.
-    - `VULNERABILITIES_DIR`: Directory for storing vulnerabilities data.
+    - `DEBUG_DIR`: Directory for storing debug noise data.
     - `HEADERS`: Headers for HTTP-related tasks.
-    - `VULN_CSV_HEADER`: Header for the vulnerabilities CSV file.
-    - `NOISE_CSV_HEADER`: Header for the noise CSV file.
     - `SUBSECTOR_FIELDS`: A dictionary that maps subsectors to their specific fields.
 
 Functions:
@@ -22,12 +18,7 @@ Functions:
     - `get_config_int`: Retrieves an integer configuration value by name, with an optional default.
     - `get_config_date`: Retrieves an ISO-formatted date configuration value by name, with an optional default.
     - `get_page`: Retrieves web page content for a given URL, handling HTTP requests.
-    - `_site_filename`: Generates or retrieves specific filename associated with a site.
-    - `check_valid_file`: Validates files against specific criteria.
-    - `json_output`: Outputs data in JSON format.
-    - `vuln_output`: Processes and generates output related to vulnerabilities.
-    - `noise_output`: Processes and generates output related to noise.
-    - `build_page_url`: Constructs URLs for web pages based on given parameters.
+    - `get_body_and_title`: Fetches a URL once and returns both the article body and cleaned title.
     - `ai_check_validation`: Parses and verifies whether a healthcare-related article describes an ongoing operational disruption or confirmed breach
        at a named healthcare entity based on strict, predefined criteria.
     - `get_extraction_template`: Builds a typed JSON extraction template scoped to a single subsector, mapping each field to its expected primitive type.
@@ -50,14 +41,12 @@ Possible subsectors:
 
 """
 
-import csv
 import datetime
 import json
 import os
 import re
 import signal
 import subprocess
-import tempfile
 import shutil
 import time
 import threading
@@ -187,11 +176,6 @@ BODY_CHAR_LIMIT = get_config_int("BODY_CHAR_LIMIT", 4000) or 4000
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "shared_utils.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
 
-# temporary for now, to be removed later
-READY_FOR_RAG_DIR = _PROJECT_ROOT / "data" / "processed"
-NOISE_DIR = _PROJECT_ROOT / "data" / "noise"
-VULNERABILITIES_DIR = _PROJECT_ROOT / "data" / "vulnerabilities"
-
 _NOISE_PATTERNS = (
     "ad",
     "advert",
@@ -221,26 +205,6 @@ HEADERS = {
         "Chrome/124.0.0.0 Safari/537.36"
     )
 }
-
-VULN_CSV_HEADER = [
-    "date_accessed",
-    "date_published",
-    "source_name",
-    "subsector",
-    "title",
-    "direct_link",
-    "exec_summary",
-    "content_preview",
-]
-
-NOISE_CSV_HEADER = [
-    "date_accessed",
-    "source_name",
-    "title",
-    "url",
-    "reason",
-    "body_preview",
-]
 
 LLM_SECTOR_FIELDS = [
     "exec_summary",
@@ -351,241 +315,6 @@ def get_page(url, connect_timeout=10, read_timeout=15, absolute_timeout=45):
     resp._content = bytes(content)
     LOGGER.debug("Successfully fetched URL: %s", url)
     return resp
-
-
-def _site_filename(site_name: str) -> str:
-    """
-    Generates a sanitized site filename by trimming leading and trailing whitespace from the given site name.
-
-    Parameters:
-        site_name (str): The name of the site as a string.
-
-    Returns:
-        str: The trimmed site name with whitespace removed.
-    """
-    return site_name.strip()
-
-
-def check_valid_file(site_name):
-    """
-    Checks for the existence of required files and directories for the given site name. If the required files do not exist, creates them with appropriate initial content.
-
-    Parameters:
-        site_name (str): The name of the site used to generate file names and structure.
-
-    Function Logic:
-        - Ensures the directories READY_FOR_RAG_DIR, NOISE_DIR, and VULNERABILITIES_DIR exist by creating them if necessary.
-        - Constructs a file stem using the supplied site_name with the help of the `_site_filename` function.
-        - Checks if a .json file for the site exists in READY_FOR_RAG_DIR. If not, creates the file with a default JSON structure.
-        - Checks if a .csv file for the site exists in NOISE_DIR. If not, creates an empty file with a header row defined by NOISE_CSV_HEADER.
-        - Checks if a .csv file for the site exists in VULNERABILITIES_DIR. If not, creates an empty file with a header row defined by VULN_CSV_HEADER.
-        - Prints messages to indicate the creation of new files when applicable.
-
-    """
-    READY_FOR_RAG_DIR.mkdir(parents=True, exist_ok=True)
-    NOISE_DIR.mkdir(parents=True, exist_ok=True)
-    VULNERABILITIES_DIR.mkdir(parents=True, exist_ok=True)
-
-    stem = _site_filename(site_name)
-
-    json_path = READY_FOR_RAG_DIR / f"{stem}.json"
-    if not json_path.exists():
-        json_path.write_text(json.dumps({"sources": []}, indent=4), encoding="utf-8")
-        LOGGER.debug("Created JSON file for site %s at %s", site_name, json_path)
-
-    noise_path = NOISE_DIR / f"{stem}.csv"
-    if not noise_path.exists():
-        with open(noise_path, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(NOISE_CSV_HEADER)
-        LOGGER.debug("Created noise CSV file for site %s at %s", site_name, noise_path)
-
-    vulnerabilities_path = VULNERABILITIES_DIR / f"{stem}.csv"
-    if not vulnerabilities_path.exists():
-        with open(vulnerabilities_path, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow(VULN_CSV_HEADER)
-        LOGGER.debug(
-            "Created vulnerabilities CSV file for site %s at %s",
-            site_name,
-            vulnerabilities_path,
-        )
-
-
-def _content_preview(body: str | None) -> str:
-    """
-    Parameter:
-        body (str): the entire body of an article
-
-    Returns:
-        First 250 characters of the article (success)
-    """
-    return (body or "")[:250].replace("\n", " ")
-
-
-def _top_row_matches(
-    csv_path: Path,
-    title: str,
-    body_snippet: str,
-    preview_column: str,
-) -> bool:
-    """
-    Not documenting on purpose, this function will likely be deleted in the near future
-    """
-
-    if not csv_path.exists():
-        LOGGER.debug("CSV file %s does not exist, cannot match top row", csv_path)
-        return False
-
-    with open(csv_path, "r", newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        try:
-            first_row = next(reader)
-        except StopIteration:
-            LOGGER.debug("CSV file %s is empty, cannot match top row", csv_path)
-            return False
-
-    if first_row.get("title", "") != title:
-        LOGGER.debug(
-            "Top row title %s does not match incoming title %s in file %s",
-            first_row.get("title", ""),
-            title,
-            csv_path,
-        )
-        return False
-
-    incoming_preview = _content_preview(body_snippet)
-    if first_row.get(preview_column, "") != incoming_preview:
-        LOGGER.warning("Body preview differs for title %s", title)
-    return True
-
-
-def is_known_article(site_name: str, title: str, body_snippet: str) -> bool:
-    """
-    Not documenting on purpose, this function will likely be deleted in the near future
-    """
-    site = _site_filename(site_name)
-    if _top_row_matches(
-        VULNERABILITIES_DIR / f"{site}.csv", title, body_snippet, "content_preview"
-    ):
-        return True
-    if _top_row_matches(NOISE_DIR / f"{site}.csv", title, body_snippet, "body_preview"):
-        return True
-    return False
-
-
-def prepend_vuln_csv(site_name: str, new_rows: list[list[str]]) -> None:
-    """
-    Not documenting on purpose, this function will likely be deleted in the near future
-    """
-    if not new_rows:
-        return
-
-    csv_path = VULNERABILITIES_DIR / f"{_site_filename(site_name)}.csv"
-    existing_data_rows: list[list[str]] = []
-    if csv_path.exists():
-        with open(csv_path, "r", newline="", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            try:
-                next(reader)  # drop the existing header
-            except StopIteration:
-                pass
-            existing_data_rows = list(reader)
-
-    fd, tmp_path = tempfile.mkstemp(
-        prefix=f"{_site_filename(site_name)}.",
-        suffix=".csv.tmp",
-        dir=str(VULNERABILITIES_DIR),
-    )
-    try:
-        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(VULN_CSV_HEADER)
-            writer.writerows(new_rows)
-            writer.writerows(existing_data_rows)
-        os.replace(tmp_path, csv_path)
-    except Exception:
-        LOGGER.error(
-            "Failed to prepend to vulnerabilities CSV for site %s: %s",
-            site_name,
-            exc_info=True,
-        )
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        raise
-
-
-def prepend_noise_csv(site_name: str, new_rows: list[list[str]]) -> None:
-    """
-    Not documenting on purpose, this function will likely be deleted in the near future
-    """
-    if not new_rows:
-        return
-
-    csv_path = NOISE_DIR / f"{_site_filename(site_name)}.csv"
-    existing_data_rows: list[list[str]] = []
-    if csv_path.exists():
-        with open(csv_path, "r", newline="", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            try:
-                next(reader)  # drop the existing header
-            except StopIteration:
-                pass
-            existing_data_rows = list(reader)
-
-    fd, tmp_path = tempfile.mkstemp(
-        prefix=f"{_site_filename(site_name)}.",
-        suffix=".csv.tmp",
-        dir=str(NOISE_DIR),
-    )
-    try:
-        with os.fdopen(fd, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(NOISE_CSV_HEADER)
-            writer.writerows(new_rows)
-            writer.writerows(existing_data_rows)
-        os.replace(tmp_path, csv_path)
-    except Exception:
-        LOGGER.error(
-            "Failed to prepend to noise CSV for site %s: %s", site_name, exc_info=True
-        )
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        raise
-
-
-def prepend_json_sources(site_name: str, new_vulns: list[Vulnerability]) -> None:
-    """
-    Not documenting on purpose, this function will likely be deleted in the near future
-    """
-    if not new_vulns:
-        return
-
-    json_path = READY_FOR_RAG_DIR / f"{_site_filename(site_name)}.json"
-    if json_path.exists():
-        data = json.loads(json_path.read_text(encoding="utf-8"))
-    else:
-        data = {"sources": []}
-
-    new_dicts = [v.to_dict() for v in new_vulns]
-    data["sources"] = new_dicts + data.get("sources", [])
-
-    fd, tmp_path = tempfile.mkstemp(
-        prefix=f"{_site_filename(site_name)}.",
-        suffix=".json.tmp",
-        dir=str(READY_FOR_RAG_DIR),
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-        os.replace(tmp_path, json_path)
-    except Exception:
-        LOGGER.error(
-            "Failed to prepend to JSON sources for site %s: %s",
-            site_name,
-            exc_info=True,
-        )
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        raise
 
 
 def _extract_title_from_soup(soup: BeautifulSoup, fallback_url: str) -> str:

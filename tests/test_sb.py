@@ -22,9 +22,6 @@ from src.classes import Vulnerability  # noqa: E402
 TEST_TABLE = "test_table"
 TEMP_SOURCE = "_pytest_temp_"
 IMPOSSIBLE_UUID = "00000000-0000-0000-0000-000000000000"
-SEED_SOURCE = (
-    "CyberScoop"  # already present in test_table per src/config/test_table.sql
-)
 
 # Defense-in-depth: the write guard below permits whatever TEST_TABLE names, so
 # pin it to the designated sandbox table. If this constant ever gets pointed at a
@@ -55,8 +52,8 @@ def _make_vuln(
 class _TestTableOnlyClient:
     """Proxy around the live Supabase client that only permits the sandbox table.
 
-    Every supabase_function helper (insert_vuln, insert_noise, load_cite,
-    insert_duplicate) reaches the database through the module-global
+    Every supabase_function helper (insert_vuln, insert_duplicate,
+    push_vulnerabilities) reaches the database through the module-global
     ``sb.supabase`` client via ``.table(name)``. By swapping that client for this
     proxy for the duration of the test module, any attempt to touch a table other
     than TEST_TABLE — including the production defaults "vulnerabilities" /
@@ -109,78 +106,6 @@ def restore_test_table_state(_guard_supabase_writes):
     client.table(TEST_TABLE).delete().neq("id", IMPOSSIBLE_UUID).execute()
     for row in baseline:
         client.table(TEST_TABLE).insert(row).execute()
-
-
-class TestNorm:
-    """Test suite for _norm helper."""
-
-    def test_norm_strips_whitespace(self):
-        """Leading/trailing whitespace is removed."""
-        assert sb._norm("  Hello  ") == "hello"
-
-    def test_norm_lowercases(self):
-        """Mixed-case input is lowercased."""
-        assert sb._norm("CyberScoop") == "cyberscoop"
-
-    def test_norm_handles_none(self):
-        """None input returns empty string."""
-        assert sb._norm(None) == ""
-
-    def test_norm_handles_empty_string(self):
-        """Empty string input returns empty string."""
-        assert sb._norm("") == ""
-
-
-class TestIsKnownArticle:
-    """Pure-logic tests for is_known_db — no DB needed."""
-
-    def test_matches_title_and_body_snippet(self):
-        """Returns True when title matches and body snippet is contained in content."""
-        rows = [{"title": "Some Article", "content": "lorem ipsum dolor sit amet"}]
-        assert sb.is_known_db(rows, "Some Article", "ipsum") is True
-
-    def test_returns_false_on_title_mismatch(self):
-        """Returns False when title does not match any row."""
-        rows = [{"title": "Some Article", "content": "lorem ipsum dolor"}]
-        assert sb.is_known_db(rows, "Different Title", "ipsum") is False
-
-    def test_returns_false_on_missing_body_snippet(self):
-        """Returns False when title matches but body snippet is not in content."""
-        rows = [{"title": "Some Article", "content": "lorem ipsum dolor"}]
-        assert sb.is_known_db(rows, "Some Article", "nonexistent") is False
-
-    def test_handles_none_content_in_row(self):
-        """Rows with None content do not raise; the search just doesn't match them."""
-        rows = [{"title": "Some Article", "content": None}]
-        assert sb.is_known_db(rows, "Some Article", "anything") is False
-
-    def test_empty_site_query_returns_false(self):
-        """Empty site_query always returns False."""
-        assert sb.is_known_db([], "Some Article", "ipsum") is False
-
-    def test_normalizes_title_casing(self):
-        """Title comparison ignores case and surrounding whitespace."""
-        rows = [{"title": "  Some Article  ", "content": "lorem ipsum"}]
-        assert sb.is_known_db(rows, "SOME ARTICLE", "ipsum") is True
-
-
-class TestLoadCite:
-    """Integration tests for load_cite against test_table (noise side skipped)."""
-
-    def test_load_cite_unknown_source_returns_empty(self):
-        """Querying a source not present returns an empty list."""
-        rows = sb.load_cite(
-            f"_no_such_source_{uuid.uuid4()}",
-            vuln_table=TEST_TABLE,
-            noise_table=None,
-        )
-        assert rows == []
-
-    def test_load_cite_keys_are_title_and_content(self):
-        """Each returned row exposes title and content keys."""
-        rows = sb.load_cite(SEED_SOURCE, vuln_table=TEST_TABLE, noise_table=None)
-        for row in rows:
-            assert set(row.keys()) == {"title", "content"}
 
 
 class TestWriteGuard:

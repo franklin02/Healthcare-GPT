@@ -62,69 +62,6 @@ supabase = (
 )
 
 
-def _norm(s: str) -> str:
-    """Normalize a string by stripping whitespace and converting to lowercase."""
-    return (s or "").strip().lower()
-
-
-def load_cite(
-    site_name: str,
-    vuln_table: str = "vulnerabilities",
-    noise_table: str | None = "noise",
-) -> list[dict[str, str]]:
-    """Query articles by source, optionally including noise entries for deduplication.
-
-    Args:
-        site_name: Source name to filter articles by.
-        vuln_table: Vulnerabilities table name (default: "vulnerabilities").
-        noise_table: Noise table name to include; None to exclude noise entries.
-
-    Returns:
-        List of articles with keys "title" and "content".
-    """
-    vuln_data = (
-        supabase.table(vuln_table)
-        .select("title,content")
-        .eq("source_name", site_name)
-        .execute()
-        .data
-    )
-    if noise_table:
-        noise_data = (
-            supabase.table(noise_table)
-            .select("title,body_preview")
-            .eq("source_name", site_name)
-            .execute()
-            .data
-        )
-        vuln_data += [
-            {"title": r["title"], "content": r["body_preview"]} for r in noise_data
-        ]
-    return vuln_data
-
-
-def is_known_db(
-    site_query: list[dict[str, str]], title: str, body_snippet: str
-) -> bool:
-    """Check if an article exists in the query results (for deduplication).
-
-    Performs case-insensitive title matching and checks if the body snippet exists
-    in the article content.
-
-    Args:
-        site_query: Query results from load_cite.
-        title: Article title to match.
-        body_snippet: Text snippet to find in the article content.
-
-    Returns:
-        True if a matching article is found, False otherwise.
-    """
-    return any(
-        _norm(row["title"]) == _norm(title) and body_snippet in (row["content"] or "")
-        for row in site_query
-    )
-
-
 def insert_vuln(
     vuln: Vulnerability,
     embedding: list[float] | None = None,
@@ -198,47 +135,6 @@ def find_nearest_vulnerability(
         return None
     r = rows[0]
     return (r["id"], r["subsector"], float(r["distance"]))
-
-
-def insert_noise(
-    source_name: str,
-    title: str,
-    url: str,
-    reason: str,
-    body_preview: str,
-    date_accessed: str,
-    table: str = "noise",
-) -> dict:
-    """Insert a noise (non-relevant) article into the exclusion list.
-
-    Args:
-        source_name: Article source name.
-        title: Article title.
-        url: Article URL.
-        reason: Reason for marking as noise (from LLM).
-        body_preview: Preview of the article content.
-        date_accessed: ISO timestamp when the article was accessed.
-        table: Table name (default: "noise").
-
-    Returns:
-        Inserted record with generated ID and metadata.
-    """
-    payload = {
-        "source_name": source_name,
-        "title": title,
-        "url": url,
-        "reason": reason,
-        "body_preview": body_preview,
-        "date_accessed": date_accessed,
-    }
-    response = supabase.table(table).insert(payload).execute()
-    LOGGER.debug(
-        "Inserted noise article '%s' into table %s with ID %s",
-        title,
-        table,
-        response.data[0].get("id"),
-    )
-    return response.data[0]
 
 
 def push_lablr(

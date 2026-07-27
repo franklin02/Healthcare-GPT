@@ -1,7 +1,28 @@
-# BERT Classifier
+# LLM Usage and Model parameters
 
-The BERT classifier work is the fast triage layer for deciding whether an
-article is likely to describe a healthcare disruption.
+This project relies on locally ran models to handle classification, field extraction, and vulnerability assessment.
+
+Early prototypes used LLama 3.2:3b based on developer hardware access however it is recommeneded to use Gemma4:e4b or higher for production use cases.
+
+Testing of both models showed that Llama 3.2 had a significant halucination and misclassification rate favoring `natural_disaster` subsectors more often than not.
+Testing was also done to looking at quality based on parameter count there was no noticable change between running Gemma:e4b and Gemma:31b for our usecases.
+
+***Note: Neither model is shipped with this repository you must download it from ollama or use some other API endpoint***
+
+## Model configuration
+
+In line with guidelines from Google this system uses the following model parameters:
+
+For Gemma4:e4b
+  "temperature": 1,
+  "top_k": 64,
+  "top_p": 0.95,
+  "num_ctx": 4096,
+
+
+# BERT Classifier (Deprecated)
+During protoyping a BERT model was finetuned to classify subsectors as a method of reducing overall compute costs.
+This feature is now deprecated and can be run optionally however is not recommended outside of development.
 
 ## Purpose
 

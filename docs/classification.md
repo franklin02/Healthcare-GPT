@@ -14,22 +14,25 @@ Testing was also done to looking at quality based on parameter count there was n
 In line with guidelines from Google this system uses the following model parameters:
 
 For Gemma4:e4b
-  "temperature": 1
-  "top_k": 64
-  "top_p": 0.95
-  "num_ctx": 4096
 
-# BERT Classifier (Deprecated)
+```yaml
+temperature: 1
+top_k: 64
+top_p: 0.95
+num_ctx: 4096
+```
+
+## BERT Classifier (Deprecated)
 During protoyping a BERT model was finetuned to classify subsectors as a method of reducing overall compute costs.
-This feature is now deprecated and can be run optionally however is not recommended outside of development.
+This feature is now deprecated and can be run optionally however is not recommended outside of development or testing usecases.
 
-## Purpose
+### Purpose
 
 News feeds contain many articles that mention healthcare but do not describe
 active operational disruptions. The classifier helps reduce that noise before
 more expensive validation and extraction steps run.
 
-### Implementation
+#### Implementation
 
 `src/GDELT/BERT_filter.py` uses Hugging Face Transformers for zero-shot
 classification. It first looks for a local fine-tuned model at:
@@ -70,7 +73,7 @@ Fallback inference returns:
 The module selects CUDA, Apple Silicon MPS, or CPU depending on the available
 runtime.
 
-### Article Scraping
+#### Article Scraping
 
 `src/scrapers/bert_scraper.py` is the scraper used by the BERT workflow. It
 fetches a URL, extracts the page title, removes common page noise, and limits
@@ -83,7 +86,7 @@ The scraper returns a dictionary with:
 
 This keeps BERT inputs small and consistent across news sites.
 
-### Current Entry Points
+#### Current Entry Points
 
 - `run_bert_inference({"title": "...", "body": "..."})` classifies one article.
 - `src/shared_utils.py` can call BERT before LLM validation when

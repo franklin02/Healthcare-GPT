@@ -40,9 +40,14 @@ exclude_patterns = [
 ]
 
 html_theme = "sphinx_wagtail_theme"
-html_theme_options = {
-    "project_name": "CORVID",
-}
+html_static_path = ["img"]
+html_theme_options = dict(
+    project_name =  "CORVID",
+    logo = "crow.png",
+    logo_alt = "CORVID",
+    logo_height = 59,
+    logo_width = 79,
+)
 
 
 autodoc_member_order = "bysource"

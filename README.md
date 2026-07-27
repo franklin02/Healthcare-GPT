@@ -1,13 +1,13 @@
-# Healthcare GPT
+# CORVID
 
 ## What is it?
-**Healthcare GPT** is a data pipeline and research tool that collects public data and classifies it into vulnerability events affecting critical infrastructure sectors.
+**C.O.R.V.I.D.** (Classification of Open Reporting into Vulnerability Incident Data) is a data pipeline and research tool that collects public data and classifies it into vulnerability events affecting critical infrastructure sectors.
 It is currently a proof of concept tool. 
 
 ## Table of Contents
 - [Main Features](#main-features)
-- [Dependencies](#dependencies)
-- [Configuration](#configuration)
+- [Quick Start Guide](#Quick-Start-Guide)
+- [Repository Structure](#Repository-Structure)
 - [License](#license)
 
 ## Main Features:
@@ -22,8 +22,21 @@ Some features have been deprecated and may or may not return:
 - BERT pre-screening to reduce inference load
 - ChromaDB ingestion and RAG frontend
 
-## Dependencies
-
+## Quick Start Guide
+1. Clone this repository
+```
+gh repo clone franklin02/Healthcare-GPT
+```
+2. Setup environment
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+3. Use the orchestrator to make your first requests
+```bash
+python -m src.orchestrator
+```
 
 ## Repository Structure
 - `docs/` - project documentation and API reference sources
@@ -34,15 +47,9 @@ Some features have been deprecated and may or may not return:
 - `src/` - FastAPI app, ingestion pipeline, classifier, scraper, and data models
 - `scripts/` - opt-in maintenance/validation scripts run on demand (not part of
   the pytest suite); e.g. `scripts/validate_schemas.py` validates that every
-  schema populates every field. See CONTRIBUTING.md §7.
+  schema populates every field. See CONTRIBUTING.md.
 
 ## Documentation
 The published Sphinx documentation is available at:
-
 https://franklin02.github.io/Healthcare-GPT/index.html
-
-## Getting Started
-1. Review the published documentation or `docs/index.md`.
-2. Install the development tools listed below.
-3. Run a small GDELT smoke test or docs build before opening a pull request.
 

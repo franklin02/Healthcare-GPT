@@ -1,4 +1,4 @@
-# LLM Usage and Model parameters
+# Classification
 
 This project relies on locally ran models to handle classification, field extraction, and vulnerability assessment.
 
@@ -14,11 +14,10 @@ Testing was also done to looking at quality based on parameter count there was n
 In line with guidelines from Google this system uses the following model parameters:
 
 For Gemma4:e4b
-  "temperature": 1,
-  "top_k": 64,
-  "top_p": 0.95,
-  "num_ctx": 4096,
-
+  "temperature": 1
+  "top_k": 64
+  "top_p": 0.95
+  "num_ctx": 4096
 
 # BERT Classifier (Deprecated)
 During protoyping a BERT model was finetuned to classify subsectors as a method of reducing overall compute costs.
@@ -30,7 +29,7 @@ News feeds contain many articles that mention healthcare but do not describe
 active operational disruptions. The classifier helps reduce that noise before
 more expensive validation and extraction steps run.
 
-## Implementation
+### Implementation
 
 `src/GDELT/BERT_filter.py` uses Hugging Face Transformers for zero-shot
 classification. It first looks for a local fine-tuned model at:
@@ -71,7 +70,7 @@ Fallback inference returns:
 The module selects CUDA, Apple Silicon MPS, or CPU depending on the available
 runtime.
 
-## Article Scraping
+### Article Scraping
 
 `src/scrapers/bert_scraper.py` is the scraper used by the BERT workflow. It
 fetches a URL, extracts the page title, removes common page noise, and limits
@@ -84,17 +83,10 @@ The scraper returns a dictionary with:
 
 This keeps BERT inputs small and consistent across news sites.
 
-## Current Entry Points
+### Current Entry Points
 
 - `run_bert_inference({"title": "...", "body": "..."})` classifies one article.
 - `src/shared_utils.py` can call BERT before LLM validation when
   `ai_check_validation(..., use_bert=True)` is used.
 - `python -m src.ingest --use-bert` enables the same pre-screen before ingestion-time
   LLM validation.
-
-## Where It Fits
-
-BERT is intended to be the lightweight classifier stage in the broader
-pipeline. It can reject obvious non-disruption articles before an LLM call, but
-local LLM validation remains the source of truth for accepted records and
-structured field extraction.

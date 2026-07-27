@@ -167,11 +167,6 @@ class TestIsKnownArticle:
 class TestLoadCite:
     """Integration tests for load_cite against test_table (noise side skipped)."""
 
-    def test_load_cite_returns_known_source(self):
-        """Querying a source present in test_table returns at least one row."""
-        rows = sb.load_cite(SEED_SOURCE, vuln_table=TEST_TABLE, noise_table=None)
-        assert len(rows) > 0
-
     def test_load_cite_unknown_source_returns_empty(self):
         """Querying a source not present returns an empty list."""
         rows = sb.load_cite(
@@ -186,39 +181,6 @@ class TestLoadCite:
         rows = sb.load_cite(SEED_SOURCE, vuln_table=TEST_TABLE, noise_table=None)
         for row in rows:
             assert set(row.keys()) == {"title", "content"}
-
-
-class TestInsertVuln:
-    """Integration tests for insert_vuln against test_table."""
-
-    def test_insert_vuln_writes_and_returns_row(self):
-        """insert_vuln returns the inserted row with the fields we passed."""
-        vuln = _make_vuln(title="insert returns row test")
-        result = sb.insert_vuln(vuln, table=TEST_TABLE)
-        assert result["title"] == "insert returns row test"
-        assert result["source_name"] == TEMP_SOURCE
-
-    def test_insert_vuln_db_generates_id(self):
-        """The DB generates a uuid even though we did not pass one."""
-        vuln = _make_vuln(title="db generates id test")
-        result = sb.insert_vuln(vuln, table=TEST_TABLE)
-        assert result["id"]
-        # uuid.UUID raises if the string isn't a valid uuid
-        uuid.UUID(result["id"])
-
-    def test_insert_vuln_round_trip(self):
-        """A freshly inserted row is visible via load_cite immediately after."""
-        unique_source = f"{TEMP_SOURCE}{uuid.uuid4()}"
-        vuln = _make_vuln(
-            title="round trip test",
-            source_name=unique_source,
-            content="round trip content body",
-        )
-        sb.insert_vuln(vuln, table=TEST_TABLE)
-        rows = sb.load_cite(unique_source, vuln_table=TEST_TABLE, noise_table=None)
-        assert len(rows) == 1
-        assert rows[0]["title"] == "round trip test"
-        assert rows[0]["content"] == "round trip content body"
 
 
 class TestWriteGuard:

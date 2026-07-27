@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import math
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +25,7 @@ from .GDELT.runner import load_seen, write_output_records
 from .shared_utils import (
     DEBUG_DIR,
     NoiseCollector,
+    clear_directory,
     collect_as_completed,
     ensure_model_available,
     exit_if_shutdown,
@@ -38,10 +41,27 @@ from .shared_utils import (
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 GDELT_CACHE_DIR = _PROJECT_ROOT / "data" / "gdelt_cache"
+_NORMALIZE_SCRIPT = (
+    _PROJECT_ROOT / "tests" / "json_normilization" / "json_validation.py"
+)
+_DEDUP_SCRIPT = _PROJECT_ROOT / "scripts" / "dedup_file.py"
+_DEDUP_OUTPUT_DIR = _PROJECT_ROOT / "data" / "output"
+_SCOOPER_JSON = _PROJECT_ROOT / "data" / "processed" / "scooper.json"
 
 LOG_FILE = _PROJECT_ROOT / "data" / "logs" / "orchestrator.log"
 LOGGER = get_file_logger(__name__, LOG_FILE)
 AI_MODEL = get_config_value("AI_MODEL", "llama3.2:latest")
+
+try:
+    from .supabase_function import has_supabase_creds, push_vulnerabilities
+
+    SUPABASE_AVAILABLE = has_supabase_creds()
+    if not SUPABASE_AVAILABLE:
+        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
+except Exception as e:
+    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
+    SUPABASE_AVAILABLE = False
+    push_vulnerabilities = None  # type: ignore[assignment]
 
 
 def _split_date(
@@ -92,6 +112,71 @@ def _parse_date(s: str | None) -> datetime.date | None:
             continue
     LOGGER.warning("Could not parse date %r; ignoring for HTML engine", s)
     return None
+
+
+def _post_process_and_push(
+    json_files: list[Path],
+    reporter: CliReporter,
+    use_sb: bool = False,
+) -> None:
+    """Normalize, dedup, then optionally push processed JSON files to Supabase.
+
+    Runs ``json_validation.py -n``, then ``dedup_file.py``. When ``use_sb`` is
+    true and credentials are present, also runs ``push_vulnerabilities`` on each
+    resulting ``*_d.json``.
+    """
+    if not use_sb:
+        return
+    files = [p.resolve() for p in json_files if p.exists()]
+    if not files:
+        return
+
+    reporter.phase("Normalize, dedup, and push to Supabase")
+
+    for path in files:
+        reporter.info(f"Normalizing {path}")
+        result = subprocess.run(
+            [sys.executable, str(_NORMALIZE_SCRIPT), "-n", str(path)],
+            cwd=str(_PROJECT_ROOT),
+        )
+        if result.returncode != 0:
+            LOGGER.warning(
+                "json_validation -n failed for %s (exit %s)", path, result.returncode
+            )
+
+    reporter.info(f"Deduplicating {len(files)} file(s)")
+    result = subprocess.run(
+        [sys.executable, str(_DEDUP_SCRIPT), *[str(p) for p in files]],
+        cwd=str(_PROJECT_ROOT),
+    )
+    if result.returncode != 0:
+        LOGGER.warning("dedup_file failed (exit %s)", result.returncode)
+        reporter.info("Dedup failed; skipping Supabase push")
+        return
+
+    # TODO remove this or the if stmt on  line 128
+    if not use_sb:
+        reporter.info("Skipping Supabase push (--use-sb not set)")
+        return
+
+    if not SUPABASE_AVAILABLE or push_vulnerabilities is None:
+        reporter.info("Supabase unavailable; skipping push")
+        return
+
+    for path in files:
+        deduped = _DEDUP_OUTPUT_DIR / f"{path.stem}_d.json"
+        if not deduped.exists():
+            LOGGER.warning("Deduped file missing: %s", deduped)
+            continue
+        sources = json.loads(deduped.read_text(encoding="utf-8")).get("sources") or []
+        if not sources:
+            continue
+        try:
+            n = push_vulnerabilities(sources)
+            reporter.info(f"Pushed {n} records from {deduped.name}")
+        except Exception as e:
+            LOGGER.warning("Supabase push failed for %s: %s", deduped, e)
+            reporter.info(f"Supabase push failed for {deduped.name}: {e}")
 
 
 def chunk_list(items, num_chunks):
@@ -275,10 +360,10 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
-        "--sb-only",
+        "--use-sb",
         action="store_true",
-        default=get_config_bool("HTML_SB_ONLY", False),
-        help="HTML pipeline: write to Supabase only, no local reads or writes",
+        default=get_config_bool("USE_SB", False),
+        help="Use supabase along with local JSON",
     )
 
     # GDELT-specific
@@ -368,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
         reporter.set_overall_step("Initializing")
 
     threads = max(1, args.models) * max(1, args.threads_per_model)
+    json_files: list[Path] = []
 
     if not args.skip_gdelt:
         import src.GDELT.runner as runner
@@ -459,6 +545,7 @@ def main(argv: list[str] | None = None) -> int:
                         raw_seeds=chunk,
                         debug_noise=gdelt_noise,
                         port=port,
+                        clear_seeds=False,
                     )
                 )
                 n += 1
@@ -474,7 +561,18 @@ def main(argv: list[str] | None = None) -> int:
             collect_as_completed(futures, _merge_gdelt)
         finally:
             shutdown_executor(executor)
-        write_output_records(all_records, args.output_path, reporter, gdelt_stats)
+
+        if not gdelt_stats.paused:
+            clear_directory(runner.SEEDS_DIR)
+            reporter.detail(f"Cleared seed staging directory: {runner.SEEDS_DIR}")
+            LOGGER.debug("Cleared seeds directory: %s", runner.SEEDS_DIR)
+        else:
+            reporter.detail(f"Preserved seed staging directory: {runner.SEEDS_DIR}")
+
+        out_file = write_output_records(
+            all_records, args.output_path, reporter, gdelt_stats
+        )
+        json_files.append(out_file)
         if gdelt_noise:
             out = gdelt_noise.flush()
             if out:
@@ -490,6 +588,7 @@ def main(argv: list[str] | None = None) -> int:
         summaries.append(gdelt_stats)
         if gdelt_stats.paused:
             reporter.info("GDELT pipeline paused; skipping remaining pipelines.")
+            _post_process_and_push(json_files, reporter, use_sb=args.use_sb)
             reporter.summary(summaries)
             LOGGER.info("GDELT pipeline paused; skipping remaining pipelines")
             return exit_if_shutdown(0)
@@ -504,7 +603,7 @@ def main(argv: list[str] | None = None) -> int:
             reporter.set_overall_step("HTML")
         LOGGER.info("Running HTML/Scooper pipeline with args %s", args)
 
-        scooper.setup_scooper(sb_only=args.sb_only)
+        scooper.setup_scooper(sb_only=args.use_sb)
         vuln_dfs: list[pd.DataFrame] = []
         noise_dfs: list[pd.DataFrame] = []
 
@@ -544,7 +643,7 @@ def main(argv: list[str] | None = None) -> int:
                             end_date=win_end,
                             reporter=reporter,
                             stats=PipelineStats("HTML"),  # per-window; merged below
-                            sb_only=args.sb_only,
+                            sb_only=args.use_sb,
                             port=port,
                         )
                     )
@@ -568,7 +667,7 @@ def main(argv: list[str] | None = None) -> int:
                 noise_dfs.append(n_df)
                 vuln_lists.extend(w_vuln_list)
 
-            scooper.save_results(vuln_lists, vuln_dfs, noise_dfs, sb_only=args.sb_only)
+            scooper.save_results(vuln_lists, vuln_dfs, noise_dfs, sb_only=args.use_sb)
         # Default: one thread per site. run_scooper fans out internally and
         # returns frames merged across sites (disjoint); we persist them here.
         # Per-site HTML progress lives inside scooper (deferred to #229); treat
@@ -582,18 +681,18 @@ def main(argv: list[str] | None = None) -> int:
                 end_date=_parse_date(args.start_date),  # swapped here
                 reporter=reporter,
                 stats=html_stats,
-                sb_only=args.sb_only,
+                sb_only=args.use_sb,
                 site_split=True,
             )
-            scooper.save_results(vuln_list, [v_df], [n_df], sb_only=args.sb_only)
+            scooper.save_results(vuln_list, [v_df], [n_df], sb_only=args.use_sb)
             reporter.advance(1)
 
-        # TODO: thread per cite implemented here
-
+        json_files.append(_SCOOPER_JSON)
         html_stats.elapsed_seconds = time.time() - html_start
         summaries.append(html_stats)
         if html_stats.paused:
             reporter.info("HTML scraper paused; skipping remaining pipelines.")
+            _post_process_and_push(json_files, reporter, use_sb=args.use_sb)
             reporter.summary(summaries)
             LOGGER.info("HTML scraper paused; skipping remaining pipelines")
             return exit_if_shutdown(0)
@@ -601,6 +700,8 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.info(
             f"HTML/Scooper processing complete in {(time.time() - html_start) / 60:.2f} minutes"
         )
+
+    _post_process_and_push(json_files, reporter, use_sb=args.use_sb)
 
     if summaries:
         reporter.summary(summaries)

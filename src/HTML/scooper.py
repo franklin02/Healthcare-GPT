@@ -22,7 +22,7 @@ import argparse
 import csv
 import datetime
 import time
-import uuid
+import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
@@ -68,16 +68,15 @@ NOISE_CSV_HEADER = ["source_name", "title", "link", "reason", "body_preview", "d
 RAW_CSV_PATH = _PROJECT_ROOT / "data" / "raw" / "scooper_raw.csv"
 RAW_CSV_HEADER = ["source_name", "title", "link", "body", "date"]
 SCOOPER_JSON_PATH = _PROJECT_ROOT / "data" / "processed" / "scooper.json"
-SCOOPER_JSON_PATH = _PROJECT_ROOT / "data" / "processed" / "scooper.json"
 
 try:
     from src.supabase_function import has_supabase_creds
 
     SUPABASE_AVAILABLE = has_supabase_creds()
     if not SUPABASE_AVAILABLE:
-        LOGGER.warning("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
+        LOGGER.info("SUPABASE_URL or SUPABASE_KEY missing; DB writes disabled")
 except Exception as e:
-    LOGGER.warning("Supabase unavailable, DB writes disabled: %s", e)
+    LOGGER.info("Supabase unavailable, DB writes disabled: %s", e)
     SUPABASE_AVAILABLE = False
 
 
@@ -159,6 +158,11 @@ HTML_SITES = [
 
 
 SITE_NAMES = [s["name"] for s in HTML_SITES]
+
+
+def _stable_id(url: str) -> str:
+    """Generate a stable ID for a given URL using SHA-256 hashing."""
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
 
 
 def _bert_status() -> str:
@@ -758,7 +762,7 @@ def _process_site(
 
                 # build a vuln object
                 vuln = Vulnerability(
-                    id=str(uuid.uuid4()),
+                    id=_stable_id(link),
                     title=title,
                     source_name=source_name,
                     direct_link=link,

@@ -225,66 +225,7 @@ the configured model appears in `ollama list` before trusting the smoke result.
 
 ---
 
-## 8. Running the application (full install only)
-
-If you did the full runtime install (§4c), you can run the RAG chat app
-end-to-end.
-
-Pipeline entrypoints are documented for module execution from the repository
-root. Use `python -m src...` commands rather than direct file execution such as
-`python src/GDELT/runner.py`. Direct file execution may work in some local
-environments, but it is not the documented or tested execution path.
-
-### Generate or choose processed JSON
-
-Use an existing file under `data/processed/`, or generate a new GDELT file with:
-
-```bash
-python -m src.GDELT.runner --num-files 2 --limit 3
-```
-
-With the orchestrator:
-
-```bash
-python -m src.orchestrator --num-files 2 --limit 3
-```
-
-The runner writes final records to `data/processed/GDELT.json` by default.
-
-### Quick start
-
-```bash
-python -m src.ingest --file data/processed/AHA.json --force
-uvicorn src.RAG.server:app --reload
-```
-
-Open http://127.0.0.1:8000 and ask a question.
-
-### Ingestion pipeline (`ingest.py`)
-
-- Input JSON should follow the record shape represented by `src/config/schema.json`.
-  The loader expects a top-level `sources: [...]` list.
-- Flags:
-  - `--file <path>` (required) — JSON file to ingest.
-  - `--new_db` (optional) — wipes the existing ChromaDB and starts fresh.
-  - `--force` (optional) — skips LLM validation and semantic duplicate checks.
-  - `--dup_threshold <float>` (optional) — adjusts semantic duplicate matching.
-  - `--use-bert` (optional) — runs BERT before ingestion-time LLM validation.
-- Default behavior is additive and checks exact IDs plus semantic duplicates.
-
-### API reference (`src/RAG/server.py`)
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET`  | `/`        | Chat UI (serves `index.html`) |
-| `POST` | `/chat`    | Body: `{ "question": "..." }` → `{ answer, sources, model, chunks_retrieved }` |
-| `GET`  | `/status`  | Health check — DB readiness + record count |
-
-Source documents in `/chat` responses follow the shape `{ id, title, source_name, direct_link }`.
-
----
-
-## 9. Workflow conventions
+## 8. Workflow conventions
 
 ### Branches
 - Branch off `main`. Use descriptive names: `gdelt-runner`, `expand-themes`, etc.
@@ -303,7 +244,7 @@ Source documents in `/chat` responses follow the shape `{ id, title, source_name
 
 ---
 
-## 10. Repo structure (what's actually live)
+## 9. Repo structure (what's actually live)
 
 ```
 Healthcare-GPT/
@@ -323,7 +264,7 @@ Healthcare-GPT/
 
 ---
 
-## 11. Common errors (quick reference)
+## 10. Common errors (quick reference)
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|

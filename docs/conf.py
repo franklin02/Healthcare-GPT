@@ -1,4 +1,4 @@
-"""Sphinx configuration for Healthcare GPT documentation."""
+"""Sphinx configuration for CORVID documentation."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(SRC_DIR))
 sys.path.insert(0, str(SRC_DIR / "GDELT"))
 
-project = "Healthcare GPT"
-author = "Healthcare GPT Contributors"
+project = "CORVID"
+author = "CORVID Contributors"
 release = "0.1.0"
 
 extensions = [
@@ -36,15 +36,18 @@ exclude_patterns = [
     ".DS_Store",
     "expanded-disruption-source-ecosystem.md",
     "meeting-questions.md",
-    "source-framework.md",
-    "source-pack-v1.md",
     "prompt-pack-v0/**",
 ]
 
 html_theme = "sphinx_wagtail_theme"
-html_theme_options = {
-    "project_name": "Healthcare GPT",
-}
+html_static_path = ["img"]
+html_theme_options = dict(
+    project_name="CORVID",
+    logo="crow.png",
+    logo_alt="CORVID",
+    logo_height=59,
+    logo_width=79,
+)
 
 
 autodoc_member_order = "bysource"
@@ -69,4 +72,5 @@ autodoc_mock_imports = [
     "requests",
     "sentence_transformers",
     "transformers",
+    "tqdm",
 ]

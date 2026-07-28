@@ -1,77 +1,69 @@
 # Pipeline Overview
 
-The current pipeline turns public news candidates into structured healthcare
-disruption records. The goal is to separate likely operational disruptions
-from general healthcare news, then preserve useful metadata for downstream
-analysis and retrieval.
+The pipeline turns public news articles into structured healthcare disruption records. Two independent source pipelines (**GDELT** and **HTML scraper**) feed into the same LLM validation and field-extraction layer, then record results to local JSON/CSV and optionally to Supabase.
+
 
 ## Main Flow
 
-1. **Seed discovery**
-   - `src/GDELT/gdelt_seeds.py` scans GDELT GKG records.
-   - It filters by healthcare themes, supported subsectors, U.S. location
-     hints, noise themes, and URL quality rules.
+### GDELT Pipeline
 
-2. **Article scraping**
-   - `src/shared_utils.py` fetches candidate article pages.
-   - It removes common page noise and extracts article body text.
+1. **Seed Discovery** 
+   - `src/GDELT/gdelt_seeds.py` scans GDELT GKG files, filtering by sector themes (configured in `src/GDELT/sector_themes.py`)
+   - Seeds can be collected across multiple threads (`--gdelt-seed-threads`)
 
-3. **Classification and validation**
-   - `src/shared_utils.py` calls a local Ollama endpoint to validate active
-     operational disruptions.
-   - `src/GDELT/BERT_filter.py` can be used as an optional pre-screen before
-     LLM validation.
+2. **Scraping** 
+   - `src/shared_utils.get_body_and_title()` fetches each candidate URL and extracts the article body and title
 
-4. **Field extraction**
-   - Confirmed records are mapped to subsectors such as `cyber_attack`,
-     `drug_shortage`, `medical_device_shortage`, `natural_disaster`, or
-     `other`.
-   - Subsector-specific fields are extracted into JSON.
+3. **Validation and Classification** (*shared with the HTML pipeline*)
+   - `src/shared_utils.py` calls a local Ollama endpoint to classify the article as an operational disruption and assign a subsector
+   - Optionally, `src/GDELT/BERT_filter.py` can be used as a pre-screen before LLM validation however this functionality is deprecated
 
-5. **Persistence**
-   - `src/GDELT/runner.py` saves intermediate seed, validated, and enriched
-     records under `data/raw/gdelt/`.
-   - Final records are appended to `data/processed/GDELT.json` by default,
-     wrapped in a top-level `sources` list.
-   - `data/seen_urls.json` tracks URLs that have already reached LLM
-     validation.
+4. **Field Extraction** (*shared with the HTML pipeline*)
+   - Confirmed disruptions are given one of the following subsectors:
+      - `cyber_attack`
+      - `drug_shortage`
+      - `medical_device_shortage`
+      - `natural_disaster`
+      - `other`: a catch all to capture disruptions that don't fit the above categories
+   - `src/shared_utils.extract_fields()` prompts the LLM with a subsector-scoped JSON template to extract subsector-specific info about the disruption
+   - Records are built as `Vulnerability` objects (`src/classes/vulnerability.py`) with subsector-specific dataclasses (`DrugShortageData`, `MedicalDeviceShortageData`, `CyberAttackData`, `NaturalDisasterData`, `OtherData`)
 
-6. **Optional retrieval app**
-   - `src/ingest.py` loads processed JSON records into ChromaDB.
-   - `src/RAG/server.py` serves the FastAPI chat app over the local vector store.
+5. **Saving results**
+   - The runner writes intermediate stage files under `data/raw/gdelt/{seeds,validated,enriched}/`, appends final records to `data/output/results.json` (orchestrator default) or `data/processed/GDELT.json` (runner default), and updates `data/seen_urls.json`
 
-## Typical Command
 
-Run from the repository root:
+### HTML Pipeline
 
-Pipeline entrypoints are supported through module execution. Use
-`python -m src...` commands rather than direct file execution such as
-`python src/GDELT/runner.py`. Direct file execution may work in some local
-environments, but it is not the documented or tested execution path.
+1. **Scraping**
+   - `src/scrapers/scooper.py` paginates through configured HTML news sites (CyberScoop, StateScoop, FedScoop, AHA, HealthIT News), fetching article bodies and dates
+   - New raw rows are appended to `data/raw/scooper_raw.csv`
 
-```bash
-python -m src.GDELT.runner --num-files 2 --limit 3
-```
+2. **Validation and Classification** (*shared with the GDELT pipeline*)
+   - `src/shared_utils.py` calls a local Ollama endpoint to classify the article as an operational disruption and assign a subsector
+   - Optionally, `src/GDELT/BERT_filter.py` can be used as a pre-screen before LLM validation
 
-Run both active pipelines through the orchestrator:
+3. **Field Extraction** (*shared with the GDELT pipeline*)
+   - Confirmed disruptions are given one of the following subsectors:
+      - `cyber_attack`
+      - `drug_shortage`
+      - `medical_device_shortage`
+      - `natural_disaster`
+      - `other`: a catch all to capture disruptions that don't fit the above categories
+   - `src/shared_utils.extract_fields()` prompts the LLM with a subsector-scoped JSON template to extract subsector-specific info about the disruption
+   - Records are built as `Vulnerability` objects (`src/classes/vulnerability.py`) with subsector-specific dataclasses (`DrugShortageData`, `MedicalDeviceShortageData`, `CyberAttackData`, `NaturalDisasterData`, `OtherData`)
 
-```bash
-python -m src.orchestrator --num-files 2 --limit 3
-```
+4. **Saving Results**
+   - HTML results will output in `data/processed/scooper.json` 
 
-Run a small HTML-only pagination smoke test:
 
-```bash
-python -m src.orchestrator --skip-gdelt --html-start-page 1 --html-page-cap 0 --verbose
-```
+## Recommendations
 
-For a bounded historical run:
+Each pipeline was designed to be able to run standalone using its own command line interfaces; however, it is highly recommended to fill out and use the `config-template.cfg` as it covers the same settings that can be passed as arguments.  
 
-```bash
-python -m src.GDELT.runner --start-date 20260101 --end-date 20260131 --subsectors cyber_attack,drug_shortage
-```
 
-After reviewing processed records, index them for the local chat app:
+## Deprecated features
+
+This project also contains a deprecated RAG pipeline and frontend to query records. It can be used with the following commands:
 
 ```bash
 python -m src.ingest --file data/processed/GDELT.json
@@ -85,82 +77,64 @@ uvicorn src.RAG.server:app --reload
 
 ## Outputs
 
-- `data/raw/gdelt/seeds/`: candidate URLs before validation.
-- `data/raw/gdelt/validated/`: records confirmed as disruptions.
-- `data/raw/gdelt/enriched/`: records with extracted fields.
-- `data/processed/GDELT.json`: final appended output.
-- `data/seen_urls.json`: URL history used to avoid duplicate processing.
-- `chroma_db/`: local vector store created by `src/ingest.py`.
+| Path | Description |
+|------|-------------|
+| `data/raw/gdelt/seeds/` | Candidate URLs before LLM validation |
+| `data/raw/gdelt/validated/` | Records confirmed as disruptions |
+| `data/raw/gdelt/enriched/` | Records with filled-in fields |
+| `data/raw/scooper_raw.csv` | Raw scraped HTML articles |
+| `data/output/results.json` | GDELT output (orchestrator default) |
+| `data/processed/scooper.json` | HTML scraper output |
+| `data/vulnerabilities/scooper_vuln.csv` | Validated HTML scraper records |
+| `data/noise/scooper_noise.csv` | Rejected HTML scraper articles |
+| `data/seen_urls.json` | URL history for GDELT |
+| `data/gdelt_cache/` | Cached GKG zip files |
+| `data/logs/` | Per-module log files |
+| `chroma_db/` | Local vector store for the RAG app |
 
-## Graceful Interrupts
 
-The orchestrator treats `Ctrl-C` during long-running pipeline work as a graceful
-stop. The active pipeline reports the run as paused, flushes completed work, and
-the orchestrator skips later stages before printing the run summary.
+## GDELT Recovery 
 
-GDELT saves seen URLs, writes completed records, and keeps
-`data/raw/gdelt/seeds/` intact for future recovery or stitching work. HTML
-scraper runs flush buffered accepted/rejected rows for the active site before
-the orchestrator skips remaining HTML sites.
+In the case of an unrecoverable pipeline state, the **GDELT** pipeline saves records in stages all preserved in `data/raw/gdelt/seeds/`. 
 
-This is state preservation, not automatic resume. If GDELT stops after stage
-files have been written, run staged stitching from the GDELT runner. Accepted
-recovery stages are `seeds`, `validated`, and `enriched`. The default recovery
-path is `enriched`:
+To recover from staged GDELT data:
 
 ```bash
+# Stitch from enriched data
 python -m src.GDELT.runner --stitch-stage enriched
-```
 
-You can also recover from the earlier stages:
-
-```bash
+# Stitch from validated data
 python -m src.GDELT.runner --stitch-stage validated
+
+# Stitch from seeds (re-runs scraping + LLM)
 python -m src.GDELT.runner --stitch-stage seeds
 ```
 
-The `validated` and `enriched` stages stitch staged record payloads into the
-final output without fetching pages or calling the LLM. The `seeds` stage
-reuses any already staged validated or enriched records, then processes the
-remaining staged seeds through scraping, validation, and extraction. Keep
-Ollama running when recovering from `seeds`.
-
-## HTML Pagination Controls
-
-Configured HTML sources keep their selector and pagination defaults in
-`src/scrapers/scooper.py` because each site starts and paginates
-differently. The orchestrator exposes `--html-start-page` and
-`--html-page-cap` as run-time overrides so larger HTML runs do not require
-source edits. When those arguments are omitted, each source uses its configured
-`starting_page` and `cap`, preserving the previous behavior. A page cap of
-`-1` means unlimited pagination, matching the HTML scraper's direct CLI.
-
-The overrides are intentionally global across HTML sites. That keeps the
-orchestrator interface small and mirrors the GDELT runner's coarse controls:
-operators can choose a quick smoke test, a bounded scan, or an unrestricted
-backfill without needing to know each site's internal config shape.
 
 ## Current Supporting Modules
 
-- `src/GDELT/gdelt_seeds.py`: GDELT file discovery, theme matching, subsector
-  detection, date bounds, and URL quality filtering.
-- `src/shared_utils.py`: article body extraction, LLM validation, and
-  subsector field extraction.
-- `src/GDELT/gemma.py`: focused Gemma URL filter for healthcare cyberattack
-  article experiments.
-- `src/GDELT/BERT_filter.py`: optional BERT classifier used to pre-screen
-  candidate articles before LLM validation.
-- `src/orchestrator.py`: top-level command that runs GDELT first, then all
-  configured HTML scrapers.
-- `src/ingest.py`: JSON loading, chunking, duplicate detection, and ChromaDB
-  indexing.
-- `src/RAG/server.py`: FastAPI endpoints and local chat UI.
+| Module | Role |
+|--------|------|
+| `src/orchestrator.py` | Runs GDELT and/or HTML, manages multithreading and progress bars |
+| `src/GDELT/runner.py` | GDELT end-to-end: seed collection → scrape → validate → extract → output |
+| `src/GDELT/gdelt_seeds.py` | GKG file discovery, theme matching, subsector detection, URL quality |
+| `src/GDELT/sector_themes.py` | Sector and subsector theme definitions |
+| `src/GDELT/BERT_filter.py` | Optional pre-screen using BERT model before LLM validation |
+| `src/GDELT/ollama_filter.py` | Old code; filter for healthcare-related articles using Ollama |
+| `src/GDELT/gemma.py` | Filter for healthcare-related articles using Gemma |
+| `src/scrapers/scooper.py` | HTML site scraping and LLM classification for configured news sites |
+| `src/scrapers/fda_congress_reports.py` | FDA Reports to Congress PDF scraper (drug shortage reports) |
+| `src/shared_utils.py` | Utilities used by both GDELT and HTML pipelines (article fetching, LLM validation/extraction, config loading, signal handling) |
+| `src/classes/vulnerability.py` | `Vulnerability` dataclass and subsector-specific data classes |
+| `src/cli_reporter.py` | Live progress bars and run summaries |
+| `src/logging_utils.py` | File-backed module loggers |
+| `src/ingest.py` | JSON to ChromaDB ingestion with semantic dedup and chunking |
+| `src/RAG/server.py` | FastAPI chat endpoints and web UI |
+| `src/dedup.py` | Semantic fingerprint embedding for Supabase dedup |
+| `src/supabase_function.py` | Supabase client, reads, and writes |
+| `src/data_migration.py` | Generate Supabase-ready SQL from local CSV/JSON files |
 
-## Notes For Contributors
 
-- Use small `--limit` values for smoke tests.
-- Keep Ollama running when using the LLM validation and extraction path.
-- Prefer adding new pipeline behavior to `src/shared_utils.py` and the GDELT runner
-  rather than creating one-off scripts.
-- Treat prompt-pack and source-pack documents as historical unless they are
-  explicitly pulled into the current Sphinx toctree.
+## Note
+
+- The `data/gdelt_cache/` directory is not auto-cleared unless the `--clean` flag is used or set in your config; you can manually delete the contents of the directory to clear disk space or force fresh downloads

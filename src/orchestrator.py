@@ -594,7 +594,7 @@ def main(argv: list[str] | None = None) -> int:
             return exit_if_shutdown(0)
 
     if not args.skip_html:
-        import src.scrapers.scooper as scooper
+        import src.HTML.scooper as scooper
 
         html_start = time.time()
         html_stats = PipelineStats("HTML")

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-import src.scrapers.scooper as scooper
+import src.HTML.scooper as scooper
 
 VALID_SUBSECTOR = scooper.SUBSECTOR_FIELDS[0]
 
@@ -25,37 +25,37 @@ def _isolated_csvs(monkeypatch, tmp_path):
 
 @pytest.fixture
 def mock_ensure_model_available():
-    with patch("src.scrapers.scooper.ensure_model_available") as mock:
+    with patch("src.HTML.scooper.ensure_model_available") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_ai_check_validation():
-    with patch("src.scrapers.scooper.ai_check_validation") as mock:
+    with patch("src.HTML.scooper.ai_check_validation") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_extract_fields():
-    with patch("src.scrapers.scooper.extract_fields") as mock:
+    with patch("src.HTML.scooper.extract_fields") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_unseen_df():
-    with patch("src.scrapers.scooper._unseen_df") as mock:
+    with patch("src.HTML.scooper._unseen_df") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_get_page():
-    with patch("src.scrapers.scooper.get_page") as mock:
+    with patch("src.HTML.scooper.get_page") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_time_sleep():
-    with patch("src.scrapers.scooper.time.sleep") as mock:
+    with patch("src.HTML.scooper.time.sleep") as mock:
         yield mock
 
 

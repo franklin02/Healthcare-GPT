@@ -58,19 +58,19 @@ def mock_get_config_value():
 
 @pytest.fixture
 def mock_setup_scooper():
-    with patch("src.scrapers.scooper.setup_scooper") as mock:
+    with patch("src.HTML.scooper.setup_scooper") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_run_scooper():
-    with patch("src.scrapers.scooper.run_scooper") as mock:
+    with patch("src.HTML.scooper.run_scooper") as mock:
         yield mock
 
 
 @pytest.fixture
 def mock_run_html_scraper():
-    with patch("src.scrapers.scooper.run_html_scraper") as mock:
+    with patch("src.HTML.scooper.run_html_scraper") as mock:
         yield mock
 
 
@@ -224,7 +224,7 @@ def test_orchestrator_tracks_overall_progress_by_phase(
     mock_run_scooper.return_value = (PipelineStats("HTML"), [], None, None)
 
     with (
-        patch("src.scrapers.scooper.save_results"),
+        patch("src.HTML.scooper.save_results"),
         patch("src.cli_reporter.CliReporter.set_overall_total") as mock_total,
         patch("src.cli_reporter.CliReporter.start_phase") as mock_start_phase,
     ):
@@ -275,7 +275,7 @@ def test_orchestrator_skips_overall_bar_when_only_html_runs(
     mock_run_scooper.return_value = (PipelineStats("HTML"), [], None, None)
 
     with (
-        patch("src.scrapers.scooper.save_results"),
+        patch("src.HTML.scooper.save_results"),
         patch("src.cli_reporter.CliReporter.set_overall_total") as mock_total,
         patch("src.cli_reporter.CliReporter.set_overall_step") as mock_step,
     ):
@@ -316,7 +316,7 @@ def test_orchestrator_populates_html_elapsed_seconds(
     """HTML summary should report a non-zero wall-clock duration."""
     mock_run_scooper.return_value = (PipelineStats("HTML"), [], None, None)
 
-    with patch("src.scrapers.scooper.save_results"):
+    with patch("src.HTML.scooper.save_results"):
         result = orchestrator.main(["--skip-gdelt"])
 
     assert result == 0

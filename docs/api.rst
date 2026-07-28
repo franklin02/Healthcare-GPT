@@ -38,7 +38,7 @@ Data Models
    :undoc-members:
 
 BERT Filtering (Deprecated)
-----------
+---------------------------
 
 .. automodule:: src.GDELT.BERT_filter
    :members:
@@ -46,11 +46,11 @@ BERT Filtering (Deprecated)
 
 
 RAG Server (Deprecated)
-----------
+-----------------------
 
 .. automodule:: src.RAG.server
    :members:
 
-.. automodule:: src.ingest
+.. automodule:: src.RAG.ingest
    :members:
    :undoc-members:

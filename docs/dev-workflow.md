@@ -1,6 +1,6 @@
 # Developer Workflow
 
-This page is to help contributors setup the project and start working with CORVID.
+This page is to help contributors set up the project and start working with CORVID.
 
 ## Setup
 
@@ -23,17 +23,12 @@ Ollama is required for LLM validation and extraction paths:
 ollama list
 ```
 
-Keep the Ollama app or `ollama serve` running before commands that validate or
-extract article fields. Pull only the model needed for the path you are
-testing: current shared validation uses `src.shared_utils.AI_MODEL`
-`llama3.2` or `gemma4:e4b`. Confirm the needed model appears in `ollama list` 
-before relying on LLM-backed validation results. Alternatively users may look
-at using the `serve_ollama` script.
+Keep the Ollama app or `ollama serve` running before commands that validate or extract article fields. Pull only the model needed for the path you are testing: current shared validation uses `src.shared_utils.AI_MODEL` `llama3.2` or `gemma4:e4b`. Confirm the needed model appears in `ollama list` before relying on LLM-backed validation results. Alternatively users may look at using the `serve_ollama` script.
 
 ## Contribution Requirements
 
-All code in this project is formated with ruff for consistency and readability.
-Along with formatting requirements all tests should pass for a PR to be accepted.
+All code in this project is formatted with ruff for consistency and readability.
+Along with formatting requirements, all tests should pass for a PR to be accepted.
 
 
 Format Python files before opening a pull request:

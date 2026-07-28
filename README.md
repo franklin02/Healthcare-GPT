@@ -2,6 +2,7 @@
 
 ## What is it?
 **C.O.R.V.I.D.** (Classification of Open Reporting into Vulnerability Incident Data) is a data pipeline and research tool that collects public data and classifies it into vulnerability events affecting critical infrastructure sectors.
+
 It is currently a proof of concept tool. 
 
 ## Table of Contents
@@ -14,7 +15,7 @@ It is currently a proof of concept tool.
 - Automated source collection via [The GDELT Project](https://www.gdeltproject.org/)
 - Custom source collection support for priority information sources
 - Parallel inference across a configurable number of models and threads 
-- LLM-based classification of articles into vulnererability events
+- LLM-based classification of articles into vulnerability events
 - Deduplication of articles with prioritization on data quality
 - Structured JSON output per infrastructure sector
 

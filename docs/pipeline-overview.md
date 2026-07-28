@@ -24,7 +24,7 @@ The pipeline turns public news articles into structured healthcare disruption re
       - `drug_shortage`
       - `medical_device_shortage`
       - `natural_disaster`
-      - `other`: a catach all to capture disruptions that don't fit the above categories
+      - `other`: a catch all to capture disruptions that don't fit the above categories
    - `src/shared_utils.extract_fields()` prompts the LLM with a subsector-scoped JSON template to extract subsector-specific info about the disruption
    - Records are built as `Vulnerability` objects (`src/classes/vulnerability.py`) with subsector-specific dataclasses (`DrugShortageData`, `MedicalDeviceShortageData`, `CyberAttackData`, `NaturalDisasterData`, `OtherData`)
 
@@ -48,7 +48,7 @@ The pipeline turns public news articles into structured healthcare disruption re
       - `drug_shortage`
       - `medical_device_shortage`
       - `natural_disaster`
-      - `other`: a catach all to capture disruptions that don't fit the above categories
+      - `other`: a catch all to capture disruptions that don't fit the above categories
    - `src/shared_utils.extract_fields()` prompts the LLM with a subsector-scoped JSON template to extract subsector-specific info about the disruption
    - Records are built as `Vulnerability` objects (`src/classes/vulnerability.py`) with subsector-specific dataclasses (`DrugShortageData`, `MedicalDeviceShortageData`, `CyberAttackData`, `NaturalDisasterData`, `OtherData`)
 
